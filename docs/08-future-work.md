@@ -110,7 +110,7 @@ Teams define shared jigs that encode their specific processes. A team lead creat
 - `kerf jig sync` is stubbed in the CLI design
 - Could pull from a git repo, a URL, or the server
 - Versioning of jigs matters — you don't want a jig change to break in-progress works
-- Jigs loaded into a work should be snapshotted (the work uses the version of the jig it started with)
+- The jig version is recorded in spec.yaml at creation time; kerf can detect mismatches and alert the agent
 
 ### Design Constraints
 - Security concern: loading jigs from untrusted sources could inject malicious agent instructions

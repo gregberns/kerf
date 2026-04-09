@@ -45,12 +45,14 @@ The woodworking metaphor extends naturally to the tool's concepts without being 
 ### Command feel
 
 ```
-kerf new "user auth redesign"        # start a new work
+kerf new                             # start a new work (auto-generates codename)
+kerf new auth-redesign               # start a new work with a chosen codename
 kerf list                            # what's on the bench
 kerf status auth-redesign            # where are we in the passes
 kerf square auth-redesign            # check if it's square
-kerf resume auth-redesign            # pick it back up
+kerf resume auth-redesign            # load context, pick it back up
 kerf archive auth-redesign           # off the bench, into storage
+kerf delete auth-redesign            # remove from bench entirely
 ```
 
 ### Phrases that work naturally

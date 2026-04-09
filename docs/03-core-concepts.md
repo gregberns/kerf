@@ -4,7 +4,8 @@
 
 A **work** is a collection of structured documents describing a unit of work. It lives in its own directory on the bench. A work has:
 
-- A **codename** — a short, human-friendly identifier (e.g., `auth-rewrite`, `login-timeout-bug`)
+- A **codename** — a short, immutable identifier. Auto-generated as an `adjective-noun` slug (e.g., `blue-bear`, `swift-maple`) if not provided, or user-chosen (e.g., `auth-rewrite`). Codenames are immutable once created — they are used as directory names, dependency references, and session associations. Codenames must be valid directory names: lowercase alphanumeric and hyphens only.
+- A **title** — an optional human-friendly description (e.g., "User Authentication Redesign"). Unlike codenames, titles can be changed at any time.
 - A **type** — what kind of work this is (feature, bug, migration, etc.)
 - A **jig** — which process/workflow governs this work
 - A **status** — where in the process this work currently is
@@ -39,16 +40,13 @@ Jigs can be customized per-user or per-project.
 
 ## Session
 
-A **session** links a work to a Claude Code conversation. When a user starts working on a work, the Claude session ID is recorded in the work's metadata. This enables:
+A **session** links a work to an agent conversation. When a user starts working on a work, the session ID can be recorded in the work's metadata. This enables:
 
-- **Resume** — `kerf resume <codename>` can reopen the exact conversation where work left off
 - **History** — the work tracks all sessions that have worked on it, with dates and notes
 - **Handoff** — if a different person (or agent) needs to continue, the SESSION.md plus artifacts provide enough context to start a new session
+- **Resume** — `kerf resume <codename>` outputs the work's current state (SESSION.md, current pass, jig instructions) so the agent can orient itself. Kerf does not launch or manage agent sessions — the human starts the session, and the agent uses kerf to load context.
 
-Claude Code features used:
-- `claude --resume <session-id>` — resume a specific conversation
-- `claude --name "<codename>"` — name a session for discoverability
-- Session storage: `~/.claude/projects/{path}/{uuid}.jsonl`
+Session ID recording is best-effort. When the human launches Claude via `claude --session-id <uuid>`, kerf can record that UUID. When the agent is already running and the session ID isn't discoverable, kerf records the session without an ID. The primary resumability mechanism is SESSION.md and the work's artifacts, not the session ID.
 
 ## Status
 
@@ -59,21 +57,30 @@ This is important because:
 - An orchestrator should be able to assign whatever status makes sense to it
 - The CLI emits the jig's status list in its output so agents follow conventions
 
+When `kerf status` sets a value not in the jig's recommended list, it warns (but does not error). This catches typos like `reserach` without blocking custom statuses from orchestrators.
+
 Example status progression for a feature jig:
 ```
-problem-space -> decomposition -> research -> detailed-spec -> review -> ready -> implementing -> done
+problem-space -> decomposition -> research -> detailed-spec -> review -> ready
 ```
+
+Note: statuses beyond `ready` (e.g., `implementing`, `done`) are orchestrator-defined, not part of the built-in jig. Kerf manages specs through `ready`; what happens after finalization is the responsibility of other tools.
 
 Example for a bug jig:
 ```
-triaging -> reproducing -> locating -> fixing -> verifying -> done
+triaging -> reproducing -> locating -> specifying-fix -> ready
 ```
 
 ## Square
 
 **Square** is verification — checking that a work is true. Like holding a carpenter's square to a piece: are the angles right? Does everything line up?
 
-`kerf square <codename>` runs the jig's verification checks against the work. Is it complete? Are all passes done? Are dependencies satisfied? Is it ready for finalization?
+`kerf square <codename>` runs structural verification checks against the work:
+- Is the status at or past the jig's "ready" equivalent?
+- Do all expected files from the jig exist on disk?
+- Are dependency works in a complete status?
+
+Square is a structural check, not a semantic one. It verifies that the expected artifacts exist and the workflow was followed, but it cannot verify content quality. That's the human's (or a review agent's) job.
 
 ## Dependencies
 
@@ -88,10 +95,13 @@ Dependencies are declared in `spec.yaml`:
 ```yaml
 depends_on:
   - codename: database-migration
+    project: acme-webapp  # explicit project; omit for same project
     relationship: must-complete-first
   - codename: auth-service-spec
     relationship: inform  # doesn't block, but should be read for context
 ```
+
+When `project` is omitted, the dependency is in the same project. Cross-project dependencies use the project ID (see Project Identity in data model).
 
 ## Bench
 
@@ -103,7 +113,7 @@ Structure:
   config.yaml              # global configuration
   jigs/                    # user-level jig definitions
   projects/
-    {repo-identifier}/     # one directory per linked repository
+    {project-id}/          # one directory per project (e.g., acme-webapp)
       {codename}/          # one directory per work
 ```
 
@@ -111,5 +121,7 @@ The bench is intentionally outside any git repo so that:
 - All worktrees for the same repo share the same works
 - No git ceremony is required for spec work
 - Future sync mechanisms can operate independently of git
+
+Each project is identified by a **project ID** stored in `.kerf/project-identifier` in the repo root (committed to git). Derived from the git remote on first use (e.g., `acme-webapp`), user-overridable.
 
 A root-level `~/.kerf/config.yaml` can contain cross-project settings, default jigs, sync configuration, and finalization procedures.

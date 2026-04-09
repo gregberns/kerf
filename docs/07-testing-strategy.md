@@ -9,10 +9,10 @@ Testing is a first-class concern in this project. The tool manages a process tha
 **Coverage targets:**
 - YAML parsing/serialization (spec.yaml, config.yaml)
 - Status transitions and validation
-- Repo identifier derivation (path-based, git-remote-based)
+- Project ID derivation (from git remote, directory name fallback, collision detection)
 - Snapshot creation and management
 - Jig file parsing
-- Codename generation/validation
+- Codename generation (adjective-noun slugs) and validation (lowercase alphanumeric and hyphens only)
 - Dependency graph operations
 
 **Approach:** Standard Go table-driven tests. These should be fast and comprehensive.
