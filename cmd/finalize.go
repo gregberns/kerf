@@ -99,18 +99,43 @@ func runFinalize(cmd *cobra.Command, args []string) error {
 	repoSpecPath := strings.ReplaceAll(cfg.EffectiveRepoSpecPath(), "{codename}", codename)
 	destDir := filepath.Join(repoRoot, repoSpecPath)
 
+	isSpecFirst := s.Jig == "spec"
+
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("creating destination directory: %w", err)
 	}
 
-	if err := copyArtifacts(workDir, destDir); err != nil {
+	if err := copyArtifacts(workDir, destDir, isSpecFirst); err != nil {
 		return fmt.Errorf("copying artifacts: %w", err)
 	}
 	fmt.Printf("  Artifacts copied to: %s\n", repoSpecPath)
 
+	// Spec-first: copy spec drafts to spec_path
+	specDraftsCopied := false
+	if isSpecFirst {
+		specPath := cfg.EffectiveSpecPath()
+		specDraftsDir := filepath.Join(workDir, "05-spec-drafts")
+		copied, err := copySpecDrafts(specDraftsDir, filepath.Join(repoRoot, specPath))
+		if err != nil {
+			return fmt.Errorf("copying spec drafts: %w", err)
+		}
+		if copied {
+			specDraftsCopied = true
+			fmt.Printf("  Spec drafts applied to: %s\n", specPath)
+		}
+	}
+
 	// Git add + commit
 	if err := gitCmd(repoRoot, "add", repoSpecPath); err != nil {
 		return fmt.Errorf("git add: %w", err)
+	}
+
+	// Stage spec_path for spec-first works
+	if specDraftsCopied {
+		specPath := cfg.EffectiveSpecPath()
+		if err := gitCmd(repoRoot, "add", specPath); err != nil {
+			return fmt.Errorf("git add spec_path: %w", err)
+		}
 	}
 
 	commitMsg := fmt.Sprintf("kerf: finalize %s", codename)
@@ -146,7 +171,8 @@ func runFinalize(cmd *cobra.Command, args []string) error {
 }
 
 // copyArtifacts copies work files to the destination, excluding spec.yaml, SESSION.md, and .history/.
-func copyArtifacts(workDir, destDir string) error {
+// If excludeSpecDrafts is true, 05-spec-drafts/ is also excluded (for spec-first works).
+func copyArtifacts(workDir, destDir string, excludeSpecDrafts bool) error {
 	entries, err := os.ReadDir(workDir)
 	if err != nil {
 		return err
@@ -156,6 +182,9 @@ func copyArtifacts(workDir, destDir string) error {
 		name := e.Name()
 		// Exclude spec.yaml, SESSION.md, and .history/
 		if name == "spec.yaml" || name == "SESSION.md" || name == ".history" {
+			continue
+		}
+		if excludeSpecDrafts && name == "05-spec-drafts" {
 			continue
 		}
 
@@ -219,6 +248,43 @@ func copyFileSimple(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// copySpecDrafts copies files from 05-spec-drafts/ to the spec_path directory.
+// Returns true if files were copied. Warns if the source directory is missing or empty.
+func copySpecDrafts(specDraftsDir, destDir string) (bool, error) {
+	entries, err := os.ReadDir(specDraftsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("  Warning: 05-spec-drafts/ not found, skipping spec draft copy")
+			return false, nil
+		}
+		return false, err
+	}
+
+	if len(entries) == 0 {
+		fmt.Println("  Warning: 05-spec-drafts/ is empty, skipping spec draft copy")
+		return false, nil
+	}
+
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return false, fmt.Errorf("creating spec_path directory: %w", err)
+	}
+
+	for _, e := range entries {
+		src := filepath.Join(specDraftsDir, e.Name())
+		dst := filepath.Join(destDir, e.Name())
+		if e.IsDir() {
+			if err := copyDirRecursive(src, dst); err != nil {
+				return false, err
+			}
+		} else {
+			if err := copyFileSimple(src, dst); err != nil {
+				return false, err
+			}
+		}
+	}
+	return true, nil
 }
 
 func hasUncommittedChanges(repoRoot string) bool {
