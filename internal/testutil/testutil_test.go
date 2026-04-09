@@ -91,8 +91,8 @@ func TestFixtureJig_Feature(t *testing.T) {
 	if len(data) == 0 {
 		t.Fatal("FixtureJig(feature) returned empty")
 	}
-	AssertContainsString(t, string(data), "name: feature")
-	AssertContainsString(t, string(data), "status_values:")
+	AssertStringContains(t, string(data), "name: feature")
+	AssertStringContains(t, string(data), "status_values:")
 }
 
 func TestFixtureJig_Bug(t *testing.T) {
@@ -100,7 +100,7 @@ func TestFixtureJig_Bug(t *testing.T) {
 	if len(data) == 0 {
 		t.Fatal("FixtureJig(bug) returned empty")
 	}
-	AssertContainsString(t, string(data), "name: bug")
+	AssertStringContains(t, string(data), "name: bug")
 }
 
 func TestFixtureJig_UnknownPanics(t *testing.T) {
@@ -158,14 +158,6 @@ func TestAssertYAMLField(t *testing.T) {
 // helpers
 
 func strPtr(s string) *string { return &s }
-
-// AssertContainsString is used within testutil's own tests.
-func AssertContainsString(t *testing.T, s, substr string) {
-	t.Helper()
-	if !contains(s, substr) {
-		t.Errorf("string does not contain %q", substr)
-	}
-}
 
 // mockT implements testutil.TB to capture failure state without stopping
 // the real test.

@@ -243,6 +243,14 @@ func AssertFileContains(t TB, path, substr string) {
 	}
 }
 
+// AssertStringContains fails the test if s does not contain substr.
+func AssertStringContains(t TB, s, substr string) {
+	t.Helper()
+	if !contains(s, substr) {
+		t.Errorf("string does not contain %q\ngot: %s", substr, s)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(substr) == 0 || len(s) >= len(substr) && searchString(s, substr)
 }
