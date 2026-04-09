@@ -60,8 +60,9 @@ A work's **title** is an optional, human-friendly description (e.g., "User Authe
 
 A work's **type** indicates what kind of work it is. Types are strings. The built-in types are:
 
-- `feature` — new feature or subsystem
-- `bug` — bug investigation and fix specification
+- `plan` — planned change to an existing codebase (also accepts `feature` as an alias; see [jig-plan.md](jig-plan.md))
+- `spec` — spec-first change where the specification is the source of truth (see [jig-spec.md](jig-spec.md))
+- `bug` — bug investigation and fix specification (see [jig-bug.md](jig-bug.md))
 
 Additional types may be defined by custom [jigs](jig-system.md). The type string has no inherent behavior in kerf; it exists for categorization and for selecting the appropriate jig.
 
@@ -77,14 +78,19 @@ Status is **not a fixed enum**. The system accepts any string value. Each [jig](
 
 The jig's `status_values` list defines the progression for that workflow. For example:
 
-Feature jig:
+Plan jig:
 ```
-problem-space -> decomposition -> research -> detailed-spec -> review -> ready
+problem-space -> analyze -> decompose -> research -> change-spec -> integration -> tasks -> ready
+```
+
+Spec jig:
+```
+problem-space -> decompose -> research -> change-design -> spec-draft -> integration -> tasks -> ready
 ```
 
 Bug jig:
 ```
-triaging -> reproducing -> locating -> specifying-fix -> ready
+reported -> research -> reproducing -> root-cause -> fix-spec -> ready
 ```
 
 Statuses beyond `ready` (e.g., `implementing`, `done`) are orchestrator-defined. kerf manages specifications through `ready`; what happens after [finalization](finalization.md) is the responsibility of other tools.
@@ -101,20 +107,22 @@ The `spec.yaml` file is the source of truth for a work's metadata. All fields:
 # Identity
 codename: auth-rewrite                  # string, required, immutable once created
 title: "User Authentication Redesign"   # string, optional, mutable
-type: feature                           # string, required
+type: plan                              # string, required
 project:                                # object, required
   id: acme-webapp                       # string — from .kerf/project-identifier in repo
 
 # Jig
-jig: feature                            # string, required — jig name used for this work
+jig: plan                               # string, required — jig name used for this work
 jig_version: 1                          # integer, required — recorded from jig at creation time
 status: research                        # string, required — current lifecycle status
 status_values:                          # list of strings, required — cached from jig
   - problem-space
-  - decomposition
+  - analyze
+  - decompose
   - research
-  - detailed-spec
-  - review
+  - change-spec
+  - integration
+  - tasks
   - ready
 
 # Timestamps
@@ -149,7 +157,7 @@ implementation:                         # object, optional
 |-------|------|----------|---------|---------|-------------|
 | `codename` | string | yes | auto-generated | **no** | Primary identifier. Lowercase alphanumeric and hyphens. |
 | `title` | string | no | `null` | yes | Human-friendly description. |
-| `type` | string | yes | — | yes | Work category (e.g., `feature`, `bug`). |
+| `type` | string | yes | — | yes | Work category (e.g., `plan`, `spec`, `bug`). |
 | `project.id` | string | yes | — | no | Project identifier from `.kerf/project-identifier`. |
 | `jig` | string | yes | — | no | Name of the [jig](jig-system.md) governing this work. |
 | `jig_version` | integer | yes | — | no | Jig version recorded at creation time. |
