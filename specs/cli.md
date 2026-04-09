@@ -68,7 +68,7 @@ State-changing commands append a `Next steps:` block at the end of their output.
 
 ```
 On the bench for acme-webapp:
-  auth-rewrite     feature   research                     2h ago
+  auth-rewrite     plan      research                     2h ago
   login-timeout    bug       reproducing                  1d ago
 
   Dependencies: auth-rewrite -> database-migration [decomposition]

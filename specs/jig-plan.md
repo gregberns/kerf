@@ -185,7 +185,7 @@ You are turning a problem statement and codebase analysis into a structured brea
 
 #### Review Criteria
 
-After completing the component breakdown, spawn a review sub-agent with:
+After completing the component breakdown, spawn a review sub-agent (see [jig-system.md](jig-system.md) §Review Pattern for the sub-agent delegation protocol) with:
 
 - `03-components.md`
 - `01-problem-space.md` (for scope validation)
@@ -319,12 +319,19 @@ You are ensuring the components form a coherent whole and producing the final as
    - What shared state or resources exist across components?
    - What cross-cutting concerns are not covered in individual component specs (logging, configuration, error propagation across boundaries)?
    - What is the integration testing strategy?
-3. Assemble the final spec document (`SPEC.md`). This is the single document an implementing agent reads first. It combines:
-   - A summary of the work (from `01-problem-space.md`)
-   - The component breakdown (from `03-components.md`)
-   - Key architecture decisions (from `05-specs/`)
-   - The integration plan (from `06-integration.md`)
-   - A reference to the task list (produced in the next pass)
+3. Assemble the final spec document (`SPEC.md`). This is the single document an implementing agent reads first. The assembled SPEC.md should follow this structure:
+
+   ## Overview
+   One-paragraph summary of what this change does and why.
+
+   ## Components
+   For each component: summary, key requirements, approach.
+
+   ## Integration
+   How components connect. Shared interfaces, data flow, ordering constraints.
+
+   ## Tasks
+   Summary task list with dependencies (references 07-tasks.md for full details).
 4. Review `SPEC.md` for completeness and internal consistency:
    - Every success criterion from `01-problem-space.md` is addressed by at least one component
    - Every component requirement has a corresponding section in a change spec

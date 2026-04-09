@@ -170,7 +170,7 @@ Based on research and reproduction, identify why the bug exists — not just whe
 
 #### Review Criteria
 
-After completing this pass, spawn a review sub-agent with:
+After completing this pass, spawn a review sub-agent (see [jig-system.md](jig-system.md) §Review Pattern for the sub-agent delegation protocol) with:
 - `04-root-cause.md`
 - `02-research.md` (for cross-reference)
 - `03-reproduction.md` (to verify the trace matches the reproduction)
@@ -235,6 +235,18 @@ Up to 3 review rounds. After that, present artifacts and any remaining findings 
 **Output:** none
 
 Run `kerf square <codename>` to verify all expected artifacts exist. The bug investigation is complete and the fix spec is ready for implementation. kerf's job ends here — implementation and verification use whatever tooling the team prefers.
+
+#### Agent Instructions
+
+**What to do:**
+1. Run `kerf square <codename>` to verify all expected artifacts exist.
+2. If square fails, return to the appropriate pass to produce the missing artifacts.
+3. Once square passes, the bug investigation is complete.
+
+**What done looks like:**
+- `kerf square` reports SQUARE
+- All 5 artifact files exist and are populated
+- The fix spec is specific enough for an implementer to act on without additional context
 
 ## Finalization
 

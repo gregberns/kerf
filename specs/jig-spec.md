@@ -99,6 +99,8 @@ Clarify what needs to change in the system and why. Identify which aspects of th
 
 #### Agent Instructions
 
+This is a conversation, not a questionnaire. Ask 2-3 focused questions, listen to the answers, then ask follow-up questions based on what you learn. Do not fire all questions at once.
+
 **What to do:**
 
 1. Read any source material the user has provided. Understand the motivation for the change before asking questions.
@@ -143,7 +145,7 @@ Advance status to `research`.
 
 #### Review Criteria
 
-After completing the decomposition, spawn a review sub-agent with:
+After completing the decomposition, spawn a review sub-agent (see [jig-system.md](jig-system.md) §Review Pattern for the sub-agent delegation protocol) with:
 - The `02-components.md` file
 - The `01-problem-space.md` for scope validation
 - The existing spec files listed as affected
@@ -155,7 +157,7 @@ The reviewer checks:
 - All relevant existing spec files are accounted for (no missing affected areas)
 - Dependencies between spec changes are correctly identified
 
-Up to 3 review rounds. After that, present artifacts and any remaining findings to the user for approval.
+Up to 3 review rounds. Save findings to `decompose-review.md`. After that, present artifacts and any remaining findings to the user for approval.
 
 ### Pass 3: Research (research)
 
@@ -224,7 +226,7 @@ The reviewer checks:
 - Rationale references research findings where applicable
 - No contradictions between different areas' target states
 
-Up to 3 review rounds. After that, present artifacts and any remaining findings to the user for approval.
+Up to 3 review rounds. Save findings to `change-design-review.md`. After that, present artifacts and any remaining findings to the user for approval.
 
 ### Pass 5: Spec Draft (spec-draft)
 
@@ -304,7 +306,7 @@ After completing all spec drafts and the changelog, spawn a review sub-agent wit
 - The changelog accurately describes all changes and traces each to a change design
 - Formatting and structure are consistent with the project's existing spec files
 
-Up to 3 review rounds. After that, present artifacts and any remaining findings to the user for approval.
+Up to 3 review rounds. Save findings to `spec-draft-review.md`. After that, present artifacts and any remaining findings to the user for approval.
 
 ### Pass 6: Integration (integration)
 
@@ -346,7 +348,7 @@ The reviewer checks:
 - No contradictions remain unresolved
 - The changelog matches the actual drafted changes
 
-Up to 3 review rounds. After that, present artifacts and any remaining findings to the user for approval.
+Up to 3 review rounds. Save findings to `integration-review.md`. After that, present artifacts and any remaining findings to the user for approval.
 
 ### Pass 7: Tasks (tasks)
 
@@ -395,7 +397,7 @@ The reviewer checks:
 - The parallelization plan is realistic (no undeclared dependencies between parallel tasks)
 - Task granularity is appropriate (not too coarse, not too fine)
 
-Up to 3 review rounds. After that, present artifacts and any remaining findings to the user for approval.
+Up to 3 review rounds. Save findings to `tasks-review.md`. After that, present artifacts and any remaining findings to the user for approval.
 
 ### Pass 8: Ready (ready)
 
