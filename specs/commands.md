@@ -1078,3 +1078,56 @@ Work '{codename}' deleted.
 |-----------|---------|
 | Work not found | `Error: work '{codename}' not found in project '{project-id}'.` |
 | Confirmation declined | Operation cancelled. No output. |
+
+---
+
+## `kerf init`
+
+### Purpose
+
+Bootstrap kerf in a project. Creates the project identifier, optionally sets the default workflow, and prints agent setup instructions.
+
+This is the entry point for adopting kerf in any project. The user runs `kerf init` (or tells their AI agent to run it), and the output contains everything needed to complete the setup.
+
+### Syntax
+
+```
+kerf init [--jig <plan|spec>]
+```
+
+### Arguments and Flags
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--jig` | No | None | Set the default workflow. Must be `plan` or `spec`. If omitted and `default_jig` is not configured, a note is printed instructing the user to choose. |
+
+### Behavior
+
+1. Verify the current directory is inside a git repository. Error if not.
+2. Ensure the bench (`~/.kerf/`) exists. Create if missing.
+3. Resolve the project ID (same derivation as `kerf new` — from git remote or directory name).
+4. If `.kerf/project-identifier` does not exist, create it and print the derived ID.
+5. If `--jig` is provided, set `default_jig` in config and print confirmation.
+6. If `--jig` is not provided and `default_jig` is not set, print a note with the two options (`kerf config default_jig plan` and `kerf config default_jig spec`).
+7. Print the agent setup instructions block (see Output below).
+
+### Output
+
+The output includes:
+
+1. Project initialization status (created or already exists).
+2. Default jig status (set, or instructions to set it).
+3. A clearly delimited block of **agent setup instructions** containing:
+   - What to add to `.gitignore` (`.kerf/` but commit `.kerf/project-identifier`)
+   - Agent-agnostic instructions to add to the agent's configuration file (CLAUDE.md, .cursorrules, etc.)
+   - The instructions include: when to use kerf, key commands, the standard workflow, and the "measure twice, cut once" principle
+4. A verification step the agent can run to confirm the setup works.
+
+The instructions are agent-agnostic. kerf does not know or reference any specific AI tool. The agent reading the output determines where to put the instructions based on its own configuration conventions.
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| Not in a git repository | `Error: not in a git repository. kerf requires a git repo.` |
+| `--jig` value not `plan` or `spec` | `Error: --jig must be 'plan' or 'spec', got '{value}'.` |
