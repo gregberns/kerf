@@ -55,7 +55,10 @@ kerf copies work artifacts from the bench into the target repository at the path
 The copied artifacts include all files in the work directory except:
 
 - `spec.yaml` (metadata stays in the bench)
+- `SESSION.md` (session state stays in the bench)
 - `.history/` (snapshot history stays in the bench)
+
+For spec-first works, `05-spec-drafts/` is also excluded from this copy (see [Spec-First Finalization](#spec-first-finalization) below).
 
 The destination directory is created if it does not exist.
 
@@ -93,6 +96,41 @@ This setting can be overridden in `config.yaml`:
 ```yaml
 finalize:
   repo_spec_path: "specs/{codename}/"
+```
+
+## Spec-First Finalization
+
+For works with `jig: spec` in spec.yaml, finalization performs additional steps beyond the standard artifact copy. Detection is by jig name — only works using the built-in `spec` jig trigger this behavior. Custom jigs that produce `05-spec-drafts/` do not get spec-first finalization. This is an intentional v1 limitation; custom jigs that need similar behavior should use finalization hooks (future enhancement).
+
+### Spec Draft Copying
+
+After the standard artifact copy (step 3), kerf copies files from the work's `05-spec-drafts/` directory to `{repo_root}/{spec_path}/`, where `spec_path` is a config value (default: `specs/`). Filenames are preserved 1:1 — `05-spec-drafts/jig-system.md` becomes `{spec_path}/jig-system.md`.
+
+- If `{repo_root}/{spec_path}/` does not exist, kerf creates it.
+- If `05-spec-drafts/` is empty or missing, kerf warns but does not error. The standard artifact copy proceeds normally.
+- `05-spec-drafts/` is **excluded** from the standard artifact copy to `repo_spec_path` (no duplication — spec files appear only in `spec_path`).
+
+### `spec_path` vs `repo_spec_path`
+
+These are distinct config values used for different purposes during finalization:
+
+- **`repo_spec_path`** (`finalize.repo_spec_path` in config.yaml) — Where kerf copies work process artifacts: problem space, design documents, changelog, integration notes, tasks. These are the record of how the spec change was developed. For spec-first works, `05-spec-drafts/` is excluded from this copy.
+- **`spec_path`** (`spec_path` in config.yaml, default: `specs/`) — Where kerf copies drafted spec files. These are the normative spec changes — the actual spec text that the system must conform to. Only used during spec-first finalization.
+
+For spec-first works, the finalization commit includes both: the process record (in `repo_spec_path`) and the normative spec changes (in `spec_path`).
+
+### Spec-First Output
+
+When finalizing a spec-first work, the mechanical summary shows both destinations:
+
+```
+Finalizing {codename}...
+  Square check: passed
+  Branch created: {branch-name}
+  Artifacts copied to: {repo-spec-path}
+  Spec drafts applied to: {spec-path}
+  Commit: {short-hash} — kerf: finalize {codename}
+  Status: finalized
 ```
 
 ## Branch Naming
