@@ -804,11 +804,13 @@ kerf config [key] [value]
 ```
 kerf configuration (~/.kerf/config.yaml):
   default_jig:               {value}
+  default_project:           {value}
   spec_path:                 {value}
   snapshots.enabled:         {value}
   snapshots.interval_enabled: {value}
   snapshots.interval_seconds: {value}
   snapshots.max_snapshots:   {value}
+  sessions.stale_threshold_hours: {value}
   finalize.repo_spec_path:   {value}
 ```
 

@@ -27,7 +27,7 @@ The check **fails** if the status appears in `status_values` at a position befor
 
 kerf reads the jig's `file_structure` list and checks that each expected file exists on disk in the work directory.
 
-Paths containing `{component}` placeholders are expanded. kerf determines the set of components from the work's existing directory structure (e.g., subdirectories under `03-research/` or `04-plans/`). Each component produces one expected file per template path. If no components are detected, template paths with `{component}` placeholders are skipped — they produce no expected files.
+Paths containing `{component}` placeholders are expanded. kerf determines the set of components from the work's existing directory structure (e.g., subdirectories under `04-research/` or `03-research/`). Each component produces one expected file per template path. If no components are detected, template paths with `{component}` placeholders are skipped — they produce no expected files.
 
 The check **passes** if every expected file exists. The check **fails** if one or more expected files are missing.
 
@@ -70,10 +70,10 @@ Square check for auth-rewrite:
 
   Status:        fail — research (expected: ready or later)
   Files:         fail — 5/9 expected files present
-    Missing:     04-plans/auth-spec.md
-                 04-plans/session-spec.md
-                 05-integration.md
-                 06-checklist.md
+    Missing:     05-specs/auth-spec.md
+                 05-specs/session-spec.md
+                 06-integration.md
+                 SPEC.md
   Dependencies:  fail — 0/1 blocking dependencies complete
     Incomplete:  database-migration [decomposition]
 

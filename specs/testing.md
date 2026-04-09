@@ -88,7 +88,7 @@ Agentic tests are scripted agent sessions where an agent is given a task (e.g., 
 **Coverage targets:**
 
 - Agent reads `kerf` root output and understands how to use the tool
-- Agent works through a full feature jig process — see [jig-feature.md](jig-feature.md)
+- Agent works through a full plan jig process — see [jig-plan.md](jig-plan.md)
 - `shelve` output gives the agent enough guidance to write a useful `SESSION.md` — see [sessions.md](sessions.md)
 - `resume` context loading gives the agent enough to continue effectively
 - `finalize` instructions are followable — see [finalization.md](finalization.md)

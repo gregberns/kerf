@@ -240,7 +240,7 @@ active_session: 5829f3a1-357e-4ee7-92b6-fff4a0e93251
 Research — component 3 of 5 (notification-service)
 
 ## Decisions Made
-- Using event-driven architecture for auth events (see 04-plans/auth-events-spec.md)
+- Using event-driven architecture for auth events (see 05-specs/auth-events-spec.md)
 - Rejected OAuth proxy approach due to latency concerns (see 03-research/auth-flow/findings.md)
 
 ## Open Questions
