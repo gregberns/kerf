@@ -78,8 +78,19 @@ The file `~/.kerf/config.yaml` contains bench-wide settings. All fields are opti
 
 # Default jig assigned to new works when no --jig flag is provided.
 # Must match a jig name resolvable via the jig resolution order (see jig-system.md).
-# Default: "feature"
-default_jig: feature
+# Default: unset. When unset, `kerf new` without --jig emits an onboarding
+# error with instructions to choose a workflow. See commands.md.
+# default_jig: plan
+
+# Path relative to repo root where system specs live.
+# Used by the spec-first jig at finalization to copy drafted spec files
+# to the repository. Only meaningful for spec-first projects.
+# If the directory does not exist at finalization time, kerf creates it.
+# Default: "specs/"
+# Note: Per-project config scoping is not supported. Users working across
+# multiple projects with different spec paths should set spec_path before
+# running `kerf finalize`.
+# spec_path: specs/
 
 # Default project for commands run outside a git repository.
 # When inside a repo, the project is always inferred from .kerf/project-identifier.
@@ -129,6 +140,15 @@ finalize:
 - **Missing file.** If `config.yaml` does not exist, kerf uses defaults for all settings. It does not create the file automatically.
 - **Unknown keys.** kerf ignores unrecognized keys without error. This supports forward compatibility.
 - **Overrides.** Individual settings can be overridden by CLI flags where applicable. CLI flags take precedence over `config.yaml` values.
+
+### `spec_path` vs `finalize.repo_spec_path`
+
+These are distinct settings with different purposes:
+
+- **`spec_path`** — where the project's normative system specs live (e.g., `specs/`). Used by the spec-first jig at finalization to copy drafted spec changes into the repository. Only relevant for spec-first projects.
+- **`finalize.repo_spec_path`** — where kerf copies work process artifacts (problem space, analysis, components, tasks, etc.) at finalization. Used by all jigs. Default: `.kerf/{codename}/`.
+
+For a spec-first project, both are used during finalization: process artifacts go to `repo_spec_path`, drafted spec files go to `spec_path`. See [finalization.md](finalization.md).
 
 ## Bench vs. Repo Boundary
 
