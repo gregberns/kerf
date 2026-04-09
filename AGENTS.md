@@ -52,4 +52,9 @@ plans/              # Change proposals. Each is a folder.
 - **Worker agents** receive narrow, well-defined tasks with explicit spec references. They implement and report back.
 - After implementation, verify code matches spec.
 - If code and spec disagree, the spec wins.
-- For spawning parallel workers via ntm, see `.claude/commands/spawn-workers.md`.
+
+### Procedures (in `.claude/commands/`)
+
+1. **`plan-implementation`** — Break specs into beads, review the breakdown with 3 agents, create dependency graph. Do this before writing any code.
+2. **`implement-beads`** — The per-bead execution loop: dispatch one bead, wait, review output against spec, give feedback if needed, clear context, send next bead. Never skip the review gate.
+3. **`spawn-workers`** — ntm + agent-mail reference for spawning and managing parallel workers.

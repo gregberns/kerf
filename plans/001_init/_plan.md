@@ -42,6 +42,10 @@ All specs follow this structure:
 - Cross-references via relative links to other spec files
 - No YAML frontmatter — pure markdown
 
+## Implementation Beads
+
+See [beads.md](beads.md) for the full implementation task breakdown — 19 beads across 4 layers, with dependency graph and parallelization plan.
+
 ## Post-Plan
 
 After specs are generated and reviewed, `docs/` is removed. The source material is preserved here in `plans/001_init/source/` as historical record.

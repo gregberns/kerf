@@ -6,13 +6,17 @@ Reference for orchestrator agents delegating work to parallel Claude sessions vi
 
 The full lifecycle for delegating work:
 
-1. **Register** — orchestrator registers with agent-mail at session start
-2. **Spawn** — add worker panes via `ntm add`
+1. **Register** — controller registers with agent-mail at session start
+2. **Spawn with worktrees** — `ntm spawn kerf --cc=N --worktrees` for implementers, `ntm add kerf --cc=N` for reviewers (paired on same worktree)
 3. **Wait for ready** — poll `ntm activity` until workers show WAITING
-4. **Send tasks** — each worker gets a prompt file with task + agent-mail instructions
-5. **Poll inbox** — use `am check-inbox` for completion messages
-6. **Verify** — confirm output files exist and are correct
-7. **Clear & reuse** — send `/clear` to workers, then send next task (or kill + re-add)
+4. **Send ONE bead** — implementer gets the bead prompt (never chain multiple)
+5. **Poll inbox** — implementer signals DONE via agent-mail
+6. **Trigger review** — controller sends reviewer a review prompt for the same worktree
+7. **Review loop** — reviewer ↔ implementer iterate via agent-mail until APPROVED (controller monitors, does not participate)
+8. **Merge** — `ntm worktrees merge cc_N` to bring approved work to main
+9. **Clear & reset** — `/clear` both agents, reset worktree to main, send next bead
+
+See `implement-beads.md` for the full procedure with prompt templates.
 
 ## Agent-Mail Setup
 
