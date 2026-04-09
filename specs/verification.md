@@ -6,6 +6,8 @@
 
 kerf's verification system determines whether a [work](works.md) is **square**: structurally complete and consistent with its [jig](jig-system.md) requirements. Square is a structural check. It verifies that expected artifacts exist, the workflow reached completion, and blocking dependencies are satisfied. It does not verify content quality — that is the responsibility of the human or a review agent.
 
+Square checks work-directory artifacts only. All checks (status, files, dependencies) operate on the work directory on the bench. There is no special behavior for spec-first works — drafted spec changes in `05-spec-drafts/` live in the work directory and are checked like any other artifact file.
+
 ## Checks
 
 `kerf square` runs three checks against a work. All three must pass for the work to be square.

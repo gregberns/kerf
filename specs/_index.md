@@ -36,8 +36,9 @@ The tool provides opinionated, built-in processes (**jigs**) that guide agents t
 
 ### Jigs
 - [jig-system.md](jig-system.md) — Jig format, resolution order, versioning
-- [jig-feature.md](jig-feature.md) — Built-in feature jig definition
-- [jig-bug.md](jig-bug.md) — Built-in bug jig definition
+- [jig-plan.md](jig-plan.md) — Built-in plan jig: plan changes to existing codebases
+- [jig-spec.md](jig-spec.md) — Built-in spec jig: maintain a living system specification
+- [jig-bug.md](jig-bug.md) — Built-in bug jig: investigate defects and specify fixes
 
 ### CLI
 - [cli.md](cli.md) — CLI design principles, output philosophy, agent-first design
