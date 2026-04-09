@@ -3,16 +3,19 @@
 
 echo "--- Setup: Create work and advance to ready ---"
 
+assert_pass "set default_jig" kerf config default_jig plan
 assert_pass "create work" kerf new final-test --title "Finalize Test"
 
 # Commit the project-identifier file so working tree is clean for finalize
 (cd "$TEST_REPO" && git add .kerf/project-identifier && git commit -m "add project-identifier" >/dev/null 2>&1)
 
-# Advance through all statuses to ready
-assert_pass "advance to decomposition" kerf status final-test decomposition
+# Advance through all statuses to ready (plan jig)
+assert_pass "advance to analyze" kerf status final-test analyze
+assert_pass "advance to decompose" kerf status final-test decompose
 assert_pass "advance to research" kerf status final-test research
-assert_pass "advance to detailed-spec" kerf status final-test detailed-spec
-assert_pass "advance to review" kerf status final-test review
+assert_pass "advance to change-spec" kerf status final-test change-spec
+assert_pass "advance to integration" kerf status final-test integration
+assert_pass "advance to tasks" kerf status final-test tasks
 assert_pass "advance to ready" kerf status final-test ready
 
 echo ""
@@ -36,11 +39,12 @@ echo "--- Phase 2: Create minimal artifacts and re-check ---"
 PROJECT_ID=$(cat "$TEST_REPO/.kerf/project-identifier" 2>/dev/null)
 WORK_DIR="$TEST_HOME/.kerf/projects/$PROJECT_ID/final-test"
 
-# Create the expected artifact files (no component dirs — avoids template expansion)
+# Create the expected artifact files for plan jig (no component dirs — avoids template expansion)
 touch "$WORK_DIR/01-problem-space.md"
-touch "$WORK_DIR/02-components.md"
-touch "$WORK_DIR/05-integration.md"
-touch "$WORK_DIR/06-checklist.md"
+touch "$WORK_DIR/02-analysis.md"
+touch "$WORK_DIR/03-components.md"
+touch "$WORK_DIR/06-integration.md"
+touch "$WORK_DIR/07-tasks.md"
 touch "$WORK_DIR/SPEC.md"
 touch "$WORK_DIR/SESSION.md"
 

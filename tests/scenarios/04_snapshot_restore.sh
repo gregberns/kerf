@@ -3,8 +3,9 @@
 
 echo "--- Setup ---"
 
+assert_pass "set default_jig" kerf config default_jig plan
 assert_pass "create work" kerf new snap-test --title "Snapshot Test"
-assert_pass "advance to decomposition" kerf status snap-test decomposition
+assert_pass "advance to analyze" kerf status snap-test analyze
 
 echo ""
 echo "--- Phase 1: Take snapshots ---"
@@ -12,7 +13,7 @@ echo "--- Phase 1: Take snapshots ---"
 assert_pass "snapshot: first" kerf snapshot snap-test --name first-snap
 
 # Advance and take another
-assert_pass "advance to research" kerf status snap-test research
+assert_pass "advance to decompose" kerf status snap-test decompose
 assert_pass "snapshot: second" kerf snapshot snap-test --name second-snap
 
 echo ""
@@ -32,8 +33,8 @@ if [ -n "$FIRST_SNAP" ]; then
   # Restore using the full snapshot name
   assert_pass "restore to first" kerf restore snap-test "$FIRST_SNAP"
 
-  # Status should be back to decomposition
-  assert_output_contains "status restored to decomposition" "decomposition" kerf status snap-test
+  # Status should be back to analyze
+  assert_output_contains "status restored to analyze" "analyze" kerf status snap-test
 
   # History should now have a pre-restore snapshot
   assert_output_contains "pre-restore snapshot exists" "pre-restore" kerf history snap-test

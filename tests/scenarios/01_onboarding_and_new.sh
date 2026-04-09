@@ -1,9 +1,25 @@
-# Scenario 1: Create a work and basic commands
-# Tests: kerf new, list, show, status, snapshot, history
+# Scenario 1: Onboarding flow and creating a work
+# Tests: onboarding error, kerf new, list, show, status, snapshot, history
 
+echo "--- Phase 0: Onboarding check ---"
+
+# kerf new without config or --jig should fail with onboarding message
+ONBOARD_OUTPUT=$(kerf new onboard-fail 2>&1) || true
+if echo "$ONBOARD_OUTPUT" | grep -q "No default workflow configured"; then
+  echo "  ✓ onboarding error shown without config"
+  PASS=$((PASS + 1))
+else
+  echo "  ✗ expected onboarding error, got: $(echo "$ONBOARD_OUTPUT" | head -1)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Set default jig to plan
+assert_pass "set default_jig plan" kerf config default_jig plan
+
+echo ""
 echo "--- Phase 1: Create a work ---"
 
-# kerf new should work with default feature jig
+# kerf new should work now that default_jig is set
 assert_pass "kerf new succeeds" kerf new test-work --title "Test Work"
 
 # Verify bench was created
@@ -37,8 +53,8 @@ echo "--- Phase 3: Status ---"
 CURRENT_STATUS=$(kerf status test-work 2>&1 | head -5)
 echo "  ℹ Current status output: $(echo "$CURRENT_STATUS" | head -1)"
 
-# Advance status
-assert_pass "kerf status advance" kerf status test-work decomposition
+# Advance status (plan jig: problem-space → analyze)
+assert_pass "kerf status advance" kerf status test-work analyze
 
 echo ""
 echo "--- Phase 4: Snapshot ---"
