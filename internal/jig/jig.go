@@ -291,6 +291,11 @@ func ListAll(userJigsDir string) ([]JigSummary, error) {
 	return summaries, nil
 }
 
+// ReadBuiltinRaw returns the raw content of a built-in jig file.
+func ReadBuiltinRaw(name string) ([]byte, error) {
+	return builtinFS.ReadFile("builtin/" + name + ".md")
+}
+
 // SaveToUser writes a jig file to the user's jigs directory.
 func SaveToUser(name string, content []byte, userJigsDir string) error {
 	if err := os.MkdirAll(userJigsDir, 0o755); err != nil {
