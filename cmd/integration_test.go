@@ -22,10 +22,10 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 	// 1. kerf new
 	out := captureOutput(t, func() {
 		projectFlag = proj
-		newJigFlag = ""
+		newJigFlag = "plan"
 		newTitle = "Auth Feature"
 		newType = ""
-		defer func() { projectFlag = ""; newTitle = "" }()
+		defer func() { projectFlag = ""; newJigFlag = ""; newTitle = "" }()
 		newCmd.RunE(newCmd, []string{"auth-rewrite"})
 	})
 	testutil.AssertStringContains(t, out, "Work created: auth-rewrite")
@@ -457,10 +457,10 @@ func TestIntegration_MultiWorkSameProject(t *testing.T) {
 	for _, cn := range []string{"work-alpha", "work-beta"} {
 		captureOutput(t, func() {
 			projectFlag = proj
-			newJigFlag = ""
+			newJigFlag = "plan"
 			newTitle = ""
 			newType = ""
-			defer func() { projectFlag = "" }()
+			defer func() { projectFlag = ""; newJigFlag = "" }()
 			newCmd.RunE(newCmd, []string{cn})
 		})
 	}

@@ -25,6 +25,22 @@ var (
 	newJigFlag string
 )
 
+const onboardingMessage = `No default workflow configured.
+
+How do you want to use kerf?
+
+  kerf config default_jig plan
+    Write a plan before changing code. Best for existing projects.
+    You describe what to change → kerf guides you through planning →
+    you get an implementation-ready spec and task list.
+
+  kerf config default_jig spec
+    Maintain a living spec that defines your system. Best for new projects.
+    The spec is always right. Code that doesn't match the spec is wrong.
+    Changes start as spec updates, then flow to code.
+
+Or specify for just this work:  kerf new my-feature --jig plan`
+
 var newCmd = &cobra.Command{
 	Use:   "new [codename]",
 	Short: "Create a new work on the bench",
@@ -72,7 +88,10 @@ func runNew(cn string) error {
 	if jigName == "" {
 		cfgPath := filepath.Join(bp, "config.yaml")
 		cfg, _ := config.Load(cfgPath)
-		jigName = cfg.EffectiveDefaultJig()
+		jigName = cfg.DefaultJig
+	}
+	if jigName == "" {
+		return fmt.Errorf(onboardingMessage)
 	}
 
 	jigsDir := filepath.Join(bp, "jigs")
@@ -101,7 +120,7 @@ func runNew(cn string) error {
 	// 6. Initialize spec.yaml.
 	workType := newType
 	if workType == "" {
-		workType = jigName
+		workType = j.Name
 	}
 	var title *string
 	if newTitle != "" {
@@ -114,7 +133,7 @@ func runNew(cn string) error {
 		Title:        title,
 		Type:         workType,
 		Project:      spec.Project{ID: projectID},
-		Jig:          jigName,
+		Jig:          j.Name,
 		JigVersion:   j.Version,
 		Status:       j.StatusValues[0],
 		StatusValues: j.StatusValues,
@@ -142,13 +161,13 @@ func runNew(cn string) error {
 	fmt.Println()
 	fmt.Printf("Work created: %s\n", cn)
 	fmt.Printf("  Project:  %s\n", projectID)
-	fmt.Printf("  Jig:      %s (v%d)\n", jigName, j.Version)
+	fmt.Printf("  Jig:      %s (v%d)\n", j.Name, j.Version)
 	fmt.Printf("  Status:   %s\n", s.Status)
 	fmt.Printf("  Path:     %s\n", workDir)
 	fmt.Println()
 
 	// Jig process overview.
-	fmt.Printf("Process overview (%s jig):\n", jigName)
+	fmt.Printf("Process overview (%s jig):\n", j.Name)
 	for i, p := range j.Passes {
 		fmt.Printf("  %d. %s (status: %s)\n", i+1, p.Name, p.Status)
 		if len(p.Output) > 0 {

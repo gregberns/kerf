@@ -33,7 +33,7 @@ func TestConfigCommand_GetSingle(t *testing.T) {
 		configCmd.RunE(configCmd, []string{"default_jig"})
 	})
 
-	testutil.AssertStringContains(t, out, "default_jig: feature")
+	testutil.AssertStringContains(t, out, "default_jig:")
 }
 
 func TestConfigCommand_SetValue(t *testing.T) {

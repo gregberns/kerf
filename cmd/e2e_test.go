@@ -331,10 +331,10 @@ func TestE2E_MultipleProjects(t *testing.T) {
 	for _, proj := range []string{"proj-alpha", "proj-beta"} {
 		captureOutput(t, func() {
 			projectFlag = proj
-			newJigFlag = ""
+			newJigFlag = "plan"
 			newTitle = ""
 			newType = ""
-			defer func() { projectFlag = "" }()
+			defer func() { projectFlag = ""; newJigFlag = "" }()
 			newCmd.RunE(newCmd, []string{"shared-name"})
 		})
 	}
