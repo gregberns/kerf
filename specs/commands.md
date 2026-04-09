@@ -69,7 +69,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--project 
 | `codename` | No | Auto-generated `adjective-noun` slug | Immutable identifier for the work. Must match `[a-z0-9]+(-[a-z0-9]+)*`. |
 | `--title` | No | `null` | Human-friendly title for the work. |
 | `--type` | No | Matches jig name | Work type (e.g., `feature`, `bug`). |
-| `--jig` | No | `default_jig` from config.yaml (default: `feature`) | Jig to use for this work. Resolved via jig resolution order (see [jig-system.md](jig-system.md)). |
+| `--jig` | No | `default_jig` from config.yaml (required if `default_jig` unset) | Jig to use for this work. Resolved via jig resolution order (see [jig-system.md](jig-system.md)). |
 | `--project` | No | Inferred from `.kerf/project-identifier` | Project to create the work under. |
 
 ### Behavior
@@ -102,6 +102,31 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--project 
 | Codename already exists in project | `Error: work '{codename}' already exists in project '{project-id}'.` |
 | Codename format invalid | `Error: codename must be lowercase alphanumeric and hyphens (matching [a-z0-9]+(-[a-z0-9]+)*).` |
 | Jig not found | `Error: jig '{name}' not found. Run 'kerf jig list' to see available jigs.` |
+| `default_jig` unset and no `--jig` flag | See First-Run Onboarding below. |
+
+### First-Run Onboarding
+
+When `default_jig` is not configured and no `--jig` flag is provided, `kerf new` fails with:
+
+```
+Error: No default workflow configured.
+
+How do you want to use kerf?
+
+  kerf config default_jig plan
+    Write a plan before changing code. Best for existing projects.
+    You describe what to change → kerf guides you through planning →
+    you get an implementation-ready spec and task list.
+
+  kerf config default_jig spec
+    Maintain a living spec that defines your system. Best for new projects.
+    The spec is always right. Code that doesn't match the spec is wrong.
+    Changes start as spec updates, then flow to code.
+
+Or specify for just this work:  kerf new my-feature --jig plan
+```
+
+This is not interactive. It is an error with actionable instructions. An agent can parse the output and run the appropriate `kerf config` command. A human can read and choose. After the user sets `default_jig` (or uses `--jig`), subsequent `kerf new` commands work without this message.
 
 ---
 
@@ -373,10 +398,17 @@ kerf finalize <codename> --branch <name>
 3. Take a [snapshot](snapshots.md) of the current work state.
 4. **Create the git branch** in the target repository using the `--branch` name.
 5. **Copy work artifacts** into the target repository at the path specified by `finalize.repo_spec_path` in config.yaml (default: `.kerf/{codename}/`). The token `{codename}` in the path is replaced with the work's codename. Excludes `spec.yaml`, `SESSION.md`, and `.history/`. See [finalization.md](finalization.md) for details.
-6. **Create an initial commit** in the target repository containing the copied artifacts.
-7. **Update `spec.yaml`**: set `implementation.branch` to the branch name, append the commit hash to `implementation.commits`.
-8. **Set status** to `finalized`.
-9. Update the `updated` timestamp in `spec.yaml`.
+6. **Spec-first finalization** (only for works with `jig: spec` in spec.yaml):
+   - Read the `spec_path` config value (default: `specs/`).
+   - If `{repo_root}/{spec_path}/` does not exist, create it.
+   - Copy files from the work's `05-spec-drafts/` to `{repo_root}/{spec_path}/`, preserving filenames (1:1 mapping — `05-spec-drafts/jig-system.md` → `specs/jig-system.md`).
+   - Exclude `05-spec-drafts/` from the standard artifact copy in step 5 (so spec files appear only in `spec_path`, not duplicated in `repo_spec_path`).
+   - If `05-spec-drafts/` is empty or missing, warn but do not error — the standard artifact copy proceeds normally.
+   - Detection is by jig name in spec.yaml, not by directory presence. Custom jigs that produce `05-spec-drafts/` do not get this behavior.
+7. **Create an initial commit** in the target repository containing the copied artifacts.
+8. **Update `spec.yaml`**: set `implementation.branch` to the branch name, append the commit hash to `implementation.commits`.
+9. **Set status** to `finalized`.
+10. Update the `updated` timestamp in `spec.yaml`.
 
 ### Output
 
@@ -394,6 +426,18 @@ Next steps:
   - Create a pull request for branch '{branch-name}'
   - Notify the team / link external systems
   - Run 'kerf archive {codename}' when implementation is complete
+```
+
+For spec-first works (`jig: spec`), the output additionally shows:
+
+```
+  Spec drafts applied to: {spec-path}
+```
+
+If `05-spec-drafts/` is empty or missing:
+
+```
+  Warning: 05-spec-drafts/ is empty or missing — no spec drafts to apply.
 ```
 
 ### Errors
@@ -553,12 +597,15 @@ kerf jig list
 
 ```
 Available jigs:
-  {name}    {description}    v{version}    {source: built-in | user}
-  {name}    {description}    v{version}    {source}
+  plan (also: feature)    Write a plan before changing code. ...    v1    built-in
+  spec                    Maintain a living spec that defines ...   v1    built-in
+  bug                     Investigate and specify a fix for ...     v2    built-in
 
 Commands:
   kerf jig show <name>    View full jig definition
 ```
+
+If a jig has aliases, they appear in parentheses after the canonical name. User-level jigs that override a built-in show `user` as the source.
 
 ### Errors
 
@@ -757,6 +804,7 @@ kerf config [key] [value]
 ```
 kerf configuration (~/.kerf/config.yaml):
   default_jig:               {value}
+  spec_path:                 {value}
   snapshots.enabled:         {value}
   snapshots.interval_enabled: {value}
   snapshots.interval_seconds: {value}
