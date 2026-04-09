@@ -12,8 +12,11 @@ func TestLoadMissingFile(t *testing.T) {
 		t.Fatalf("Load missing file should not error: %v", err)
 	}
 	// Should return defaults
-	if cfg.EffectiveDefaultJig() != "feature" {
-		t.Errorf("default_jig = %q, want %q", cfg.EffectiveDefaultJig(), "feature")
+	if cfg.EffectiveDefaultJig() != "" {
+		t.Errorf("default_jig = %q, want %q", cfg.EffectiveDefaultJig(), "")
+	}
+	if cfg.EffectiveSpecPath() != "specs/" {
+		t.Errorf("spec_path = %q, want %q", cfg.EffectiveSpecPath(), "specs/")
 	}
 	if !cfg.EffectiveSnapshotsEnabled() {
 		t.Error("snapshots.enabled should default to true")
@@ -202,8 +205,8 @@ snapshots:
 
 func TestValidKeys(t *testing.T) {
 	keys := ValidKeys()
-	if len(keys) != 8 {
-		t.Errorf("ValidKeys length = %d, want 8", len(keys))
+	if len(keys) != 9 {
+		t.Errorf("ValidKeys length = %d, want 9", len(keys))
 	}
 }
 

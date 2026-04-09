@@ -35,6 +35,9 @@ func TestProperty_MissingFileReturnsDefaults(t *testing.T) {
 	if cfg.EffectiveRepoSpecPath() != DefaultRepoSpecPath {
 		t.Errorf("repo_spec_path = %q, want %q", cfg.EffectiveRepoSpecPath(), DefaultRepoSpecPath)
 	}
+	if cfg.EffectiveSpecPath() != DefaultSpecPath {
+		t.Errorf("spec_path = %q, want %q", cfg.EffectiveSpecPath(), DefaultSpecPath)
+	}
 }
 
 func TestProperty_PartialConfigMergesWithDefaults(t *testing.T) {
@@ -145,6 +148,7 @@ func TestProperty_SetGetRoundTrip(t *testing.T) {
 		{"snapshots.max_snapshots", "200"},
 		{"sessions.stale_threshold_hours", "48"},
 		{"finalize.repo_spec_path", "specs/{codename}/"},
+		{"spec_path", "docs/specs/"},
 	}
 
 	for _, kv := range keys {

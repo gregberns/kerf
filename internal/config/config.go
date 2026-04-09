@@ -11,7 +11,8 @@ import (
 
 // Default values for all config fields.
 const (
-	DefaultJig                  = "feature"
+	DefaultJig                  = ""
+	DefaultSpecPath             = "specs/"
 	DefaultSnapshotsEnabled     = true
 	DefaultIntervalEnabled      = false
 	DefaultIntervalSeconds      = 300
@@ -24,6 +25,7 @@ const (
 type Config struct {
 	DefaultJig     string          `yaml:"default_jig,omitempty"`
 	DefaultProject string          `yaml:"default_project,omitempty"`
+	SpecPath       string          `yaml:"spec_path,omitempty"`
 	Snapshots      SnapshotsConfig `yaml:"snapshots,omitempty"`
 	Sessions       SessionsConfig  `yaml:"sessions,omitempty"`
 	Finalize       FinalizeConfig  `yaml:"finalize,omitempty"`
@@ -97,6 +99,13 @@ func (c *Config) EffectiveRepoSpecPath() string {
 	return DefaultRepoSpecPath
 }
 
+func (c *Config) EffectiveSpecPath() string {
+	if c.SpecPath != "" {
+		return c.SpecPath
+	}
+	return DefaultSpecPath
+}
+
 // Load parses config.yaml from disk. Returns defaults if file is missing.
 func Load(path string) (*Config, error) {
 	cfg := &Config{}
@@ -134,6 +143,7 @@ func Save(path string, cfg *Config) error {
 var validKeys = []string{
 	"default_jig",
 	"default_project",
+	"spec_path",
 	"snapshots.enabled",
 	"snapshots.interval_enabled",
 	"snapshots.interval_seconds",
@@ -167,6 +177,8 @@ func (c *Config) Get(key string) (string, error) {
 		return c.EffectiveDefaultJig(), nil
 	case "default_project":
 		return c.DefaultProject, nil
+	case "spec_path":
+		return c.EffectiveSpecPath(), nil
 	case "snapshots.enabled":
 		return strconv.FormatBool(c.EffectiveSnapshotsEnabled()), nil
 	case "snapshots.interval_enabled":
@@ -195,6 +207,8 @@ func (c *Config) Set(key string, value string) error {
 		c.DefaultJig = value
 	case "default_project":
 		c.DefaultProject = value
+	case "spec_path":
+		c.SpecPath = value
 	case "snapshots.enabled":
 		b, err := strconv.ParseBool(value)
 		if err != nil {
