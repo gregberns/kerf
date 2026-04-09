@@ -1,3 +1,6 @@
+# Go binary
+kerf
+
 .omc/
 .env
 .claude/settings.local.json
