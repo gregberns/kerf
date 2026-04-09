@@ -49,15 +49,15 @@ func TestE2E_FullLifecycleWithGit(t *testing.T) {
 	workDir := filepath.Join(bp, "projects", projectID, "fix-login")
 
 	// 2. Write all bug jig artifacts.
-	os.WriteFile(filepath.Join(workDir, "SESSION.md"), []byte("# Session\n## Current Pass\nTriage\n"), 0644)
-	os.WriteFile(filepath.Join(workDir, "01-triage.md"), []byte("# Triage\nLogin times out after 30s."), 0644)
-	os.WriteFile(filepath.Join(workDir, "02-reproduction.md"), []byte("# Reproduction\nSteps to reproduce."), 0644)
-	os.WriteFile(filepath.Join(workDir, "03-root-cause.md"), []byte("# Root Cause\nConnection pool exhaustion."), 0644)
-	os.WriteFile(filepath.Join(workDir, "04-fix-spec.md"), []byte("# Fix Spec\nIncrease pool size."), 0644)
-	os.WriteFile(filepath.Join(workDir, "05-test-cases.md"), []byte("# Test Cases\nVerify under load."), 0644)
+	os.WriteFile(filepath.Join(workDir, "SESSION.md"), []byte("# Session\n## Current Pass\nReport\n"), 0644)
+	os.WriteFile(filepath.Join(workDir, "01-report.md"), []byte("# Report\nLogin times out after 30s."), 0644)
+	os.WriteFile(filepath.Join(workDir, "02-research.md"), []byte("# Research\nCode path investigation."), 0644)
+	os.WriteFile(filepath.Join(workDir, "03-reproduction.md"), []byte("# Reproduction\nSteps to reproduce."), 0644)
+	os.WriteFile(filepath.Join(workDir, "04-root-cause.md"), []byte("# Root Cause\nConnection pool exhaustion."), 0644)
+	os.WriteFile(filepath.Join(workDir, "05-fix-spec.md"), []byte("# Fix Spec\nIncrease pool size."), 0644)
 
 	// 3. Advance through statuses to ready.
-	for _, status := range []string{"reproducing", "locating", "specifying-fix", "ready"} {
+	for _, status := range []string{"research", "reproducing", "root-cause", "fix-spec", "ready"} {
 		captureOutput(t, func() {
 			projectFlag = projectID
 			defer func() { projectFlag = "" }()
@@ -124,11 +124,11 @@ func TestE2E_FullLifecycleWithGit(t *testing.T) {
 
 	// Verify artifacts were copied (excluding spec.yaml, SESSION.md, .history/).
 	artifactDir := filepath.Join(repo, ".kerf", "fix-login")
-	testutil.AssertFileExists(t, filepath.Join(artifactDir, "01-triage.md"))
-	testutil.AssertFileExists(t, filepath.Join(artifactDir, "02-reproduction.md"))
-	testutil.AssertFileExists(t, filepath.Join(artifactDir, "03-root-cause.md"))
-	testutil.AssertFileExists(t, filepath.Join(artifactDir, "04-fix-spec.md"))
-	testutil.AssertFileExists(t, filepath.Join(artifactDir, "05-test-cases.md"))
+	testutil.AssertFileExists(t, filepath.Join(artifactDir, "01-report.md"))
+	testutil.AssertFileExists(t, filepath.Join(artifactDir, "02-research.md"))
+	testutil.AssertFileExists(t, filepath.Join(artifactDir, "03-reproduction.md"))
+	testutil.AssertFileExists(t, filepath.Join(artifactDir, "04-root-cause.md"))
+	testutil.AssertFileExists(t, filepath.Join(artifactDir, "05-fix-spec.md"))
 
 	// spec.yaml and SESSION.md should NOT be in the repo artifacts.
 	if _, err := os.Stat(filepath.Join(artifactDir, "spec.yaml")); err == nil {
@@ -260,13 +260,13 @@ func TestE2E_DependencyWarningAtSquare(t *testing.T) {
 	depDir := filepath.Join(bp, "projects", proj, "prerequisite")
 	os.MkdirAll(depDir, 0755)
 	depSpec := `codename: prerequisite
-type: feature
+type: plan
 project:
   id: dep-e2e
-jig: feature
+jig: plan
 jig_version: 1
-status: decomposition
-status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+status: analyze
+status_values: [problem-space, analyze, decompose, research, change-spec, integration, tasks, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []
@@ -286,9 +286,9 @@ type: bug
 project:
   id: dep-e2e
 jig: bug
-jig_version: 1
+jig_version: 2
 status: ready
-status_values: [triaging, reproducing, locating, specifying-fix, ready]
+status_values: [reported, research, reproducing, root-cause, fix-spec, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []
@@ -302,11 +302,11 @@ implementation:
 `
 	os.WriteFile(filepath.Join(workDir, "spec.yaml"), []byte(workSpec), 0644)
 	os.WriteFile(filepath.Join(workDir, "SESSION.md"), []byte("s"), 0644)
-	os.WriteFile(filepath.Join(workDir, "01-triage.md"), []byte("t"), 0644)
-	os.WriteFile(filepath.Join(workDir, "02-reproduction.md"), []byte("r"), 0644)
-	os.WriteFile(filepath.Join(workDir, "03-root-cause.md"), []byte("c"), 0644)
-	os.WriteFile(filepath.Join(workDir, "04-fix-spec.md"), []byte("f"), 0644)
-	os.WriteFile(filepath.Join(workDir, "05-test-cases.md"), []byte("tc"), 0644)
+	os.WriteFile(filepath.Join(workDir, "01-report.md"), []byte("r"), 0644)
+	os.WriteFile(filepath.Join(workDir, "02-research.md"), []byte("rs"), 0644)
+	os.WriteFile(filepath.Join(workDir, "03-reproduction.md"), []byte("rp"), 0644)
+	os.WriteFile(filepath.Join(workDir, "04-root-cause.md"), []byte("c"), 0644)
+	os.WriteFile(filepath.Join(workDir, "05-fix-spec.md"), []byte("f"), 0644)
 
 	out := captureOutput(t, func() {
 		projectFlag = proj
@@ -443,9 +443,9 @@ type: bug
 project:
   id: ` + projectID + `
 jig: bug
-jig_version: 1
+jig_version: 2
 status: ready
-status_values: [triaging, reproducing, locating, specifying-fix, ready]
+status_values: [reported, research, reproducing, root-cause, fix-spec, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []
@@ -457,11 +457,11 @@ implementation:
 `
 	os.WriteFile(filepath.Join(workDir, "spec.yaml"), []byte(workSpec), 0644)
 	os.WriteFile(filepath.Join(workDir, "SESSION.md"), []byte("# Session"), 0644)
-	os.WriteFile(filepath.Join(workDir, "01-triage.md"), []byte("triage"), 0644)
-	os.WriteFile(filepath.Join(workDir, "02-reproduction.md"), []byte("repro"), 0644)
-	os.WriteFile(filepath.Join(workDir, "03-root-cause.md"), []byte("cause"), 0644)
-	os.WriteFile(filepath.Join(workDir, "04-fix-spec.md"), []byte("fix"), 0644)
-	os.WriteFile(filepath.Join(workDir, "05-test-cases.md"), []byte("tests"), 0644)
+	os.WriteFile(filepath.Join(workDir, "01-report.md"), []byte("report"), 0644)
+	os.WriteFile(filepath.Join(workDir, "02-research.md"), []byte("research"), 0644)
+	os.WriteFile(filepath.Join(workDir, "03-reproduction.md"), []byte("repro"), 0644)
+	os.WriteFile(filepath.Join(workDir, "04-root-cause.md"), []byte("cause"), 0644)
+	os.WriteFile(filepath.Join(workDir, "05-fix-spec.md"), []byte("fix"), 0644)
 
 	return workDir
 }

@@ -7,51 +7,84 @@ import (
 	"testing"
 )
 
-func TestParseFeatureJig(t *testing.T) {
-	data, err := builtinFS.ReadFile("builtin/feature.md")
+func TestParsePlanJig(t *testing.T) {
+	data, err := builtinFS.ReadFile("builtin/plan.md")
 	if err != nil {
-		t.Fatalf("failed to read built-in feature jig: %v", err)
+		t.Fatalf("failed to read built-in plan jig: %v", err)
 	}
 
 	jig, err := Parse(data)
 	if err != nil {
-		t.Fatalf("failed to parse feature jig: %v", err)
+		t.Fatalf("failed to parse plan jig: %v", err)
 	}
 
-	if jig.Name != "feature" {
-		t.Errorf("Name = %q, want %q", jig.Name, "feature")
+	if jig.Name != "plan" {
+		t.Errorf("Name = %q, want %q", jig.Name, "plan")
 	}
 	if jig.Version != 1 {
 		t.Errorf("Version = %d, want %d", jig.Version, 1)
 	}
-	if len(jig.StatusValues) != 6 {
-		t.Errorf("StatusValues count = %d, want %d", len(jig.StatusValues), 6)
+	if len(jig.StatusValues) != 8 {
+		t.Errorf("StatusValues count = %d, want %d", len(jig.StatusValues), 8)
 	}
-	if len(jig.Passes) != 5 {
-		t.Errorf("Passes count = %d, want %d", len(jig.Passes), 5)
+	if len(jig.Passes) != 8 {
+		t.Errorf("Passes count = %d, want %d", len(jig.Passes), 8)
 	}
 	if jig.Body == "" {
 		t.Error("Body is empty, expected markdown content")
+	}
+
+	// Verify aliases
+	if len(jig.Aliases) != 1 || jig.Aliases[0] != "feature" {
+		t.Errorf("Aliases = %v, want [feature]", jig.Aliases)
 	}
 
 	// Verify pass-status mapping
 	if jig.Passes[0].Status != "problem-space" {
 		t.Errorf("Pass[0].Status = %q, want %q", jig.Passes[0].Status, "problem-space")
 	}
-	if jig.Passes[2].Status != "research" {
-		t.Errorf("Pass[2].Status = %q, want %q", jig.Passes[2].Status, "research")
+	if jig.Passes[3].Status != "research" {
+		t.Errorf("Pass[3].Status = %q, want %q", jig.Passes[3].Status, "research")
 	}
 
 	// Verify file structure includes component placeholders
 	hasComponentPlaceholder := false
 	for _, f := range jig.FileStructure {
-		if f == "03-research/{component}/findings.md" {
+		if f == "04-research/{component}/findings.md" {
 			hasComponentPlaceholder = true
 			break
 		}
 	}
 	if !hasComponentPlaceholder {
 		t.Error("FileStructure missing component placeholder entry")
+	}
+}
+
+func TestParseSpecJig(t *testing.T) {
+	data, err := builtinFS.ReadFile("builtin/spec.md")
+	if err != nil {
+		t.Fatalf("failed to read built-in spec jig: %v", err)
+	}
+
+	jig, err := Parse(data)
+	if err != nil {
+		t.Fatalf("failed to parse spec jig: %v", err)
+	}
+
+	if jig.Name != "spec" {
+		t.Errorf("Name = %q, want %q", jig.Name, "spec")
+	}
+	if jig.Version != 1 {
+		t.Errorf("Version = %d, want %d", jig.Version, 1)
+	}
+	if len(jig.StatusValues) != 8 {
+		t.Errorf("StatusValues count = %d, want %d", len(jig.StatusValues), 8)
+	}
+	if len(jig.Passes) != 8 {
+		t.Errorf("Passes count = %d, want %d", len(jig.Passes), 8)
+	}
+	if len(jig.Aliases) != 0 {
+		t.Errorf("Aliases = %v, want empty", jig.Aliases)
 	}
 }
 
@@ -69,20 +102,29 @@ func TestParseBugJig(t *testing.T) {
 	if jig.Name != "bug" {
 		t.Errorf("Name = %q, want %q", jig.Name, "bug")
 	}
-	if jig.Version != 1 {
-		t.Errorf("Version = %d, want %d", jig.Version, 1)
+	if jig.Version != 2 {
+		t.Errorf("Version = %d, want %d", jig.Version, 2)
 	}
-	if len(jig.StatusValues) != 5 {
-		t.Errorf("StatusValues count = %d, want %d", len(jig.StatusValues), 5)
+	if len(jig.StatusValues) != 6 {
+		t.Errorf("StatusValues count = %d, want %d", len(jig.StatusValues), 6)
 	}
-	if len(jig.Passes) != 4 {
-		t.Errorf("Passes count = %d, want %d", len(jig.Passes), 4)
+	if len(jig.Passes) != 6 {
+		t.Errorf("Passes count = %d, want %d", len(jig.Passes), 6)
 	}
 
-	// Bug's last pass has two outputs
-	lastPass := jig.Passes[len(jig.Passes)-1]
-	if len(lastPass.Output) != 2 {
-		t.Errorf("Last pass output count = %d, want %d", len(lastPass.Output), 2)
+	// Fix Spec pass (index 4) has one output
+	fixSpecPass := jig.Passes[4]
+	if fixSpecPass.Status != "fix-spec" {
+		t.Errorf("Pass[4].Status = %q, want %q", fixSpecPass.Status, "fix-spec")
+	}
+	if len(fixSpecPass.Output) != 1 {
+		t.Errorf("Fix Spec pass output count = %d, want %d", len(fixSpecPass.Output), 1)
+	}
+
+	// Ready pass (last) has no output
+	readyPass := jig.Passes[5]
+	if len(readyPass.Output) != 0 {
+		t.Errorf("Ready pass output count = %d, want %d", len(readyPass.Output), 0)
 	}
 }
 
@@ -221,9 +263,9 @@ func TestExpandComponentsEmpty(t *testing.T) {
 }
 
 func TestInstructionsForPass(t *testing.T) {
-	data, err := builtinFS.ReadFile("builtin/feature.md")
+	data, err := builtinFS.ReadFile("builtin/plan.md")
 	if err != nil {
-		t.Fatalf("failed to read built-in feature jig: %v", err)
+		t.Fatalf("failed to read built-in plan jig: %v", err)
 	}
 	jig, err := Parse(data)
 	if err != nil {
@@ -234,8 +276,8 @@ func TestInstructionsForPass(t *testing.T) {
 	if instructions == "" {
 		t.Fatal("expected instructions for Problem Space pass, got empty")
 	}
-	if !contains(instructions, "rough cut") {
-		t.Error("instructions should contain 'rough cut'")
+	if !contains(instructions, "problem-space") {
+		t.Error("instructions should contain 'problem-space'")
 	}
 	if !contains(instructions, "01-problem-space.md") {
 		t.Error("instructions should reference output file")
@@ -262,15 +304,15 @@ func TestVersionMismatch(t *testing.T) {
 }
 
 func TestResolveBuiltin(t *testing.T) {
-	jig, source, err := Resolve("feature", "")
+	jig, source, err := Resolve("plan", "")
 	if err != nil {
-		t.Fatalf("Resolve(feature) error: %v", err)
+		t.Fatalf("Resolve(plan) error: %v", err)
 	}
 	if source != "built-in" {
 		t.Errorf("source = %q, want %q", source, "built-in")
 	}
-	if jig.Name != "feature" {
-		t.Errorf("Name = %q, want %q", jig.Name, "feature")
+	if jig.Name != "plan" {
+		t.Errorf("Name = %q, want %q", jig.Name, "plan")
 	}
 
 	jig, source, err = Resolve("bug", "")
@@ -282,6 +324,81 @@ func TestResolveBuiltin(t *testing.T) {
 	}
 	if jig.Name != "bug" {
 		t.Errorf("Name = %q, want %q", jig.Name, "bug")
+	}
+
+	jig, source, err = Resolve("spec", "")
+	if err != nil {
+		t.Fatalf("Resolve(spec) error: %v", err)
+	}
+	if source != "built-in" {
+		t.Errorf("source = %q, want %q", source, "built-in")
+	}
+	if jig.Name != "spec" {
+		t.Errorf("Name = %q, want %q", jig.Name, "spec")
+	}
+}
+
+func TestResolveAlias(t *testing.T) {
+	// "feature" is an alias for "plan"
+	jig, source, err := Resolve("feature", "")
+	if err != nil {
+		t.Fatalf("Resolve(feature) error: %v", err)
+	}
+	if source != "built-in" {
+		t.Errorf("source = %q, want %q", source, "built-in")
+	}
+	if jig.Name != "plan" {
+		t.Errorf("Name = %q, want %q (canonical name, not alias)", jig.Name, "plan")
+	}
+}
+
+func TestResolveAliasUserOverride(t *testing.T) {
+	// A user-level jig named "feature" takes priority over the alias
+	dir := t.TempDir()
+	userContent := []byte(`---
+name: feature
+description: User feature jig
+version: 42
+status_values:
+  - start
+  - end
+passes:
+  - name: "Start"
+    status: start
+    output: ["out.md"]
+---
+
+# User feature
+`)
+	if err := os.WriteFile(filepath.Join(dir, "feature.md"), userContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	jig, source, err := Resolve("feature", dir)
+	if err != nil {
+		t.Fatalf("Resolve error: %v", err)
+	}
+	if source != "user" {
+		t.Errorf("source = %q, want %q (user-level should take priority over alias)", source, "user")
+	}
+	if jig.Version != 42 {
+		t.Errorf("Version = %d, want %d", jig.Version, 42)
+	}
+}
+
+func TestReadBuiltinRawAlias(t *testing.T) {
+	// ReadBuiltinRaw("feature") should return plan jig content
+	data, err := ReadBuiltinRaw("feature")
+	if err != nil {
+		t.Fatalf("ReadBuiltinRaw(feature) error: %v", err)
+	}
+
+	jig, err := Parse(data)
+	if err != nil {
+		t.Fatalf("failed to parse returned content: %v", err)
+	}
+	if jig.Name != "plan" {
+		t.Errorf("Name = %q, want %q", jig.Name, "plan")
 	}
 }
 
@@ -295,10 +412,10 @@ func TestResolveNotFound(t *testing.T) {
 func TestResolveUserOverride(t *testing.T) {
 	dir := t.TempDir()
 
-	// Write a user jig that overrides the built-in feature jig
+	// Write a user jig that overrides the built-in plan jig
 	userContent := []byte(`---
-name: feature
-description: Custom feature jig
+name: plan
+description: Custom plan jig
 version: 99
 status_values:
   - custom-start
@@ -312,13 +429,13 @@ file_structure:
   - custom.md
 ---
 
-# Custom Feature Jig
+# Custom Plan Jig
 `)
-	if err := os.WriteFile(filepath.Join(dir, "feature.md"), userContent, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), userContent, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	jig, source, err := Resolve("feature", dir)
+	jig, source, err := Resolve("plan", dir)
 	if err != nil {
 		t.Fatalf("Resolve error: %v", err)
 	}
@@ -332,16 +449,16 @@ file_structure:
 
 func TestResolveUserFallbackToBuiltin(t *testing.T) {
 	dir := t.TempDir()
-	// User dir exists but has no feature.md — should fall back to built-in
-	jig, source, err := Resolve("feature", dir)
+	// User dir exists but has no plan.md — should fall back to built-in
+	jig, source, err := Resolve("plan", dir)
 	if err != nil {
 		t.Fatalf("Resolve error: %v", err)
 	}
 	if source != "built-in" {
 		t.Errorf("source = %q, want %q", source, "built-in")
 	}
-	if jig.Name != "feature" {
-		t.Errorf("Name = %q, want %q", jig.Name, "feature")
+	if jig.Name != "plan" {
+		t.Errorf("Name = %q, want %q", jig.Name, "plan")
 	}
 }
 
@@ -351,30 +468,43 @@ func TestListAllBuiltinOnly(t *testing.T) {
 		t.Fatalf("ListAll error: %v", err)
 	}
 
-	if len(summaries) < 2 {
-		t.Fatalf("expected at least 2 built-in jigs, got %d", len(summaries))
+	if len(summaries) != 3 {
+		t.Fatalf("expected 3 built-in jigs, got %d", len(summaries))
 	}
 
-	names := make(map[string]string)
+	byName := make(map[string]JigSummary)
 	for _, s := range summaries {
-		names[s.Name] = s.Source
+		byName[s.Name] = s
 	}
 
-	if names["feature"] != "built-in" {
-		t.Error("expected feature jig from built-in source")
+	if s, ok := byName["plan"]; !ok {
+		t.Error("expected plan jig from built-in source")
+	} else if s.Source != "built-in" {
+		t.Errorf("plan source = %q, want %q", s.Source, "built-in")
+	} else if len(s.Aliases) != 1 || s.Aliases[0] != "feature" {
+		t.Errorf("plan aliases = %v, want [feature]", s.Aliases)
 	}
-	if names["bug"] != "built-in" {
+
+	if s, ok := byName["spec"]; !ok {
+		t.Error("expected spec jig from built-in source")
+	} else if s.Source != "built-in" {
+		t.Errorf("spec source = %q, want %q", s.Source, "built-in")
+	}
+
+	if s, ok := byName["bug"]; !ok {
 		t.Error("expected bug jig from built-in source")
+	} else if s.Source != "built-in" {
+		t.Errorf("bug source = %q, want %q", s.Source, "built-in")
 	}
 }
 
 func TestListAllMixedSources(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a user jig that overrides feature
+	// Create a user jig that overrides plan
 	userContent := []byte(`---
-name: feature
-description: User feature
+name: plan
+description: User plan
 version: 5
 status_values:
   - start
@@ -385,9 +515,9 @@ passes:
     output: ["out.md"]
 ---
 
-# User feature
+# User plan
 `)
-	if err := os.WriteFile(filepath.Join(dir, "feature.md"), userContent, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), userContent, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -421,13 +551,13 @@ passes:
 		byName[s.Name] = s
 	}
 
-	// feature should come from user (override)
-	if s, ok := byName["feature"]; !ok {
-		t.Error("missing feature jig")
+	// plan should come from user (override)
+	if s, ok := byName["plan"]; !ok {
+		t.Error("missing plan jig")
 	} else if s.Source != "user" {
-		t.Errorf("feature source = %q, want %q", s.Source, "user")
+		t.Errorf("plan source = %q, want %q", s.Source, "user")
 	} else if s.Version != 5 {
-		t.Errorf("feature version = %d, want %d", s.Version, 5)
+		t.Errorf("plan version = %d, want %d", s.Version, 5)
 	}
 
 	// bug should come from built-in
@@ -545,8 +675,8 @@ func TestListAllNonexistentUserDir(t *testing.T) {
 		t.Fatalf("ListAll error: %v", err)
 	}
 	// Should still return built-in jigs
-	if len(summaries) < 2 {
-		t.Errorf("expected at least 2 jigs from built-in, got %d", len(summaries))
+	if len(summaries) != 3 {
+		t.Errorf("expected 3 jigs from built-in, got %d", len(summaries))
 	}
 }
 

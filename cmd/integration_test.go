@@ -53,13 +53,13 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 	out = captureOutput(t, func() {
 		projectFlag = proj
 		defer func() { projectFlag = "" }()
-		statusCmd.RunE(statusCmd, []string{"auth-rewrite", "decomposition"})
+		statusCmd.RunE(statusCmd, []string{"auth-rewrite", "analyze"})
 	})
-	testutil.AssertStringContains(t, out, "Status updated: problem-space -> decomposition")
+	testutil.AssertStringContains(t, out, "Status updated: problem-space -> analyze")
 
 	s, _ = spec.Read(specPath)
-	if s.Status != "decomposition" {
-		t.Errorf("status after update = %q, want %q", s.Status, "decomposition")
+	if s.Status != "analyze" {
+		t.Errorf("status after update = %q, want %q", s.Status, "analyze")
 	}
 
 	// 4. Shelve.
@@ -101,7 +101,7 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 		showCmd.RunE(showCmd, []string{"auth-rewrite"})
 	})
 	testutil.AssertStringContains(t, out, "Work: auth-rewrite")
-	testutil.AssertStringContains(t, out, "Status: decomposition")
+	testutil.AssertStringContains(t, out, "Status: analyze")
 	testutil.AssertStringContains(t, out, "Files:")
 	testutil.AssertStringContains(t, out, "Sessions:")
 	testutil.AssertStringContains(t, out, "SESSION.md:")
@@ -156,7 +156,7 @@ func TestIntegration_StatusWriteNonRecommended(t *testing.T) {
 	})
 
 	testutil.AssertStringContains(t, out, "Warning:")
-	testutil.AssertStringContains(t, out, "not in the feature jig's recommended statuses")
+	testutil.AssertStringContains(t, out, "not in the plan jig's recommended statuses")
 	testutil.AssertStringContains(t, out, "Status updated: problem-space -> custom-status")
 
 	s, _ := spec.Read(filepath.Join(workDir, "spec.yaml"))
@@ -178,13 +178,13 @@ func TestIntegration_ShowWithDeps(t *testing.T) {
 	depDir := filepath.Join(bp, "projects", proj, "dep-target")
 	os.MkdirAll(depDir, 0755)
 	depSpec := `codename: dep-target
-type: feature
+type: plan
 project:
   id: dep-proj
-jig: feature
+jig: plan
 jig_version: 1
 status: ready
-status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+status_values: [problem-space, analyze, decompose, research, change-spec, integration, tasks, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []
@@ -200,13 +200,13 @@ implementation:
 	workDir := filepath.Join(bp, "projects", proj, "main-work")
 	os.MkdirAll(workDir, 0755)
 	workSpec := `codename: main-work
-type: feature
+type: plan
 project:
   id: dep-proj
-jig: feature
+jig: plan
 jig_version: 1
 status: research
-status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+status_values: [problem-space, analyze, decompose, research, change-spec, integration, tasks, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []
@@ -249,9 +249,9 @@ type: bug
 project:
   id: sq-proj
 jig: bug
-jig_version: 1
+jig_version: 2
 status: ready
-status_values: [triaging, reproducing, locating, specifying-fix, ready]
+status_values: [reported, research, reproducing, root-cause, fix-spec, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []
@@ -263,11 +263,11 @@ implementation:
 `
 	os.WriteFile(filepath.Join(workDir, "spec.yaml"), []byte(workSpec), 0644)
 	os.WriteFile(filepath.Join(workDir, "SESSION.md"), []byte("# Session"), 0644)
-	os.WriteFile(filepath.Join(workDir, "01-triage.md"), []byte("triage"), 0644)
-	os.WriteFile(filepath.Join(workDir, "02-reproduction.md"), []byte("repro"), 0644)
-	os.WriteFile(filepath.Join(workDir, "03-root-cause.md"), []byte("cause"), 0644)
-	os.WriteFile(filepath.Join(workDir, "04-fix-spec.md"), []byte("fix"), 0644)
-	os.WriteFile(filepath.Join(workDir, "05-test-cases.md"), []byte("tests"), 0644)
+	os.WriteFile(filepath.Join(workDir, "01-report.md"), []byte("report"), 0644)
+	os.WriteFile(filepath.Join(workDir, "02-research.md"), []byte("research"), 0644)
+	os.WriteFile(filepath.Join(workDir, "03-reproduction.md"), []byte("repro"), 0644)
+	os.WriteFile(filepath.Join(workDir, "04-root-cause.md"), []byte("cause"), 0644)
+	os.WriteFile(filepath.Join(workDir, "05-fix-spec.md"), []byte("fix"), 0644)
 
 	out := captureOutput(t, func() {
 		projectFlag = proj
@@ -297,9 +297,9 @@ type: bug
 project:
   id: sq-proj
 jig: bug
-jig_version: 1
+jig_version: 2
 status: ready
-status_values: [triaging, reproducing, locating, specifying-fix, ready]
+status_values: [reported, research, reproducing, root-cause, fix-spec, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []
@@ -334,13 +334,13 @@ func TestIntegration_SquareFailIncompleteDeps(t *testing.T) {
 	depDir := filepath.Join(bp, "projects", proj, "blocker")
 	os.MkdirAll(depDir, 0755)
 	depSpec := `codename: blocker
-type: feature
+type: plan
 project:
   id: dep-sq
-jig: feature
+jig: plan
 jig_version: 1
 status: research
-status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+status_values: [problem-space, analyze, decompose, research, change-spec, integration, tasks, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []
@@ -360,9 +360,9 @@ type: bug
 project:
   id: dep-sq
 jig: bug
-jig_version: 1
+jig_version: 2
 status: ready
-status_values: [triaging, reproducing, locating, specifying-fix, ready]
+status_values: [reported, research, reproducing, root-cause, fix-spec, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []
@@ -376,11 +376,11 @@ implementation:
 `
 	os.WriteFile(filepath.Join(workDir, "spec.yaml"), []byte(workSpec), 0644)
 	os.WriteFile(filepath.Join(workDir, "SESSION.md"), []byte("s"), 0644)
-	os.WriteFile(filepath.Join(workDir, "01-triage.md"), []byte("t"), 0644)
-	os.WriteFile(filepath.Join(workDir, "02-reproduction.md"), []byte("r"), 0644)
-	os.WriteFile(filepath.Join(workDir, "03-root-cause.md"), []byte("c"), 0644)
-	os.WriteFile(filepath.Join(workDir, "04-fix-spec.md"), []byte("f"), 0644)
-	os.WriteFile(filepath.Join(workDir, "05-test-cases.md"), []byte("tc"), 0644)
+	os.WriteFile(filepath.Join(workDir, "01-report.md"), []byte("r"), 0644)
+	os.WriteFile(filepath.Join(workDir, "02-research.md"), []byte("rs"), 0644)
+	os.WriteFile(filepath.Join(workDir, "03-reproduction.md"), []byte("rp"), 0644)
+	os.WriteFile(filepath.Join(workDir, "04-root-cause.md"), []byte("c"), 0644)
+	os.WriteFile(filepath.Join(workDir, "05-fix-spec.md"), []byte("f"), 0644)
 
 	out := captureOutput(t, func() {
 		projectFlag = proj
@@ -409,9 +409,9 @@ type: bug
 project:
   id: unres
 jig: bug
-jig_version: 1
+jig_version: 2
 status: ready
-status_values: [triaging, reproducing, locating, specifying-fix, ready]
+status_values: [reported, research, reproducing, root-cause, fix-spec, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []
@@ -425,11 +425,11 @@ implementation:
 `
 	os.WriteFile(filepath.Join(workDir, "spec.yaml"), []byte(workSpec), 0644)
 	os.WriteFile(filepath.Join(workDir, "SESSION.md"), []byte("s"), 0644)
-	os.WriteFile(filepath.Join(workDir, "01-triage.md"), []byte("t"), 0644)
-	os.WriteFile(filepath.Join(workDir, "02-reproduction.md"), []byte("r"), 0644)
-	os.WriteFile(filepath.Join(workDir, "03-root-cause.md"), []byte("c"), 0644)
-	os.WriteFile(filepath.Join(workDir, "04-fix-spec.md"), []byte("f"), 0644)
-	os.WriteFile(filepath.Join(workDir, "05-test-cases.md"), []byte("tc"), 0644)
+	os.WriteFile(filepath.Join(workDir, "01-report.md"), []byte("r"), 0644)
+	os.WriteFile(filepath.Join(workDir, "02-research.md"), []byte("rs"), 0644)
+	os.WriteFile(filepath.Join(workDir, "03-reproduction.md"), []byte("rp"), 0644)
+	os.WriteFile(filepath.Join(workDir, "04-root-cause.md"), []byte("c"), 0644)
+	os.WriteFile(filepath.Join(workDir, "05-fix-spec.md"), []byte("f"), 0644)
 
 	out := captureOutput(t, func() {
 		projectFlag = proj
@@ -554,7 +554,7 @@ func TestIntegration_StatusWriteCreatesSnapshot(t *testing.T) {
 	captureOutput(t, func() {
 		projectFlag = proj
 		defer func() { projectFlag = "" }()
-		statusCmd.RunE(statusCmd, []string{"snap-work", "decomposition"})
+		statusCmd.RunE(statusCmd, []string{"snap-work", "analyze"})
 	})
 
 	// Check .history/ was created with a snapshot.

@@ -16,13 +16,14 @@ var builtinFS embed.FS
 
 // JigDefinition represents a parsed jig file.
 type JigDefinition struct {
-	Name         string   `yaml:"name"`
-	Description  string   `yaml:"description"`
-	Version      int      `yaml:"version"`
-	StatusValues []string `yaml:"status_values"`
-	Passes       []Pass   `yaml:"passes"`
+	Name          string   `yaml:"name"`
+	Description   string   `yaml:"description"`
+	Version       int      `yaml:"version"`
+	Aliases       []string `yaml:"aliases"`
+	StatusValues  []string `yaml:"status_values"`
+	Passes        []Pass   `yaml:"passes"`
 	FileStructure []string `yaml:"file_structure"`
-	Body         string   `yaml:"-"`
+	Body          string   `yaml:"-"`
 }
 
 // Pass represents a single pass within a jig.
@@ -38,6 +39,7 @@ type JigSummary struct {
 	Description string
 	Version     int
 	Source      string // "user" or "built-in"
+	Aliases     []string
 }
 
 // Parse parses a jig file (YAML frontmatter + markdown body) into a JigDefinition.
@@ -196,10 +198,11 @@ func (j *JigDefinition) VersionMismatch(specVersion int) bool {
 	return j.Version != specVersion
 }
 
-// Resolve resolves a jig by name. It checks user-level jigs first, then built-in.
+// Resolve resolves a jig by name. It checks user-level jigs first, then built-in
+// by filename, then built-in by alias.
 // Returns the parsed jig, the source ("user" or "built-in"), and any error.
 func Resolve(name string, userJigsDir string) (*JigDefinition, string, error) {
-	// 1. Check user-level jigs
+	// 1. Check user-level jigs by filename
 	if userJigsDir != "" {
 		userPath := filepath.Join(userJigsDir, name+".md")
 		if data, err := os.ReadFile(userPath); err == nil {
@@ -211,18 +214,49 @@ func Resolve(name string, userJigsDir string) (*JigDefinition, string, error) {
 		}
 	}
 
-	// 2. Check built-in jigs
+	// 2. Check built-in jigs by filename
 	builtinPath := "builtin/" + name + ".md"
-	data, err := builtinFS.ReadFile(builtinPath)
-	if err != nil {
-		return nil, "", fmt.Errorf("jig %q not found", name)
+	if data, err := builtinFS.ReadFile(builtinPath); err == nil {
+		jig, err := Parse(data)
+		if err != nil {
+			return nil, "", fmt.Errorf("built-in jig %q is invalid: %w", name, err)
+		}
+		return jig, "built-in", nil
 	}
 
-	jig, err := Parse(data)
-	if err != nil {
-		return nil, "", fmt.Errorf("built-in jig %q is invalid: %w", name, err)
+	// 3. Check built-in jigs by alias
+	if j, err := resolveBuiltinAlias(name); err == nil {
+		return j, "built-in", nil
 	}
-	return jig, "built-in", nil
+
+	return nil, "", fmt.Errorf("jig %q not found", name)
+}
+
+// resolveBuiltinAlias scans all built-in jigs for one whose aliases include the given name.
+func resolveBuiltinAlias(name string) (*JigDefinition, error) {
+	entries, err := builtinFS.ReadDir("builtin")
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		data, err := builtinFS.ReadFile("builtin/" + e.Name())
+		if err != nil {
+			continue
+		}
+		j, err := Parse(data)
+		if err != nil {
+			continue
+		}
+		for _, alias := range j.Aliases {
+			if alias == name {
+				return j, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("no built-in jig has alias %q", name)
 }
 
 // ListAll enumerates all available jigs from user-level and built-in sources.
@@ -285,6 +319,7 @@ func ListAll(userJigsDir string) ([]JigSummary, error) {
 			Description: jig.Description,
 			Version:     jig.Version,
 			Source:      "built-in",
+			Aliases:     jig.Aliases,
 		})
 	}
 
@@ -292,8 +327,20 @@ func ListAll(userJigsDir string) ([]JigSummary, error) {
 }
 
 // ReadBuiltinRaw returns the raw content of a built-in jig file.
+// If no file matches by filename, it resolves aliases and returns the
+// canonical jig's content.
 func ReadBuiltinRaw(name string) ([]byte, error) {
-	return builtinFS.ReadFile("builtin/" + name + ".md")
+	// Try direct filename first.
+	if data, err := builtinFS.ReadFile("builtin/" + name + ".md"); err == nil {
+		return data, nil
+	}
+
+	// Try alias resolution.
+	j, err := resolveBuiltinAlias(name)
+	if err != nil {
+		return nil, fmt.Errorf("built-in jig %q not found", name)
+	}
+	return builtinFS.ReadFile("builtin/" + j.Name + ".md")
 }
 
 // SaveToUser writes a jig file to the user's jigs directory.

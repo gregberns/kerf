@@ -18,7 +18,8 @@ func TestJigListCommand(t *testing.T) {
 	})
 
 	testutil.AssertStringContains(t, out, "Available jigs:")
-	testutil.AssertStringContains(t, out, "feature")
+	testutil.AssertStringContains(t, out, "plan (also: feature)")
+	testutil.AssertStringContains(t, out, "spec")
 	testutil.AssertStringContains(t, out, "bug")
 	testutil.AssertStringContains(t, out, "built-in")
 }
@@ -30,10 +31,10 @@ func TestJigListCommand_MixedSources(t *testing.T) {
 	jigsDir := filepath.Join(tmp, ".kerf", "jigs")
 	os.MkdirAll(jigsDir, 0755)
 
-	// Create a user override for feature jig.
+	// Create a user override for plan jig.
 	userContent := `---
-name: feature
-description: Custom feature
+name: plan
+description: Custom plan
 version: 99
 status_values: [a, b]
 passes:
@@ -44,13 +45,13 @@ passes:
 
 # Custom
 `
-	os.WriteFile(filepath.Join(jigsDir, "feature.md"), []byte(userContent), 0644)
+	os.WriteFile(filepath.Join(jigsDir, "plan.md"), []byte(userContent), 0644)
 
 	out := captureOutput(t, func() {
 		jigListCmd.RunE(jigListCmd, []string{})
 	})
 
-	testutil.AssertStringContains(t, out, "feature")
+	testutil.AssertStringContains(t, out, "plan")
 	testutil.AssertStringContains(t, out, "user")
 	testutil.AssertStringContains(t, out, "bug")
 }
@@ -61,14 +62,27 @@ func TestJigShowCommand_Builtin(t *testing.T) {
 	os.MkdirAll(filepath.Join(tmp, ".kerf"), 0755)
 
 	out := captureOutput(t, func() {
-		jigShowCmd.RunE(jigShowCmd, []string{"feature"})
+		jigShowCmd.RunE(jigShowCmd, []string{"plan"})
 	})
 
-	testutil.AssertStringContains(t, out, "Jig: feature")
+	testutil.AssertStringContains(t, out, "Jig: plan")
 	testutil.AssertStringContains(t, out, "Status values:")
 	testutil.AssertStringContains(t, out, "Passes:")
 	testutil.AssertStringContains(t, out, "Problem Space")
 	testutil.AssertStringContains(t, out, "File structure:")
+}
+
+func TestJigShowCommand_Alias(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	os.MkdirAll(filepath.Join(tmp, ".kerf"), 0755)
+
+	out := captureOutput(t, func() {
+		jigShowCmd.RunE(jigShowCmd, []string{"feature"})
+	})
+
+	// "feature" resolves to "plan" via alias
+	testutil.AssertStringContains(t, out, "Jig: plan")
 }
 
 func TestJigShowCommand_NotFound(t *testing.T) {
@@ -89,9 +103,24 @@ func TestJigSaveCommand_FromBuiltin(t *testing.T) {
 
 	out := captureOutput(t, func() {
 		jigSaveFrom = ""
+		jigSaveCmd.RunE(jigSaveCmd, []string{"plan"})
+	})
+
+	testutil.AssertStringContains(t, out, "Jig 'plan' saved to")
+	testutil.AssertFileExists(t, filepath.Join(tmp, ".kerf", "jigs", "plan.md"))
+}
+
+func TestJigSaveCommand_FromAlias(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	os.MkdirAll(filepath.Join(tmp, ".kerf"), 0755)
+
+	out := captureOutput(t, func() {
+		jigSaveFrom = ""
 		jigSaveCmd.RunE(jigSaveCmd, []string{"feature"})
 	})
 
+	// "feature" alias resolves to plan jig content via ReadBuiltinRaw
 	testutil.AssertStringContains(t, out, "Jig 'feature' saved to")
 	testutil.AssertFileExists(t, filepath.Join(tmp, ".kerf", "jigs", "feature.md"))
 }

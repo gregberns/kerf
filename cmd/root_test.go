@@ -62,13 +62,13 @@ func captureOutput(t *testing.T, fn func()) string {
 func writeMinimalSpec(t *testing.T, path, codename, projectID string) {
 	t.Helper()
 	content := `codename: ` + codename + `
-type: feature
+type: plan
 project:
   id: ` + projectID + `
-jig: feature
+jig: plan
 jig_version: 1
 status: problem-space
-status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+status_values: [problem-space, analyze, decompose, research, change-spec, integration, tasks, ready]
 created: 2026-04-09T00:00:00Z
 updated: 2026-04-09T00:00:00Z
 sessions: []

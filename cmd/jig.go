@@ -49,11 +49,21 @@ func runJigList() error {
 		return nil
 	}
 
+	// Build display name with aliases.
+	displayNames := make([]string, len(summaries))
+	for i, s := range summaries {
+		dn := s.Name
+		if len(s.Aliases) > 0 {
+			dn += " (also: " + strings.Join(s.Aliases, ", ") + ")"
+		}
+		displayNames[i] = dn
+	}
+
 	// Column widths.
 	maxName, maxDesc := 0, 0
-	for _, s := range summaries {
-		if len(s.Name) > maxName {
-			maxName = len(s.Name)
+	for i, s := range summaries {
+		if len(displayNames[i]) > maxName {
+			maxName = len(displayNames[i])
 		}
 		if len(s.Description) > maxDesc {
 			maxDesc = len(s.Description)
@@ -61,9 +71,9 @@ func runJigList() error {
 	}
 
 	fmt.Println("Available jigs:")
-	for _, s := range summaries {
+	for i, s := range summaries {
 		fmt.Printf("  %-*s  %-*s  v%d  %s\n",
-			maxName, s.Name,
+			maxName, displayNames[i],
 			maxDesc, s.Description,
 			s.Version,
 			s.Source,

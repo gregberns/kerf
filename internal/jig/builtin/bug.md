@@ -1,160 +1,227 @@
 ---
 name: bug
-description: Structured investigation and resolution of defects
-version: 1
+description: Investigate and specify a fix for a defect.
+version: 2
 status_values:
-  - triaging
+  - reported
+  - research
   - reproducing
-  - locating
-  - specifying-fix
+  - root-cause
+  - fix-spec
   - ready
 passes:
-  - name: "Triage"
-    status: triaging
-    output: ["01-triage.md"]
+  - name: "Report"
+    status: reported
+    output: ["01-report.md"]
+  - name: "Research"
+    status: research
+    output: ["02-research.md"]
   - name: "Reproduce"
     status: reproducing
-    output: ["02-reproduction.md"]
-  - name: "Locate"
-    status: locating
-    output: ["03-root-cause.md"]
-  - name: "Specify Fix"
-    status: specifying-fix
-    output: ["04-fix-spec.md", "05-test-cases.md"]
+    output: ["03-reproduction.md"]
+  - name: "Root Cause"
+    status: root-cause
+    output: ["04-root-cause.md"]
+  - name: "Fix Spec"
+    status: fix-spec
+    output: ["05-fix-spec.md"]
+  - name: "Ready"
+    status: ready
+    output: []
 file_structure:
   - spec.yaml
   - SESSION.md
-  - 01-triage.md
-  - 02-reproduction.md
-  - 03-root-cause.md
-  - 04-fix-spec.md
-  - 05-test-cases.md
+  - 01-report.md
+  - 02-research.md
+  - 03-reproduction.md
+  - 04-root-cause.md
+  - 05-fix-spec.md
 ---
 
 # Bug Investigation Jig
 
 ## Overview
 
-Something is broken. This jig guides you through understanding what is wrong, proving it, finding the cause, and defining the fix — before any code is written. It produces a complete investigation record and fix specification through four passes.
+Something is broken. This jig guides you through understanding what is wrong, proving it, finding the cause, and defining the fix -- before any code is written. It produces a complete investigation record and fix specification through six passes.
 
 Each pass produces one or more files. If work is not captured in a file, it is lost when the session ends.
 
-## Pass 1: Triage
+## Pass 1: Report (reported)
 
-**Goal:** Assess the bug report to understand what is broken and how severe it is.
+**Output:** `01-report.md`
 
-You are assessing a bug report to understand what is broken and how severe it is. This pass establishes the facts before any investigation begins.
+Capture a clear, precise bug report that establishes the facts before any investigation begins.
 
 **What to do:**
 
 1. Read the bug report or user description carefully. Identify what behavior was observed and what behavior was expected.
 2. Capture the reported behavior and expected behavior as precise, observable statements. "The CLI returns exit code 0 when validation fails" not "it doesn't work right."
-3. Identify affected systems, components, users, or environments. Be specific — name the command, endpoint, module, or subsystem.
-4. Assess severity:
-   - **Critical** — data loss, security vulnerability, or complete feature unavailability
-   - **High** — major functionality broken, no workaround
-   - **Medium** — functionality impaired, workaround exists
-   - **Low** — cosmetic, minor inconvenience, or edge case
-5. Gather any existing evidence: error messages, log output, stack traces, screenshots, or links to related issues.
-6. Determine whether this is actually a bug, a feature gap, or a misunderstanding. If it is not a bug, document that conclusion and stop.
+3. Identify the affected area -- the command, endpoint, module, or subsystem where the bug manifests.
+4. Record environment details if known: OS, versions, configuration, dependencies.
+5. Collect any existing evidence: error messages, log output, stack traces, screenshots, or links to related issues.
+6. Record steps to reproduce if the reporter provided them. If not, note that reproduction steps are unknown -- Research and Reproduce passes will establish them.
+7. Assess severity and impact:
+   - **Critical** -- data loss, security vulnerability, or complete feature unavailability
+   - **High** -- major functionality broken, no workaround
+   - **Medium** -- functionality impaired, workaround exists
+   - **Low** -- cosmetic, minor inconvenience, or edge case
+8. Determine whether this is actually a bug, a feature gap, or a misunderstanding. If it is not a bug, document that conclusion and stop.
+9. Save to `01-report.md`. Advance status to `research`.
 
-**What "done" looks like:**
+**What done looks like:**
 
-`01-triage.md` contains:
-- Reported behavior — what was observed
-- Expected behavior — what should have happened
-- Affected area — systems, components, environments
-- Severity — critical / high / medium / low, with justification
-- Evidence — any logs, errors, or artifacts collected
-- Assessment — confirmed bug, feature gap, or needs more information
+- `01-report.md` contains: reported behavior, expected behavior, affected area, environment (if known), evidence collected, steps to reproduce (if known), severity with justification, and assessment (confirmed bug / feature gap / needs investigation)
+- The report is precise enough that another agent reading it could begin investigating without asking clarifying questions
 
-Advance status to `reproducing`.
+## Pass 2: Research (research)
 
-## Pass 2: Reproduce
+**Output:** `02-research.md`
 
-**Goal:** Create a reliable reproduction case that proves the bug exists.
-
-You are proving the bug exists and narrowing it to the minimal reproduction. A bug that cannot be reliably reproduced cannot be reliably fixed.
+Investigate the codebase to understand the problem area before attempting reproduction. Structure the investigation around explicit questions.
 
 **What to do:**
 
-1. Define the exact steps to reproduce the bug. Number each step. Include specific inputs, commands, or actions.
+1. Based on the bug report, formulate 3-5 specific investigation questions. These should guide the research and produce concrete answers. Examples:
+   - "What code handles this endpoint/command/path?"
+   - "How is this input validated and processed?"
+   - "When was this code last modified, and what changed?"
+   - "Are there existing tests covering this behavior?"
+   - "Are there related bug reports or known issues?"
+2. For each question, investigate systematically:
+   - Read the relevant source code. Trace the execution path from the entry point through the affected area.
+   - Check git history for recent changes to the affected code.
+   - Search for related issues, error patterns, or similar bugs elsewhere in the codebase.
+   - Review existing tests to understand what is and is not covered.
+3. Document each question and its findings. Be specific -- name files, functions, line ranges, commit hashes.
+4. Identify any surprising discoveries or additional questions that emerged during research.
+5. Save to `02-research.md`. Advance status to `reproducing`.
+
+**What done looks like:**
+
+- `02-research.md` contains: each investigation question with its findings, relevant code paths identified, recent changes noted, test coverage assessment, and any additional questions or surprises discovered
+- The research provides enough understanding of the problem area to inform reproduction and root cause analysis
+
+## Pass 3: Reproduce (reproducing)
+
+**Output:** `03-reproduction.md`
+
+Build a minimal reproduction case that proves the bug exists and isolates the triggering conditions.
+
+**What to do:**
+
+1. Using the bug report and research findings, define exact steps to reproduce the bug. Number each step. Include specific inputs, commands, or actions.
 2. Execute the steps and confirm the bug occurs. Record the actual output.
-3. Narrow to the minimal reproduction — the smallest set of steps, inputs, and configuration that triggers the bug.
-4. Document environment requirements: OS, versions, configuration, dependencies, or state that must be present.
+3. Narrow to the minimal reproduction -- the smallest set of steps, inputs, and configuration that triggers the bug. Remove anything unnecessary.
+4. Document environment requirements: OS, versions, configuration, dependencies, or state that must be present for the bug to manifest.
 5. If the bug cannot be reproduced:
    - Document every approach attempted and why each failed.
-   - Note whether the bug is intermittent, environment-specific, or dependent on state.
-   - Escalate to the user. Do not proceed to Pass 3 without either a reproduction or an explicit decision from the user to continue.
+   - Note whether the bug is intermittent, environment-specific, or dependent on state that is difficult to recreate.
+   - Escalate to the user with a clear summary of what was tried. Do not proceed to Pass 4 without either a reproduction or an explicit decision from the user to continue.
+6. Save to `03-reproduction.md`. Advance status to `root-cause`.
 
-**What "done" looks like:**
+**What done looks like:**
 
-`02-reproduction.md` contains:
-- Steps to reproduce — numbered, exact steps
-- Minimal reproduction — the smallest case that triggers the bug
-- Environment — OS, versions, config, dependencies
-- Observed output — what happens when the steps are followed
-- Reproduction status — reliably reproduced / intermittent / not reproduced
+- `03-reproduction.md` contains: numbered steps to reproduce, minimal reproduction case, environment requirements, observed output, and reproduction status (reliably reproduced / intermittent / not reproduced)
+- Another agent or developer can follow the steps and observe the same bug
 
-Advance status to `locating`.
+## Pass 4: Root Cause (root-cause)
 
-## Pass 3: Locate
+**Output:** `04-root-cause.md`
 
-**Goal:** Trace the reproduction through the codebase to find the root cause.
-
-You are tracing the bug from its entry point to the root cause. The goal is to understand the defect deeply enough to specify a fix, not just to find a line number.
+Based on research and reproduction, identify why the bug exists -- not just where the code fails, but the underlying defect.
 
 **What to do:**
 
-1. Trace the reproduction steps through the code. Start at the entry point and follow the execution path.
-2. Identify the specific code path that fails. Name the file, function, and line range.
-3. Determine *why* the code fails, not just *where*. Explain the logical error, incorrect assumption, missing check, or race condition.
-4. Search for related issues — similar patterns elsewhere in the codebase that may have the same flaw.
-5. Determine the blast radius of a fix: what other code paths, features, or behaviors depend on or are affected by the code that must change.
+1. Trace the reproduction steps through the code path identified during Research. Follow execution from the entry point to the failure.
+2. Identify the specific defect: what the code does wrong and why. Explain the logical error, incorrect assumption, missing check, race condition, or other flaw.
+3. Determine when the bug was introduced, if possible. Check git history for the commit that introduced or exposed the defect.
+4. Assess the blast radius -- what other code paths, features, or behaviors depend on or are affected by the broken code. Cross-reference with Research findings on related patterns.
+5. Summarize the root cause in one sentence that another developer would understand without reading the full analysis.
+6. Save to `04-root-cause.md`. Advance status to `fix-spec`.
 
-**What "done" looks like:**
+**What done looks like:**
 
-`03-root-cause.md` contains:
-- Entry point — where execution begins for the reproduction case
-- Execution trace — the code path from entry to failure
-- Root cause — the specific defect: what the code does wrong and why
-- Related patterns — other locations with the same or similar issue
-- Blast radius — what else is affected by the code that must change
+- `04-root-cause.md` contains: one-sentence root cause summary, detailed explanation of the defect, execution trace from entry to failure (with file/function references), when introduced (if determinable), and blast radius assessment
+- The root cause explains *why* the bug exists, not just *where* the code fails
 
-Advance status to `specifying-fix`.
+### Review Criteria
 
-## Pass 4: Specify Fix
+After completing this pass, spawn a review sub-agent with:
+- `04-root-cause.md`
+- `02-research.md` (for cross-reference)
+- `03-reproduction.md` (to verify the trace matches the reproduction)
 
-**Goal:** Define what the fix should look like — approach, risks, and test cases.
+The reviewer checks:
+- The root cause explains *why*, not just *where*
+- The execution trace is consistent with the reproduction steps
+- The blast radius assessment is complete
+- Research findings are incorporated, not contradicted
+- The one-sentence summary accurately captures the defect
 
-You are specifying the fix so that an implementing agent knows exactly what to change. Do not write implementation code — describe the change at the level of logic and structure.
+Up to 3 review rounds. Save findings to `root-cause-review.md`.
+
+## Pass 5: Fix Spec (fix-spec)
+
+**Output:** `05-fix-spec.md`
+
+Specify the fix so that an implementing agent knows exactly what to change, without writing implementation code.
 
 **What to do:**
 
-1. Propose the fix approach. Describe the change at the level of logic and structure — what condition to add, what function to modify, what data flow to correct.
+1. Propose the fix approach. Describe the change at the level of logic and structure -- what condition to add, what function to modify, what data flow to correct. Do not write implementation code.
 2. If there are multiple viable approaches, list them with tradeoffs and recommend one.
-3. Identify risks or side effects of the fix.
-4. Define test cases that verify the fix works:
+3. Identify risks or side effects of the fix. Will it change any public API? Affect performance? Alter behavior in cases that currently work correctly?
+4. If this is a spec-first project: identify what spec changes are needed to reflect the correct behavior.
+5. Define acceptance criteria -- concrete, testable conditions that confirm the fix works:
    - The original reproduction case passes after the fix.
-   - Any boundary conditions around the fix are covered.
-5. Define regression tests that prevent recurrence.
-6. Estimate the scope of changes: which files change, approximate number of changes, and complexity.
+   - Boundary conditions around the fix are covered.
+   - Related patterns identified in Root Cause are addressed or explicitly scoped out.
+6. Define tests to add or modify:
+   - Tests that verify the fix resolves the bug.
+   - Regression tests that prevent recurrence.
+   - Tests for blast radius areas, if applicable.
+7. Estimate scope: which files change, approximate number of changes, and complexity (trivial / straightforward / involved).
+8. Save to `05-fix-spec.md`. Advance status to `ready`.
 
-**What "done" looks like:**
+**What done looks like:**
 
-`04-fix-spec.md` contains:
-- Proposed fix — the approach, described structurally
-- Alternatives considered — other approaches and why they were not chosen
-- Risks and side effects — what could go wrong or change unexpectedly
-- Scope estimate — files affected, approximate size, complexity
+- `05-fix-spec.md` contains: proposed fix approach, alternatives considered (if any), risks and side effects, spec changes needed (if spec-first), acceptance criteria, tests to add/modify, and scope estimate
+- An implementing agent can read this file and know exactly what to change and how to verify the fix
 
-`05-test-cases.md` contains:
-- Verification tests — tests that confirm the fix resolves the bug
-- Regression tests — tests that prevent recurrence
-- Edge cases — boundary conditions worth covering
+### Review Criteria
 
-Run `kerf square <codename>` to verify structural completeness. When verification passes and the user approves, advance status to `ready`.
+After completing this pass, spawn a review sub-agent with:
+- `05-fix-spec.md`
+- `04-root-cause.md` (to verify the fix addresses the root cause)
+- `01-report.md` (to verify acceptance criteria cover the reported behavior)
+
+The reviewer checks:
+- The fix addresses the root cause, not just the symptom
+- Acceptance criteria are concrete and testable
+- Risks and side effects are realistic
+- Scope estimate is plausible given the root cause and proposed approach
+- If spec-first: spec changes are identified and consistent with the fix
+
+Up to 3 review rounds. Save findings to `fix-spec-review.md`.
+
+## Pass 6: Ready (ready)
+
+**Output:** (none)
+
+Run `kerf square <codename>` to verify all expected artifacts exist. The bug investigation is complete and the fix spec is ready for implementation.
+
+**What to do:**
+
+1. Run `kerf square <codename>` to verify all expected artifacts exist.
+2. If square fails, return to the appropriate pass to produce the missing artifacts.
+3. Once square passes, the bug investigation is complete.
+
+**What done looks like:**
+
+- `kerf square` reports SQUARE
+- All 5 artifact files exist and are populated
+- The fix spec is specific enough for an implementer to act on without additional context
 
 ## Finalization
 
-When this work moves to `ready`, run `kerf square <codename>` to verify, then `kerf finalize <codename>` to package it for implementation.
+When this work moves to `ready`, run `kerf square <codename>` to verify, then `kerf finalize <codename>` to package the investigation and fix spec for implementation handoff.
