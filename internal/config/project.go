@@ -14,6 +14,41 @@ type ProjectConfig struct {
 	Jigs   []string            `yaml:"jigs,omitempty"`
 	Passes map[string][]string `yaml:"passes,omitempty"`
 	Tools  map[string]string   `yaml:"tools,omitempty"`
+	Queue  *QueueConfig        `yaml:"queue,omitempty"`
+}
+
+// QueueConfig holds project overrides for queue scoring weights.
+// Fields are pointers so an unset field falls back to the queue package default.
+type QueueConfig struct {
+	FanOut   *float64 `yaml:"fan_out,omitempty"`
+	Momentum *float64 `yaml:"momentum,omitempty"`
+	Creation *float64 `yaml:"creation,omitempty"`
+}
+
+// ResolvedQueueWeights is the result of overlaying QueueConfig on defaults.
+type ResolvedQueueWeights struct {
+	FanOut   float64
+	Momentum float64
+	Creation float64
+}
+
+// QueueWeights returns the effective queue weights for this project, with any
+// unset fields filled in from the supplied defaults.
+func (c *ProjectConfig) QueueWeights(defaults ResolvedQueueWeights) ResolvedQueueWeights {
+	out := defaults
+	if c == nil || c.Queue == nil {
+		return out
+	}
+	if c.Queue.FanOut != nil {
+		out.FanOut = *c.Queue.FanOut
+	}
+	if c.Queue.Momentum != nil {
+		out.Momentum = *c.Queue.Momentum
+	}
+	if c.Queue.Creation != nil {
+		out.Creation = *c.Queue.Creation
+	}
+	return out
 }
 
 // LoadProjectConfig reads and parses project.yaml from the given path.

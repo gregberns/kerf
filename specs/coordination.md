@@ -149,6 +149,23 @@ These factors compose into a ranking that `kerf next` computes fresh on each inv
 
 The ordering algorithm lives in one place in the codebase — the `kerf next` computation. The weights and parameters are expected to be configurable over time as real-world usage reveals optimal patterns. Some factors may initially be hardcoded; when they are, they should be obvious and localized so they can be extracted into configuration later.
 
+#### Configurable Weights
+
+Three scoring weights are read from `project.yaml` under a `queue:` section:
+
+- `fan_out` — multiplier applied per transitive downstream dependent a work unblocks. Default: `10.0`.
+- `momentum` — multiplier applied to the completed/total bead ratio (a work at 100% completion gets the full value added). Default: `5.0`.
+- `creation` — small tiebreaker added per position from newest, favoring older works. Default: `0.1`.
+
+```yaml
+queue:
+  fan_out: 10.0
+  momentum: 5.0
+  creation: 0.1
+```
+
+When the `queue:` section is absent, or any individual field is unset, the defaults above are used. Each field is independent — specifying `fan_out` alone leaves `momentum` and `creation` at their defaults.
+
 ### Batches Are Ephemeral
 
 When an agent pulls multiple beads to work on together (e.g., beads in the same area), that grouping is a batch. Batches are ephemeral — assembled, worked, done. kerf does not store dispatch history or batch records. The beads themselves carry all necessary traceability; the batch is just a transient convenience.

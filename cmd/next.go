@@ -10,6 +10,7 @@ import (
 	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
+	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/queue"
 	"github.com/gberns/kerf/internal/spec"
 )
@@ -115,8 +116,22 @@ func runNext() error {
 		}
 	}
 
+	// Resolve queue weights: defaults overlaid with any project.yaml overrides.
+	defaults := config.ResolvedQueueWeights{
+		FanOut:   queue.WeightFanOut,
+		Momentum: queue.WeightMomentum,
+		Creation: queue.WeightCreation,
+	}
+	projCfg, _ := config.LoadProjectConfig(config.ProjectConfigPath(bp, projectID))
+	resolved := projCfg.QueueWeights(defaults)
+	weights := queue.Weights{
+		FanOut:   resolved.FanOut,
+		Momentum: resolved.Momentum,
+		Creation: resolved.Creation,
+	}
+
 	// Compute the queue ordering.
-	entries := queue.Compute(works, beadsByWork)
+	entries := queue.Compute(works, beadsByWork, weights)
 
 	if len(entries) == 0 {
 		fmt.Printf("No actionable works for project '%s'.\n", projectID)

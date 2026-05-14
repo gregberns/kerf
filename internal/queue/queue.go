@@ -13,22 +13,28 @@ import (
 	"github.com/gberns/kerf/internal/spec"
 )
 
-// Priority weights. These are initial values; expected to become configurable.
+// Default priority weights. Used when a project.yaml does not override them.
 const (
-	// WeightFanOut rewards works that unblock many downstream works.
-	// Each direct or transitive dependent adds this much to the score.
-	WeightFanOut = 10.0
-
-	// WeightMomentum rewards works that are close to completion (high
-	// completed/total bead ratio). A work at 100% momentum gets this
-	// full value added to its score.
+	WeightFanOut   = 10.0
 	WeightMomentum = 5.0
-
-	// WeightCreation is a small tiebreaker that favors older works.
-	// Each position from newest gets this added (index 0 = oldest in
-	// the creation-sorted list).
 	WeightCreation = 0.1
 )
+
+// Weights controls the three scoring multipliers in Compute.
+type Weights struct {
+	FanOut   float64
+	Momentum float64
+	Creation float64
+}
+
+// DefaultWeights returns the built-in default scoring weights.
+func DefaultWeights() Weights {
+	return Weights{
+		FanOut:   WeightFanOut,
+		Momentum: WeightMomentum,
+		Creation: WeightCreation,
+	}
+}
 
 // Entry is a single item in the computed queue.
 type Entry struct {
@@ -47,7 +53,7 @@ type Entry struct {
 //  2. Filter out works whose must-complete-first dependencies are not met.
 //  3. Score remaining works by fan-out, momentum, and creation order.
 //  4. Sort by score descending.
-func Compute(works []*spec.SpecYAML, beadsByWork map[string]beads.EpicSummary) []Entry {
+func Compute(works []*spec.SpecYAML, beadsByWork map[string]beads.EpicSummary, weights Weights) []Entry {
 	if len(works) == 0 {
 		return nil
 	}
@@ -92,7 +98,7 @@ func Compute(works []*spec.SpecYAML, beadsByWork map[string]beads.EpicSummary) [
 
 		// Fan-out score.
 		fo := fanOut[w.Codename]
-		foScore := float64(fo) * WeightFanOut
+		foScore := float64(fo) * weights.FanOut
 		if fo > 0 {
 			reasons = append(reasons, fmt.Sprintf("unblocks %d work(s) (+%.1f)", fo, foScore))
 		}
@@ -101,7 +107,7 @@ func Compute(works []*spec.SpecYAML, beadsByWork map[string]beads.EpicSummary) [
 		// Momentum score.
 		if summary, ok := beadsByWork[w.Codename]; ok && summary.Total > 0 {
 			ratio := float64(summary.Complete) / float64(summary.Total)
-			mScore := ratio * WeightMomentum
+			mScore := ratio * weights.Momentum
 			score += mScore
 			reasons = append(reasons, fmt.Sprintf("completion %d/%d (+%.1f)", summary.Complete, summary.Total, mScore))
 		}
@@ -144,7 +150,7 @@ func Compute(works []*spec.SpecYAML, beadsByWork map[string]beads.EpicSummary) [
 	// Apply creation order score: oldest (index 0) gets the highest boost.
 	n := len(pairs)
 	for i := range pairs {
-		creationScore := float64(n-1-i) * WeightCreation
+		creationScore := float64(n-1-i) * weights.Creation
 		pairs[i].entry.Score += creationScore
 		if creationScore > 0 {
 			pairs[i].entry.Reasons = append(pairs[i].entry.Reasons,

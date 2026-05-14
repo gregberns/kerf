@@ -22,12 +22,12 @@ func makeWork(codename string, status string, statusValues []string, created tim
 var baseTime = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func TestEmptyInput(t *testing.T) {
-	result := Compute(nil, nil)
+	result := Compute(nil, nil, DefaultWeights())
 	if len(result) != 0 {
 		t.Errorf("expected empty result for nil input, got %d entries", len(result))
 	}
 
-	result = Compute([]*spec.SpecYAML{}, nil)
+	result = Compute([]*spec.SpecYAML{}, nil, DefaultWeights())
 	if len(result) != 0 {
 		t.Errorf("expected empty result for empty input, got %d entries", len(result))
 	}
@@ -38,7 +38,7 @@ func TestSingleWork(t *testing.T) {
 	w.Title = strPtr("Alpha Work")
 	w.Areas = []string{"cli"}
 
-	result := Compute([]*spec.SpecYAML{w}, nil)
+	result := Compute([]*spec.SpecYAML{w}, nil, DefaultWeights())
 	if len(result) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(result))
 	}
@@ -71,7 +71,7 @@ func TestTerminalStatusFiltered(t *testing.T) {
 			w := makeWork("done-work", tc.status,
 				[]string{"problem-space", "research", "ready"}, baseTime)
 
-			result := Compute([]*spec.SpecYAML{w}, nil)
+			result := Compute([]*spec.SpecYAML{w}, nil, DefaultWeights())
 			if len(result) != 0 {
 				t.Errorf("expected work with status %q to be filtered out, got %d entries", tc.status, len(result))
 			}
@@ -83,7 +83,7 @@ func TestShelvedFiltered(t *testing.T) {
 	w := makeWork("shelved-work", "shelved",
 		[]string{"problem-space", "research", "shelved", "ready"}, baseTime)
 
-	result := Compute([]*spec.SpecYAML{w}, nil)
+	result := Compute([]*spec.SpecYAML{w}, nil, DefaultWeights())
 	if len(result) != 0 {
 		t.Errorf("expected shelved work to be filtered out, got %d entries", len(result))
 	}
@@ -98,7 +98,7 @@ func TestUnmetDependenciesFiltered(t *testing.T) {
 		{Codename: "upstream", Relationship: "must-complete-first"},
 	}
 
-	result := Compute([]*spec.SpecYAML{upstream, downstream}, nil)
+	result := Compute([]*spec.SpecYAML{upstream, downstream}, nil, DefaultWeights())
 
 	// downstream should be filtered out because upstream is not terminal.
 	// upstream should remain.
@@ -119,7 +119,7 @@ func TestMetDependenciesNotFiltered(t *testing.T) {
 		{Codename: "upstream", Relationship: "must-complete-first"},
 	}
 
-	result := Compute([]*spec.SpecYAML{upstream, downstream}, nil)
+	result := Compute([]*spec.SpecYAML{upstream, downstream}, nil, DefaultWeights())
 
 	// upstream is terminal so filtered. downstream's dep is met so it stays.
 	if len(result) != 1 {
@@ -137,7 +137,7 @@ func TestUnresolvableDependencyDoesNotBlock(t *testing.T) {
 		{Codename: "nonexistent", Relationship: "must-complete-first"},
 	}
 
-	result := Compute([]*spec.SpecYAML{w}, nil)
+	result := Compute([]*spec.SpecYAML{w}, nil, DefaultWeights())
 	if len(result) != 1 {
 		t.Fatalf("expected 1 entry (unresolvable dep should not block), got %d", len(result))
 	}
@@ -160,7 +160,7 @@ func TestFanOutScoring(t *testing.T) {
 		[]string{"problem-space", "research", "ready"}, baseTime.Add(4*time.Hour))
 
 	// a, b, c are blocked (base not terminal), so only base and leaf are actionable.
-	result := Compute([]*spec.SpecYAML{base, a, b, c, leaf}, nil)
+	result := Compute([]*spec.SpecYAML{base, a, b, c, leaf}, nil, DefaultWeights())
 
 	if len(result) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(result))
@@ -188,7 +188,7 @@ func TestTransitiveFanOut(t *testing.T) {
 	leaf.DependsOn = []spec.Dependency{{Codename: "mid", Relationship: "must-complete-first"}}
 
 	// Only root is actionable (mid and leaf are blocked).
-	result := Compute([]*spec.SpecYAML{root, mid, leaf}, nil)
+	result := Compute([]*spec.SpecYAML{root, mid, leaf}, nil, DefaultWeights())
 	if len(result) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(result))
 	}
@@ -214,7 +214,7 @@ func TestMomentumScoring(t *testing.T) {
 		"just-started": {Total: 10, Complete: 1},
 	}
 
-	result := Compute([]*spec.SpecYAML{almostDone, justStarted}, beadsByWork)
+	result := Compute([]*spec.SpecYAML{almostDone, justStarted}, beadsByWork, DefaultWeights())
 	if len(result) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(result))
 	}
@@ -234,7 +234,7 @@ func TestCreationOrderTiebreaker(t *testing.T) {
 	newer := makeWork("newer", "research",
 		[]string{"problem-space", "research", "ready"}, baseTime.Add(24*time.Hour))
 
-	result := Compute([]*spec.SpecYAML{newer, older}, nil) // input order reversed
+	result := Compute([]*spec.SpecYAML{newer, older}, nil, DefaultWeights()) // input order reversed
 	if len(result) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(result))
 	}
@@ -274,7 +274,7 @@ func TestCombinedScoring(t *testing.T) {
 		"c": {Total: 10, Complete: 0},
 	}
 
-	result := Compute([]*spec.SpecYAML{a, b, c, d}, beadsByWork)
+	result := Compute([]*spec.SpecYAML{a, b, c, d}, beadsByWork, DefaultWeights())
 
 	// d is blocked, so only a, b, c should appear.
 	if len(result) != 3 {
@@ -306,7 +306,7 @@ func TestReasonsPopulated(t *testing.T) {
 		"base": {Total: 5, Complete: 3},
 	}
 
-	result := Compute([]*spec.SpecYAML{base, dep}, beadsByWork)
+	result := Compute([]*spec.SpecYAML{base, dep}, beadsByWork, DefaultWeights())
 	if len(result) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(result))
 	}
@@ -344,7 +344,7 @@ func TestNonBlockingRelationshipIgnored(t *testing.T) {
 		{Codename: "upstream", Relationship: "informs"},
 	}
 
-	result := Compute([]*spec.SpecYAML{upstream, downstream}, nil)
+	result := Compute([]*spec.SpecYAML{upstream, downstream}, nil, DefaultWeights())
 	// "informs" is not "must-complete-first", so downstream should not be filtered.
 	if len(result) != 2 {
 		t.Fatalf("expected 2 entries (informs doesn't block), got %d", len(result))
@@ -356,7 +356,7 @@ func TestNoBeadsData(t *testing.T) {
 		[]string{"problem-space", "research", "ready"}, baseTime)
 
 	// nil beads map — should not panic, momentum is just zero.
-	result := Compute([]*spec.SpecYAML{w}, nil)
+	result := Compute([]*spec.SpecYAML{w}, nil, DefaultWeights())
 	if len(result) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(result))
 	}
@@ -370,9 +370,47 @@ func TestZeroTotalBeads(t *testing.T) {
 		"zero-beads": {Total: 0, Complete: 0},
 	}
 
-	result := Compute([]*spec.SpecYAML{w}, beadsByWork)
+	result := Compute([]*spec.SpecYAML{w}, beadsByWork, DefaultWeights())
 	if len(result) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(result))
 	}
 	// Should not panic on divide-by-zero.
+}
+
+func TestCustomWeightsChangeOrdering(t *testing.T) {
+	blocker := makeWork("blocker", "research",
+		[]string{"problem-space", "research", "ready"}, baseTime)
+	downstream := makeWork("downstream", "problem-space",
+		[]string{"problem-space", "research", "ready"}, baseTime.Add(time.Hour))
+	downstream.DependsOn = []spec.Dependency{
+		{Codename: "blocker", Relationship: "must-complete-first"},
+	}
+	ahead := makeWork("ahead", "research",
+		[]string{"problem-space", "research", "ready"}, baseTime.Add(2*time.Hour))
+
+	beadsByWork := map[string]beads.EpicSummary{
+		"ahead": {Total: 10, Complete: 9},
+	}
+
+	works := []*spec.SpecYAML{blocker, downstream, ahead}
+
+	def := Compute(works, beadsByWork, DefaultWeights())
+	if len(def) != 2 {
+		t.Fatalf("expected 2 actionable entries, got %d", len(def))
+	}
+	if def[0].Codename != "blocker" {
+		t.Errorf("default weights: expected 'blocker' first, got %q", def[0].Codename)
+	}
+
+	custom := Compute(works, beadsByWork, Weights{FanOut: 1.0, Momentum: 100.0, Creation: 0.1})
+	if custom[0].Codename != "ahead" {
+		t.Errorf("custom weights: expected 'ahead' first under momentum-dominant weights, got %q", custom[0].Codename)
+	}
+
+	zero := Compute(works, beadsByWork, Weights{})
+	for _, e := range zero {
+		if e.Score != 0 {
+			t.Errorf("zero weights: expected score 0 for %s, got %.2f", e.Codename, e.Score)
+		}
+	}
 }

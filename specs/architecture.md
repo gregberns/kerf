@@ -187,6 +187,13 @@ The file `~/.kerf/projects/{project-id}/project.yaml` contains per-project setti
 # tools:
 #   orchestrator: ntm         # agent orchestration tool
 #   tasks: bd                 # task/bead management tool
+
+# Queue scoring weights for `kerf next`.
+# Any field omitted falls back to its default. See coordination.md.
+# queue:
+#   fan_out: 10.0
+#   momentum: 5.0
+#   creation: 0.1
 ```
 
 ### Semantics

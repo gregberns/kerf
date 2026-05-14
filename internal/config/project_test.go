@@ -166,6 +166,65 @@ func TestProjectConfigPath(t *testing.T) {
 	}
 }
 
+func TestLoadProjectConfigQueueSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "project.yaml")
+
+	content := `queue:
+  fan_out: 20.0
+  momentum: 2.5
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadProjectConfig(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Queue == nil {
+		t.Fatal("Queue section was not parsed")
+	}
+	if cfg.Queue.FanOut == nil || *cfg.Queue.FanOut != 20.0 {
+		t.Errorf("FanOut = %v, want 20.0", cfg.Queue.FanOut)
+	}
+	if cfg.Queue.Momentum == nil || *cfg.Queue.Momentum != 2.5 {
+		t.Errorf("Momentum = %v, want 2.5", cfg.Queue.Momentum)
+	}
+	if cfg.Queue.Creation != nil {
+		t.Errorf("Creation should be nil (unset), got %v", *cfg.Queue.Creation)
+	}
+
+	defaults := ResolvedQueueWeights{FanOut: 10.0, Momentum: 5.0, Creation: 0.1}
+	got := cfg.QueueWeights(defaults)
+	want := ResolvedQueueWeights{FanOut: 20.0, Momentum: 2.5, Creation: 0.1}
+	if got != want {
+		t.Errorf("QueueWeights = %+v, want %+v", got, want)
+	}
+}
+
+func TestQueueWeightsDefaultsWhenMissing(t *testing.T) {
+	defaults := ResolvedQueueWeights{FanOut: 10.0, Momentum: 5.0, Creation: 0.1}
+
+	// nil receiver should return defaults.
+	var nilCfg *ProjectConfig
+	if got := nilCfg.QueueWeights(defaults); got != defaults {
+		t.Errorf("nil cfg: got %+v, want %+v", got, defaults)
+	}
+
+	// Empty config with no queue section.
+	cfg := &ProjectConfig{}
+	if got := cfg.QueueWeights(defaults); got != defaults {
+		t.Errorf("empty cfg: got %+v, want %+v", got, defaults)
+	}
+
+	// Queue set but all fields nil.
+	cfg = &ProjectConfig{Queue: &QueueConfig{}}
+	if got := cfg.QueueWeights(defaults); got != defaults {
+		t.Errorf("empty queue: got %+v, want %+v", got, defaults)
+	}
+}
+
 func TestLoadProjectConfigUnknownKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "project.yaml")
