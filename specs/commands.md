@@ -83,7 +83,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 2. **Create the bench** if `~/.kerf/` does not exist. Create the `projects/` subdirectory and any needed project directory.
 3. **Resolve codename.** If no codename argument is provided, auto-generate an `adjective-noun` slug (e.g., `blue-bear`, `swift-maple`). Validate the codename format. Error if a work with this codename already exists in the project.
 4. **Resolve jig.** Look up the jig via the resolution order (see [jig-system.md](jig-system.md)). Error if the jig is not found.
-5. **Create the work directory** at `~/.kerf/projects/{project-id}/{codename}/`.
+5. **Create the work directory** at the location dictated by the project's storage mode: `~/.kerf/projects/{project-id}/{codename}/` in bench mode, or `{repo}/.kerf/works/{codename}/` in local mode. If local mode is active and the bench symlink at `~/.kerf/projects/{project-id}` does not yet exist, kerf creates it pointing at `{repo}/.kerf/works/`. See [architecture.md](architecture.md#storage-modes).
 6. **Initialize `spec.yaml`** with: codename, title, type, project ID, jig name, jig version, initial status (first value in the jig's `status_values`), `created` and `updated` timestamps, empty `sessions` list, empty `depends_on` list, empty `related_to` list, null `implementation` fields, the jig's `status_values` list, and the `areas` list from `--area` flags (empty if none provided).
 7. **Check area overlap.** If `--area` flags were provided, scan other active (non-archived) works in the project for overlapping areas. If any other work shares an area, emit an overlap warning in the output (see Output below). This is informational — it does not block creation.
 8. **Record session.** Append a session entry to `sessions` with the current timestamp and `ended: null`. Set `active_session`.
@@ -1060,7 +1060,7 @@ kerf archive <codename>
 ### Behavior
 
 1. Resolve the project ID.
-2. Move the work directory from `~/.kerf/projects/{project-id}/{codename}/` to `~/.kerf/archive/{project-id}/{codename}/`.
+2. Move the work directory from its current location (the bench or the repo's `.kerf/works/`, depending on storage mode) to `~/.kerf/archive/{project-id}/{codename}/`. Archived works always live on the bench regardless of the project's storage mode.
 3. Create the archive project directory if it does not exist.
 
 ### Output
@@ -1168,7 +1168,7 @@ kerf init [--jig <plan|spec>]
 5. If `--jig` is provided, set `default_jig` in config and print confirmation.
 6. If `--jig` is not provided and `default_jig` is not set, print a note with the two options (`kerf config default_jig plan` and `kerf config default_jig spec`).
 7. **Prompt the user to select active jigs** for the project. Present the available jigs (from the jig library) and allow the user to choose which ones to activate. For composable jigs (e.g., `implementation`), also prompt for which passes to include.
-8. **Create `project.yaml`** at `~/.kerf/projects/{project-id}/project.yaml` with the selected jig and pass configuration. See [architecture.md](architecture.md) for the `project.yaml` schema.
+8. **Create `project.yaml`** with the selected jig and pass configuration. If `.kerf/config.yaml` already declares `storage: local`, write it to `{repo}/.kerf/project.yaml` and create the bench symlink at `~/.kerf/projects/{project-id}` pointing at `{repo}/.kerf/works/`. Otherwise write it to `~/.kerf/projects/{project-id}/project.yaml`. See [architecture.md](architecture.md) for the `project.yaml` schema and storage modes.
 9. **Run `kerf setup`** to generate agent-facing instructions from the project's active jigs. The setup output is included in the init output (see Output below).
 
 ### Output
@@ -1193,6 +1193,78 @@ The instructions are agent-agnostic. kerf does not know or reference any specifi
 |-----------|---------|
 | Not in a git repository | `Error: not in a git repository. kerf requires a git repo.` |
 | `--jig` value not `plan` or `spec` | `Error: --jig must be 'plan' or 'spec', got '{value}'.` |
+
+---
+
+## `kerf localize`
+
+### Purpose
+
+Migrate a project from bench storage to local storage. Moves all in-progress works from `~/.kerf/projects/{project-id}/` into `{repo}/.kerf/works/`, moves `project.yaml` (and `areas.yaml`, if present) into the repo, writes `storage: local` to `{repo}/.kerf/config.yaml`, and replaces the bench project directory with a symlink pointing at the repo's works directory. See [architecture.md](architecture.md#storage-modes).
+
+### Syntax
+
+```
+kerf localize [--project <project-id>]
+```
+
+### Arguments and Flags
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--project` | No | inferred from `.kerf/project-identifier` | Project ID to localize. Must be run from inside the target repo. |
+
+### Behavior
+
+1. Resolve the repo root from the current working directory. Error if not inside a git repository.
+2. Resolve the project ID.
+3. If `{repo}/.kerf/config.yaml` already declares `storage: local`, emit `Already using local storage for project '{id}'.` and exit.
+4. Verify `~/.kerf/projects/{project-id}/` exists and is a real directory (not already a symlink).
+5. Verify `{repo}/.kerf/works/` either does not exist or is empty.
+6. Create `{repo}/.kerf/works/`.
+7. Move each work directory from `~/.kerf/projects/{project-id}/` to `{repo}/.kerf/works/`.
+8. If `~/.kerf/projects/{project-id}/project.yaml` exists, move it to `{repo}/.kerf/project.yaml`. Same for `areas.yaml`.
+9. Remove the now-empty `~/.kerf/projects/{project-id}/` and replace it with a symlink to `{repo}/.kerf/works/`.
+10. Write `storage: local` to `{repo}/.kerf/config.yaml`.
+11. Print a summary including next-step git commands.
+
+### Atomicity
+
+If any move fails, kerf attempts to roll back the operation: move files back to the bench, remove the partial works directory, and avoid writing the symlink and repo config. The user receives the failure reason and the original state is preserved on a best-effort basis.
+
+### Output
+
+```
+Localized project '{project-id}' to {repo-root}/.kerf/works/
+Moved {n} works: {codename-1}, {codename-2}, ...
+Symlink: ~/.kerf/projects/{project-id} -> {repo-root}/.kerf/works/
+
+Next steps:
+  git add .kerf/config.yaml .kerf/works/
+  git commit -m "kerf: enable local storage"
+
+Tip: To exclude snapshots from git, add to .gitignore:
+  .kerf/works/*/.history/
+```
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| Not in a git repository | `Error: not in a git repository. Use --project <project-id> to specify a project.` |
+| Already local | `Already using local storage for project '{project-id}'.` |
+| Bench path is already a symlink | `Error: {path} is already a symlink; project may already be localized.` |
+| `.kerf/works/` exists and is non-empty | `Error: {path} already exists and is not empty; aborting.` |
+| Move failure | `Error: moving {codename}: {reason}. Localization aborted — no changes made.` |
+
+### Reverse migration
+
+There is no `kerf delocalize` command in v1. To revert manually:
+
+1. Move work directories from `{repo}/.kerf/works/` back to `~/.kerf/projects/{project-id}/`.
+2. Move `{repo}/.kerf/project.yaml` (and `areas.yaml`) back into `~/.kerf/projects/{project-id}/`.
+3. Remove the bench symlink at `~/.kerf/projects/{project-id}`.
+4. Remove the `storage:` field (or set to `bench`) in `{repo}/.kerf/config.yaml`.
 
 ---
 

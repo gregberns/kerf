@@ -11,6 +11,7 @@ import (
 
 	"github.com/gberns/kerf/internal/areas"
 	"github.com/gberns/kerf/internal/bench"
+	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/codename"
 	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/jig"
@@ -86,6 +87,14 @@ func runNew(cn string) error {
 		return err
 	}
 
+	r, err := cmdutil.Resolver(projectID)
+	if err != nil {
+		return err
+	}
+	if err := ensureLocalSymlink(r); err != nil {
+		return fmt.Errorf("preparing local storage: %w", err)
+	}
+
 	// 3. Resolve jig.
 	jigName := newJigFlag
 	if jigName == "" {
@@ -110,15 +119,15 @@ func runNew(cn string) error {
 	if err := codename.Validate(cn); err != nil {
 		return fmt.Errorf("codename must be lowercase alphanumeric and hyphens (matching [a-z0-9]+(-[a-z0-9]+)*)")
 	}
-	if bench.WorkExists(bp, projectID, cn) {
+	if r.WorkExists(cn) {
 		return fmt.Errorf("work '%s' already exists in project '%s'", cn, projectID)
 	}
 
 	// 5. Create work directory.
-	if err := bench.CreateWork(bp, projectID, cn); err != nil {
+	if err := r.CreateWork(cn); err != nil {
 		return err
 	}
-	workDir := bench.WorkDir(bp, projectID, cn)
+	workDir := r.WorkDir(cn)
 
 	// 6. Initialize spec.yaml.
 	workType := newType
@@ -179,7 +188,7 @@ func runNew(cn string) error {
 	// 8. Check area overlap.
 	var overlapEntries []areas.OverlapEntry
 	if len(workAreas) > 0 {
-		overlapEntries, _ = areas.FindOverlappingWorks(bp, projectID, workAreas, cn)
+		overlapEntries, _ = areas.FindOverlappingWorks(r, workAreas, cn)
 	}
 
 	// 9. Take snapshot.

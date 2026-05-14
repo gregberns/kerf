@@ -1,17 +1,19 @@
 # Architecture
 
-> Bench layout, project identity, and global configuration.
+> Bench layout, project identity, storage modes, and configuration.
 
 ## The Bench
 
-The **bench** is the root workspace directory where all kerf data lives. The default location is `~/.kerf/`.
+The **bench** is the root workspace directory where kerf indexes every project. The default location is `~/.kerf/`. Whether a project's work directories live on the bench or in the repo depends on its [storage mode](#storage-modes); in both cases the bench remains the universal index of all projects.
 
-The bench is outside any git repository. This separation ensures:
+The bench itself is outside any git repository. For bench-mode projects this means:
 
 - All worktrees for the same repo share the same works
 - No git operations (branches, commits, PRs) are required for spec work in progress
 - Multiple works can be in flight simultaneously without git conflicts
 - Works enter git only at [finalization](finalization.md)
+
+For projects using local storage, work directories live in the repo and the bench holds a symlink to them — see [Storage Modes](#storage-modes).
 
 ### Bench Directory Structure
 
@@ -23,16 +25,17 @@ The bench is outside any git repository. This separation ensures:
     {project-id}/
       {codename}/
   projects/
-    {project-id}/                # one directory per project
-      project.yaml               # per-project jig configuration (optional)
-      areas.yaml                 # area definitions for this project (see coordination.md)
+    {project-id}/                # one entry per project — directory (bench mode)
+                                 # or symlink to repo's .kerf/works/ (local mode)
+      project.yaml               # per-project jig configuration (bench mode only)
+      areas.yaml                 # area definitions (bench mode only)
       {codename}/                # one directory per work (see works.md)
 ```
 
 - `config.yaml` — global configuration. See [Global Configuration](#global-configuration) below.
 - `jigs/` — user-level jig overrides and custom jigs. See [jig-system.md](jig-system.md) for format and resolution order.
-- `archive/` — works moved here are hidden from `kerf list` but otherwise retain their structure.
-- `projects/` — the primary storage area. Each project has its own subdirectory keyed by project ID. Each work within a project has its own subdirectory keyed by codename. See [works.md](works.md) for work directory contents.
+- `archive/` — works moved here are hidden from `kerf list` but otherwise retain their structure. Archived works always live on the bench regardless of storage mode.
+- `projects/{project-id}/` — entry point for a project. In bench mode this is a real directory containing the project's works, `project.yaml`, and `areas.yaml`. In local mode this is a symlink to the repo's `.kerf/works/` directory; `project.yaml` and `areas.yaml` instead live in the repo at `.kerf/project.yaml` and `.kerf/areas.yaml`. See [Storage Modes](#storage-modes).
 - `project.yaml` — per-project configuration. Declares which jigs are active and how composable jigs are configured. See [Project Configuration](#project-configuration) below.
 - `areas.yaml` — area definitions for this project. Areas are named regions of the system used for overlap detection and work coordination. See [coordination.md](coordination.md).
 
@@ -70,6 +73,51 @@ If a derived project ID matches a project ID already present in the bench but as
 ### Monorepos
 
 Multiple logical projects within a single git repository share the same `.kerf/project-identifier` and therefore the same project ID. For v1, monorepo users who need separate project IDs must manually edit `.kerf/project-identifier` per-checkout or use worktrees with different identifier files.
+
+## Storage Modes
+
+Each project chooses where in-progress works are stored.
+
+- **bench** (default) — works live at `~/.kerf/projects/{project-id}/{codename}/`. The bench owns the work directories.
+- **local** — works live at `{repo-root}/.kerf/works/{codename}/`. The repo owns the work directories. The bench keeps a symlink at `~/.kerf/projects/{project-id}` pointing at `{repo-root}/.kerf/works/` so that bench-scoped queries (e.g., `kerf list --all-projects`) still see the project transparently.
+
+The internal structure of a work directory is identical in both modes — `spec.yaml`, `SESSION.md`, `.history/`, and jig artifacts live in the same relative locations within the codename directory.
+
+### Repo Configuration File
+
+Local storage is opted into by writing a file at `{repo-root}/.kerf/config.yaml`:
+
+```yaml
+# .kerf/config.yaml — committed to git
+storage: local   # or "bench" (default)
+```
+
+This file is the **repo configuration**. It is separate from the global bench configuration at `~/.kerf/config.yaml`. For v1 it holds only the `storage` field; future settings may follow. When a setting appears in both the repo config and the bench config, the repo config wins for that project.
+
+### File Locations by Mode
+
+| File | Bench mode | Local mode |
+|------|------------|------------|
+| Work directory | `~/.kerf/projects/{id}/{codename}/` | `{repo}/.kerf/works/{codename}/` |
+| `project.yaml` | `~/.kerf/projects/{id}/project.yaml` | `{repo}/.kerf/project.yaml` |
+| `areas.yaml` | `~/.kerf/projects/{id}/areas.yaml` | `{repo}/.kerf/areas.yaml` |
+| Repo config | (not used) | `{repo}/.kerf/config.yaml` |
+| Bench symlink | (not used) | `~/.kerf/projects/{id}` → `{repo}/.kerf/works/` |
+| Archive | `~/.kerf/archive/{id}/{codename}/` | `~/.kerf/archive/{id}/{codename}/` |
+
+### Migration
+
+A project switches from bench to local mode with `kerf localize` (see [commands.md](commands.md)). The reverse migration is a manual procedure in v1.
+
+### Symlink Lifecycle
+
+The bench symlink is created by `kerf localize` and re-created if missing by `kerf init` or `kerf new` when local storage is active. If the symlink target is missing (e.g., the repo was moved or deleted), kerf emits a warning and commands that need the work directory error with a message pointing the user back to the repo.
+
+Symlinks rely on `os.Symlink`. On platforms where symlink creation fails, kerf surfaces a clear error rather than silently falling back; local storage is effectively unavailable on those platforms in v1.
+
+### Git Worktrees
+
+`.kerf/` lives in the working tree, not in `.git/`. With local storage and multiple worktrees, each worktree has its own `.kerf/works/`; the bench symlink can point to only one of them. Worktree users who need cross-worktree visibility via the bench should stay on bench storage in v1.
 
 ## Global Configuration
 
@@ -215,24 +263,31 @@ When no `project.yaml` exists, `kerf jig list` shows all available jigs without 
 
 ## Bench vs. Repo Boundary
 
-The bench (`~/.kerf/`) and the repository are separate domains with a defined interface.
+The bench (`~/.kerf/`) and the repository are separate domains with a defined interface. What sits on each side depends on the storage mode.
 
-### What lives in the bench (outside git)
+### Always on the bench
 
-- All work directories and their contents (spec.yaml, SESSION.md, artifacts, snapshots)
-- Global configuration (`config.yaml`)
+- Global configuration (`~/.kerf/config.yaml`)
 - User-level jig definitions
-- Archived works
+- Archived works (`~/.kerf/archive/`)
+- The project index (`~/.kerf/projects/{project-id}/`), either as a real directory (bench mode) or a symlink into the repo (local mode)
 
-### What lives in the repository (inside git)
+### In the repo (inside git)
 
 - `.kerf/project-identifier` — the project ID file
-- Finalized work artifacts (placed by `kerf finalize`)
+- `.kerf/config.yaml` — repo configuration, when present (declares storage mode)
+- Finalized work artifacts placed by `kerf finalize`
+- In local mode: `.kerf/works/`, `.kerf/project.yaml`, `.kerf/areas.yaml`
+
+### Storage-mode placement
+
+- **Bench mode**: work directories, `project.yaml`, and `areas.yaml` live under `~/.kerf/projects/{project-id}/`.
+- **Local mode**: work directories live in `{repo}/.kerf/works/`; `project.yaml` and `areas.yaml` live in `{repo}/.kerf/`.
 
 ### The interface between them
 
-- **Project identity** links the two: `.kerf/project-identifier` in the repo maps to `~/.kerf/projects/{project-id}/` in the bench.
-- **Finalization** is the only process that copies data from bench to repo. See [finalization.md](finalization.md).
-- kerf reads the repository (e.g., to determine the current project, the default branch, or uncommitted changes) but never writes to it except during finalization.
+- **Project identity** links the two: `.kerf/project-identifier` in the repo maps to `~/.kerf/projects/{project-id}/` on the bench (a directory or symlink, depending on mode).
+- **Finalization** copies data into the repo (typically into `.kerf/{codename}/`). See [finalization.md](finalization.md). In local mode, work artifacts already live in the repo at `.kerf/works/{codename}/`; finalization still copies them to the finalized location so it remains a permanent record.
+- kerf reads the repository to determine project identity, storage mode, and branch state. It writes to the repo during finalization and during `kerf localize`; in local mode it also writes work-directory contents under `.kerf/works/` during normal operation.
 
 For how areas and cross-work relationships support coordination across concurrent work items, see [coordination.md](coordination.md).

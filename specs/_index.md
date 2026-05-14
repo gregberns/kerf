@@ -26,7 +26,7 @@ The tool provides opinionated, built-in processes (**jigs**) that guide agents t
 ## Spec Map
 
 ### Architecture
-- [architecture.md](architecture.md) — Bench layout, project identity, global configuration
+- [architecture.md](architecture.md) — Bench layout, project identity, storage modes, global and repo configuration
 
 ### Works
 - [works.md](works.md) — Work lifecycle, spec.yaml schema, codenames, status, types
@@ -67,7 +67,7 @@ Go — compiles to a single binary, cross-platform, good CLI ecosystem (cobra, e
 
 These hold across the entire system:
 
-1. Works live at `~/.kerf/`, not in the git repo. They enter git only at finalization.
+1. Works live on the bench (`~/.kerf/`) by default. A project may opt into local storage, in which case works live in the repo at `.kerf/works/` and the bench keeps a symlink for indexing.
 2. The filesystem is the database. Files are the source of truth.
 3. kerf never launches or manages agent sessions. It reads/writes data and emits context.
 4. Codenames are immutable once created.

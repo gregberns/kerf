@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/bench"
+	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/jig"
 	"github.com/gberns/kerf/internal/project"
@@ -63,13 +63,13 @@ func runSetup() error {
 		projectID = pid
 	}
 
-	bp, err := bench.BenchPath()
+	r, err := cmdutil.Resolver(projectID)
 	if err != nil {
 		return err
 	}
 
 	// Load project config
-	projCfgPath := config.ProjectConfigPath(bp, projectID)
+	projCfgPath := r.ProjectConfigPath()
 	projCfg, err := config.LoadProjectConfig(projCfgPath)
 	if err != nil {
 		return fmt.Errorf("loading project config: %w", err)

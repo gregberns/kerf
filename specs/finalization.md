@@ -50,7 +50,9 @@ git checkout -b {branch-name}
 
 ### 3. Artifact Copying
 
-kerf copies work artifacts from the bench into the target repository at the path defined by `finalize.repo_spec_path` in [config.yaml](architecture.md) (default: `.kerf/{codename}/`). The token `{codename}` in the path is replaced with the work's codename.
+kerf copies work artifacts from the work directory into the target repository at the path defined by `finalize.repo_spec_path` in [config.yaml](architecture.md) (default: `.kerf/{codename}/`). The token `{codename}` in the path is replaced with the work's codename.
+
+The source path depends on the project's [storage mode](architecture.md#storage-modes): for bench-mode projects, artifacts are copied from `~/.kerf/projects/{project-id}/{codename}/`; for local-mode projects, from `{repo}/.kerf/works/{codename}/`. In local mode the work already lives in the repo, but finalization still copies it to the finalized destination so the finalized location remains the permanent record while `.kerf/works/` is for in-progress works.
 
 The copied artifacts include all files in the work directory except:
 

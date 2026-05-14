@@ -169,8 +169,11 @@ func runResume(cn string) error {
 }
 
 func printJigChain(benchPath, projectID string) {
-	cfgPath := config.ProjectConfigPath(benchPath, projectID)
-	projCfg, err := config.LoadProjectConfig(cfgPath)
+	r, err := cmdutil.Resolver(projectID)
+	if err != nil {
+		return
+	}
+	projCfg, err := config.LoadProjectConfig(r.ProjectConfigPath())
 	if err != nil || len(projCfg.Jigs) == 0 {
 		return
 	}

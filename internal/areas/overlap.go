@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/spec"
+	"github.com/gberns/kerf/internal/storage"
 )
 
 // OverlapEntry represents a work that shares areas with another work.
@@ -17,7 +17,7 @@ type OverlapEntry struct {
 
 // FindOverlappingWorks finds active works that share areas with the given area list.
 // excludeCodename is omitted from results (to avoid self-matching).
-func FindOverlappingWorks(benchPath, projectID string, targetAreas []string, excludeCodename string) ([]OverlapEntry, error) {
+func FindOverlappingWorks(r *storage.Resolver, targetAreas []string, excludeCodename string) ([]OverlapEntry, error) {
 	if len(targetAreas) == 0 {
 		return nil, nil
 	}
@@ -29,7 +29,7 @@ func FindOverlappingWorks(benchPath, projectID string, targetAreas []string, exc
 	}
 
 	// List all active works in the project.
-	works, err := bench.ListWorks(benchPath, projectID)
+	works, err := r.ListWorks()
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func FindOverlappingWorks(benchPath, projectID string, targetAreas []string, exc
 			continue
 		}
 
-		workDir := bench.WorkDir(benchPath, projectID, codename)
+		workDir := r.WorkDir(codename)
 		specPath := filepath.Join(workDir, "spec.yaml")
 
 		s, err := spec.Read(specPath)

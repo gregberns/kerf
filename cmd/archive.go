@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
 )
 
@@ -22,30 +21,26 @@ var archiveCmd = &cobra.Command{
 			return err
 		}
 
-		bp, err := bench.BenchPath()
+		r, err := cmdutil.Resolver(projectID)
 		if err != nil {
 			return err
 		}
 
 		// Check if already archived.
-		if bench.IsArchived(bp, projectID, codenameArg) {
+		if r.IsArchived(codenameArg) {
 			return fmt.Errorf("work '%s' is already archived", codenameArg)
 		}
 
 		// Check work exists.
-		if !bench.WorkExists(bp, projectID, codenameArg) {
+		if !r.WorkExists(codenameArg) {
 			return fmt.Errorf("work '%s' not found in project '%s'", codenameArg, projectID)
 		}
 
-		if err := bench.MoveToArchive(bp, projectID, codenameArg); err != nil {
+		if err := r.MoveToArchive(codenameArg); err != nil {
 			return fmt.Errorf("archiving work: %w", err)
 		}
 
-		homePath, _ := bench.BenchPath()
-		relBench := "~/.kerf"
-		if homePath != "" {
-			relBench = filepath.Join("~/.kerf")
-		}
+		relBench := filepath.Join("~/.kerf")
 
 		fmt.Printf("Work '%s' archived.\n", codenameArg)
 		fmt.Println("To un-archive, move the directory back:")

@@ -9,9 +9,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gberns/kerf/internal/areas"
-	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/spec"
+	"github.com/gberns/kerf/internal/storage"
 )
 
 var areasCmd = &cobra.Command{
@@ -56,12 +56,12 @@ func runAreasInit() error {
 		return err
 	}
 
-	bp, err := bench.BenchPath()
+	r, err := cmdutil.Resolver(projectID)
 	if err != nil {
 		return err
 	}
 
-	path := areas.AreasPath(bp, projectID)
+	path := r.AreasPath()
 	if _, err := os.Stat(path); err == nil {
 		fmt.Printf("areas.yaml already exists at %s\n", path)
 		return nil
@@ -101,12 +101,12 @@ func runAreasList() error {
 		return err
 	}
 
-	bp, err := bench.BenchPath()
+	r, err := cmdutil.Resolver(projectID)
 	if err != nil {
 		return err
 	}
 
-	path := areas.AreasPath(bp, projectID)
+	path := r.AreasPath()
 	af, err := areas.Load(path)
 	if err != nil {
 		return err
@@ -122,7 +122,7 @@ func runAreasList() error {
 	}
 
 	// Count active works per area.
-	workCounts := countWorksPerArea(bp, projectID)
+	workCounts := countWorksPerArea(r)
 
 	fmt.Printf("Areas for %s:\n", projectID)
 	fmt.Println()
@@ -163,16 +163,16 @@ func runAreasList() error {
 
 // countWorksPerArea loads all active works for the project and counts how many
 // reference each area.
-func countWorksPerArea(benchPath, projectID string) map[string]int {
+func countWorksPerArea(r *storage.Resolver) map[string]int {
 	counts := make(map[string]int)
 
-	codenames, err := bench.ListWorks(benchPath, projectID)
+	codenames, err := r.ListWorks()
 	if err != nil {
 		return counts
 	}
 
 	for _, codename := range codenames {
-		specPath := filepath.Join(bench.WorkDir(benchPath, projectID, codename), "spec.yaml")
+		specPath := filepath.Join(r.WorkDir(codename), "spec.yaml")
 		s, err := spec.Read(specPath)
 		if err != nil {
 			continue
@@ -204,12 +204,12 @@ func runAreasAdd(name string) error {
 		return err
 	}
 
-	bp, err := bench.BenchPath()
+	r, err := cmdutil.Resolver(projectID)
 	if err != nil {
 		return err
 	}
 
-	path := areas.AreasPath(bp, projectID)
+	path := r.AreasPath()
 	af, err := areas.Load(path)
 	if err != nil {
 		return err
@@ -251,12 +251,12 @@ func runAreasRemove(name string) error {
 		return err
 	}
 
-	bp, err := bench.BenchPath()
+	r, err := cmdutil.Resolver(projectID)
 	if err != nil {
 		return err
 	}
 
-	path := areas.AreasPath(bp, projectID)
+	path := r.AreasPath()
 	af, err := areas.Load(path)
 	if err != nil {
 		return err
@@ -268,10 +268,10 @@ func runAreasRemove(name string) error {
 	}
 
 	// Warn if active works reference this area.
-	workCounts := countWorksPerArea(bp, projectID)
+	workCounts := countWorksPerArea(r)
 	if workCounts[name] > 0 {
 		// Find the codenames that reference this area.
-		codenames := worksReferencingArea(bp, projectID, name)
+		codenames := worksReferencingArea(r, name)
 		fmt.Printf("Warning: the following works still reference area '%s':\n", name)
 		fmt.Printf("  %s\n", strings.Join(codenames, ", "))
 	}
@@ -289,16 +289,16 @@ func runAreasRemove(name string) error {
 }
 
 // worksReferencingArea returns codenames of active works that reference the given area.
-func worksReferencingArea(benchPath, projectID, areaName string) []string {
+func worksReferencingArea(r *storage.Resolver, areaName string) []string {
 	var result []string
 
-	codenames, err := bench.ListWorks(benchPath, projectID)
+	codenames, err := r.ListWorks()
 	if err != nil {
 		return result
 	}
 
 	for _, codename := range codenames {
-		specPath := filepath.Join(bench.WorkDir(benchPath, projectID, codename), "spec.yaml")
+		specPath := filepath.Join(r.WorkDir(codename), "spec.yaml")
 		s, err := spec.Read(specPath)
 		if err != nil {
 			continue

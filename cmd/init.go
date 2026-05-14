@@ -12,6 +12,7 @@ import (
 	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/jig"
 	"github.com/gberns/kerf/internal/project"
+	"github.com/gberns/kerf/internal/storage"
 )
 
 var initJigFlag string
@@ -93,10 +94,26 @@ func runInit() error {
 		fmt.Println("  kerf config default_jig spec   # Best for new/spec-driven projects")
 	}
 
-	// Create project.yaml with all available jigs
-	projCfgPath := config.ProjectConfigPath(benchPath, projectID)
+	// Create project.yaml with all available jigs. If the repo already declares
+	// storage: local, write project.yaml inside the repo and create the bench
+	// symlink so the project is fully wired up.
+	resolver, err := storage.NewResolver(benchPath, projectID, gitRoot)
+	if err != nil {
+		return fmt.Errorf("resolving storage mode: %w", err)
+	}
+	projCfgPath := resolver.ProjectConfigPath()
 	if err := createDefaultProjectConfig(projCfgPath); err != nil {
 		return fmt.Errorf("creating project.yaml: %w", err)
+	}
+	if resolver.Mode == storage.ModeLocal {
+		worksDir := resolver.WorksDir()
+		if err := os.MkdirAll(worksDir, 0o755); err != nil {
+			return fmt.Errorf("creating works directory: %w", err)
+		}
+		link := filepath.Join(benchPath, "projects", projectID)
+		if err := storage.EnsureSymlink(link, worksDir); err != nil {
+			return fmt.Errorf("creating bench symlink: %w", err)
+		}
 	}
 
 	// Print the bootstrap instructions

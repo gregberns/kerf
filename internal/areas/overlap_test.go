@@ -4,7 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/gberns/kerf/internal/storage"
 )
+
+func benchResolver(bp, projectID string) *storage.Resolver {
+	r, _ := storage.NewResolver(bp, projectID, "")
+	return r
+}
 
 // writeSpecWithAreas writes a minimal spec.yaml with the given areas.
 func writeSpecWithAreas(t *testing.T, benchPath, projectID, codename, status string, areas []string) {
@@ -44,7 +51,7 @@ func TestFindOverlappingWorks_NoOverlap(t *testing.T) {
 	writeSpecWithAreas(t, bp, proj, "work-a", "tasks", []string{"auth"})
 	writeSpecWithAreas(t, bp, proj, "work-b", "tasks", []string{"api"})
 
-	entries, err := FindOverlappingWorks(bp, proj, []string{"database"}, "new-work")
+	entries, err := FindOverlappingWorks(benchResolver(bp, proj), []string{"database"}, "new-work")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -60,7 +67,7 @@ func TestFindOverlappingWorks_SingleOverlap(t *testing.T) {
 	writeSpecWithAreas(t, bp, proj, "work-a", "research", []string{"auth", "api"})
 	writeSpecWithAreas(t, bp, proj, "work-b", "tasks", []string{"database"})
 
-	entries, err := FindOverlappingWorks(bp, proj, []string{"auth"}, "new-work")
+	entries, err := FindOverlappingWorks(benchResolver(bp, proj), []string{"auth"}, "new-work")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,7 +92,7 @@ func TestFindOverlappingWorks_MultipleOverlaps(t *testing.T) {
 	writeSpecWithAreas(t, bp, proj, "work-a", "research", []string{"auth", "api"})
 	writeSpecWithAreas(t, bp, proj, "work-b", "tasks", []string{"auth", "database"})
 
-	entries, err := FindOverlappingWorks(bp, proj, []string{"auth", "api"}, "new-work")
+	entries, err := FindOverlappingWorks(benchResolver(bp, proj), []string{"auth", "api"}, "new-work")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -116,7 +123,7 @@ func TestFindOverlappingWorks_ExcludesSelf(t *testing.T) {
 
 	writeSpecWithAreas(t, bp, proj, "self-work", "tasks", []string{"auth"})
 
-	entries, err := FindOverlappingWorks(bp, proj, []string{"auth"}, "self-work")
+	entries, err := FindOverlappingWorks(benchResolver(bp, proj), []string{"auth"}, "self-work")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,7 +138,7 @@ func TestFindOverlappingWorks_EmptyTargetAreas(t *testing.T) {
 
 	writeSpecWithAreas(t, bp, proj, "work-a", "tasks", []string{"auth"})
 
-	entries, err := FindOverlappingWorks(bp, proj, nil, "new-work")
+	entries, err := FindOverlappingWorks(benchResolver(bp, proj), nil, "new-work")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -147,7 +154,7 @@ func TestFindOverlappingWorks_NoWorks(t *testing.T) {
 	// Create the project dir but no works.
 	os.MkdirAll(filepath.Join(bp, "projects", proj), 0o755)
 
-	entries, err := FindOverlappingWorks(bp, proj, []string{"auth"}, "new-work")
+	entries, err := FindOverlappingWorks(benchResolver(bp, proj), []string{"auth"}, "new-work")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -163,7 +170,7 @@ func TestFindOverlappingWorks_SkipsWorksWithNoAreas(t *testing.T) {
 	writeSpecWithAreas(t, bp, proj, "no-areas", "tasks", nil)
 	writeSpecWithAreas(t, bp, proj, "has-areas", "tasks", []string{"auth"})
 
-	entries, err := FindOverlappingWorks(bp, proj, []string{"auth"}, "new-work")
+	entries, err := FindOverlappingWorks(benchResolver(bp, proj), []string{"auth"}, "new-work")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

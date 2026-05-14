@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/snapshot"
 	"github.com/gberns/kerf/internal/spec"
@@ -30,17 +29,17 @@ var deleteCmd = &cobra.Command{
 			return err
 		}
 
-		bp, err := bench.BenchPath()
+		r, err := cmdutil.Resolver(projectID)
 		if err != nil {
 			return err
 		}
 
 		// Find the work — check active then archive.
 		var workDir string
-		if bench.WorkExists(bp, projectID, codenameArg) {
-			workDir = bench.WorkDir(bp, projectID, codenameArg)
-		} else if bench.IsArchived(bp, projectID, codenameArg) {
-			workDir = bench.ArchiveDir(bp, projectID, codenameArg)
+		if r.WorkExists(codenameArg) {
+			workDir = r.WorkDir(codenameArg)
+		} else if r.IsArchived(codenameArg) {
+			workDir = r.ArchiveDir(codenameArg)
 		} else {
 			return fmt.Errorf("work '%s' not found in project '%s'", codenameArg, projectID)
 		}

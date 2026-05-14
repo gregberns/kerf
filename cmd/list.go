@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/spec"
+	"github.com/gberns/kerf/internal/storage"
 )
 
 var (
@@ -53,7 +53,7 @@ func runList() error {
 		return err
 	}
 
-	bp, err := bench.BenchPath()
+	r, err := cmdutil.Resolver(projectID)
 	if err != nil {
 		return err
 	}
@@ -61,24 +61,24 @@ func runList() error {
 	var entries []workEntry
 
 	// Active works.
-	codenames, err := bench.ListWorks(bp, projectID)
+	codenames, err := r.ListWorks()
 	if err != nil {
 		return err
 	}
 	for _, cn := range codenames {
-		if e, ok := readWorkEntry(bp, projectID, cn, false); ok {
+		if e, ok := readWorkEntry(r, cn, false); ok {
 			entries = append(entries, e)
 		}
 	}
 
 	// Archived works if --all.
 	if listAll {
-		archived, err := bench.ListArchivedWorks(bp, projectID)
+		archived, err := r.ListArchivedWorks()
 		if err != nil {
 			return err
 		}
 		for _, cn := range archived {
-			dir := bench.ArchiveDir(bp, projectID, cn)
+			dir := r.ArchiveDir(cn)
 			specPath := filepath.Join(dir, "spec.yaml")
 			s, err := spec.Read(specPath)
 			if err != nil {
@@ -156,7 +156,7 @@ func runList() error {
 	var depLines []string
 	for _, e := range entries {
 		for _, d := range e.deps {
-			depStatus := lookupDepStatus(bp, projectID, d)
+			depStatus := lookupDepStatus(r, d)
 			depLines = append(depLines, fmt.Sprintf("  %s -> %s [%s]", e.codename, d.Codename, depStatus))
 		}
 	}
@@ -177,8 +177,8 @@ func runList() error {
 	return nil
 }
 
-func readWorkEntry(bp, projectID, codename string, archived bool) (workEntry, bool) {
-	dir := bench.WorkDir(bp, projectID, codename)
+func readWorkEntry(r *storage.Resolver, codename string, archived bool) (workEntry, bool) {
+	dir := r.WorkDir(codename)
 	specPath := filepath.Join(dir, "spec.yaml")
 	s, err := spec.Read(specPath)
 	if err != nil {
@@ -194,13 +194,22 @@ func readWorkEntry(bp, projectID, codename string, archived bool) (workEntry, bo
 	}, true
 }
 
-func lookupDepStatus(bp, projectID string, d spec.Dependency) string {
-	depProject := projectID
+func lookupDepStatus(r *storage.Resolver, d spec.Dependency) string {
+	depProject := r.ProjectID
 	if d.Project != nil && *d.Project != "" {
 		depProject = *d.Project
 	}
-	dir := bench.WorkDir(bp, depProject, d.Codename)
-	specPath := filepath.Join(dir, "spec.yaml")
+	var depResolver *storage.Resolver
+	if depProject == r.ProjectID {
+		depResolver = r
+	} else {
+		dr, err := cmdutil.Resolver(depProject)
+		if err != nil {
+			return "unknown"
+		}
+		depResolver = dr
+	}
+	specPath := filepath.Join(depResolver.WorkDir(d.Codename), "spec.yaml")
 	s, err := spec.Read(specPath)
 	if err != nil {
 		return "unknown"

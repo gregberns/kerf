@@ -73,9 +73,8 @@ func runJigList() error {
 	var projectID string
 	if pid, err := cmdutil.ResolveProject(projectFlag); err == nil {
 		projectID = pid
-		if bp, err := bench.BenchPath(); err == nil {
-			cfgPath := config.ProjectConfigPath(bp, pid)
-			if cfg, err := config.LoadProjectConfig(cfgPath); err == nil && len(cfg.Jigs) > 0 {
+		if r, err := cmdutil.Resolver(pid); err == nil {
+			if cfg, err := config.LoadProjectConfig(r.ProjectConfigPath()); err == nil && len(cfg.Jigs) > 0 {
 				projCfg = cfg
 			}
 		}

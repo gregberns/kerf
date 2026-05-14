@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/queue"
@@ -48,20 +47,20 @@ func runNext() error {
 		return err
 	}
 
-	bp, err := bench.BenchPath()
+	r, err := cmdutil.Resolver(projectID)
 	if err != nil {
 		return err
 	}
 
 	// Load all active works.
-	codenames, err := bench.ListWorks(bp, projectID)
+	codenames, err := r.ListWorks()
 	if err != nil {
 		return err
 	}
 
 	var works []*spec.SpecYAML
 	for _, cn := range codenames {
-		dir := bench.WorkDir(bp, projectID, cn)
+		dir := r.WorkDir(cn)
 		specPath := filepath.Join(dir, "spec.yaml")
 		s, err := spec.Read(specPath)
 		if err != nil {
@@ -124,7 +123,7 @@ func runNext() error {
 		Creation: queue.WeightCreation,
 		Rework:   queue.WeightRework,
 	}
-	projCfg, _ := config.LoadProjectConfig(config.ProjectConfigPath(bp, projectID))
+	projCfg, _ := config.LoadProjectConfig(r.ProjectConfigPath())
 	resolved := projCfg.QueueWeights(defaults)
 	weights := queue.Weights{
 		FanOut:   resolved.FanOut,

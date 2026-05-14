@@ -9,9 +9,9 @@ import (
 
 	"github.com/gberns/kerf/internal/areas"
 	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/spec"
+	"github.com/gberns/kerf/internal/storage"
 )
 
 var mapCmd = &cobra.Command{
@@ -50,27 +50,27 @@ func runMap() error {
 		return err
 	}
 
-	bp, err := bench.BenchPath()
+	r, err := cmdutil.Resolver(projectID)
 	if err != nil {
 		return err
 	}
 
 	// Load areas taxonomy.
-	areasPath := areas.AreasPath(bp, projectID)
+	areasPath := r.AreasPath()
 	af, err := areas.Load(areasPath)
 	if err != nil {
 		return err
 	}
 
 	// Load all active works.
-	codenames, err := bench.ListWorks(bp, projectID)
+	codenames, err := r.ListWorks()
 	if err != nil {
 		return err
 	}
 
 	var works []mapWork
 	for _, cn := range codenames {
-		dir := bench.WorkDir(bp, projectID, cn)
+		dir := r.WorkDir(cn)
 		specPath := filepath.Join(dir, "spec.yaml")
 		s, err := spec.Read(specPath)
 		if err != nil {
@@ -175,7 +175,7 @@ func runMap() error {
 	var depLines []string
 	for _, w := range works {
 		for _, d := range w.deps {
-			depStatus := lookupDepStatusForMap(bp, projectID, d)
+			depStatus := lookupDepStatusForMap(r, d)
 			depLines = append(depLines, fmt.Sprintf("  %s -> %s [%s]", w.codename, d.Codename, depStatus))
 		}
 	}
@@ -230,13 +230,22 @@ func isBeadComplete(status string) bool {
 	return false
 }
 
-func lookupDepStatusForMap(bp, projectID string, d spec.Dependency) string {
-	depProject := projectID
+func lookupDepStatusForMap(r *storage.Resolver, d spec.Dependency) string {
+	depProject := r.ProjectID
 	if d.Project != nil && *d.Project != "" {
 		depProject = *d.Project
 	}
-	dir := bench.WorkDir(bp, depProject, d.Codename)
-	specPath := filepath.Join(dir, "spec.yaml")
+	var dr *storage.Resolver
+	if depProject == r.ProjectID {
+		dr = r
+	} else {
+		nr, err := cmdutil.Resolver(depProject)
+		if err != nil {
+			return "unknown"
+		}
+		dr = nr
+	}
+	specPath := filepath.Join(dr.WorkDir(d.Codename), "spec.yaml")
 	s, err := spec.Read(specPath)
 	if err != nil {
 		return "unknown"

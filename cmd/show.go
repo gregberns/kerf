@@ -173,7 +173,11 @@ func printAreaOverlap(benchPath, projectID string, workAreas []string, excludeCo
 	if len(workAreas) == 0 {
 		return
 	}
-	overlaps, err := areas.FindOverlappingWorks(benchPath, projectID, workAreas, excludeCodename)
+	r, err := cmdutil.Resolver(projectID)
+	if err != nil {
+		return
+	}
+	overlaps, err := areas.FindOverlappingWorks(r, workAreas, excludeCodename)
 	if err != nil || len(overlaps) == 0 {
 		return
 	}

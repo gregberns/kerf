@@ -25,7 +25,12 @@ A work progresses through passes defined by its [jig](jig-system.md). At any poi
   [jig-defined artifact files]       # e.g., 01-problem-space.md, 02-components.md, ...
 ```
 
-Each work directory lives at `~/.kerf/projects/{project-id}/{codename}/` on the bench. See [architecture](architecture.md) for the full bench layout.
+Each work directory lives at one of two locations depending on the project's storage mode:
+
+- Bench mode (default): `~/.kerf/projects/{project-id}/{codename}/`.
+- Local mode: `{repo-root}/.kerf/works/{codename}/`.
+
+The contents and structure of the work directory are identical in both modes. See [architecture](architecture.md#storage-modes) for storage-mode details and the bench layout.
 
 The jig determines which artifact files exist within the work directory. The files above (`spec.yaml`, `SESSION.md`, `.history/`) are present in every work regardless of jig.
 
