@@ -76,10 +76,11 @@ kerf identifies works that touch the same areas and flags potential conflicts.
 
 Two works overlap when their area lists share at least one area name.
 
-Overlap detection runs at two points:
+Overlap detection runs at several points:
 
 1. **At work creation** (`kerf new`). If the new work's areas overlap with any active work's areas, kerf emits a warning listing the overlapping works.
 2. **On demand** (`kerf map`). The map view shows area-based grouping and highlights areas with multiple active works.
+3. **When inspecting a work** (`kerf show`, `kerf resume`). Both commands surface the same area-overlap information so an agent inspecting or reentering work sees adjacent active work in the same areas.
 
 Overlap is a **warning**, not a block. Two works may legitimately touch the same area. The warning ensures the agent is aware and can coordinate if needed.
 

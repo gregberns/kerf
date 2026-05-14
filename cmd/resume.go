@@ -91,6 +91,9 @@ func runResume(cn string) error {
 	fmt.Printf("Project: %s\n", s.Project.ID)
 	fmt.Println()
 
+	// Area overlap.
+	printAreaOverlap(bp, projectID, s.Areas, s.Codename)
+
 	// SESSION.md contents.
 	sessionMDPath := filepath.Join(workDir, "SESSION.md")
 	if data, err := os.ReadFile(sessionMDPath); err == nil {

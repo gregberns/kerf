@@ -303,6 +303,7 @@ The resume context block contains:
 - **Session history**: previous sessions from `spec.yaml`.
 - **Dependency status**: current status of each work in `depends_on`.
 - **File listing**: files present in the work directory.
+- **Area overlap**: when the work has areas and other active works share them, list the shared areas and the overlapping codenames. Same format as `kerf show`.
 - **Next steps**: suggested actions based on the current pass and SESSION.md content.
 
 ### Degraded Mode

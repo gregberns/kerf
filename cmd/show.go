@@ -66,26 +66,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// Area overlap
-	if len(s.Areas) > 0 {
-		overlaps, err := areas.FindOverlappingWorks(bp, projectID, s.Areas, s.Codename)
-		if err == nil && len(overlaps) > 0 {
-			// Build a map: area -> list of "codename (status)"
-			areaWorks := make(map[string][]string)
-			for _, o := range overlaps {
-				for _, a := range o.SharedAreas {
-					areaWorks[a] = append(areaWorks[a], fmt.Sprintf("%s (%s)", o.Codename, o.Status))
-				}
-			}
-			fmt.Println("Area overlap:")
-			// Print in the order of the work's own areas
-			for _, a := range s.Areas {
-				if works, ok := areaWorks[a]; ok {
-					fmt.Printf("  %s — also active in: %s\n", a, strings.Join(works, ", "))
-				}
-			}
-			fmt.Println()
-		}
-	}
+	printAreaOverlap(bp, projectID, s.Areas, s.Codename)
 
 	// Jig context — current pass instructions
 	if jigDef != nil {
@@ -184,6 +165,31 @@ func runShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  kerf shelve %s                 Pause work\n", codename)
 
 	return nil
+}
+
+// printAreaOverlap emits the "Area overlap:" block if other active works share
+// any of the given areas. Used by both `kerf show` and `kerf resume`.
+func printAreaOverlap(benchPath, projectID string, workAreas []string, excludeCodename string) {
+	if len(workAreas) == 0 {
+		return
+	}
+	overlaps, err := areas.FindOverlappingWorks(benchPath, projectID, workAreas, excludeCodename)
+	if err != nil || len(overlaps) == 0 {
+		return
+	}
+	areaWorks := make(map[string][]string)
+	for _, o := range overlaps {
+		for _, a := range o.SharedAreas {
+			areaWorks[a] = append(areaWorks[a], fmt.Sprintf("%s (%s)", o.Codename, o.Status))
+		}
+	}
+	fmt.Println("Area overlap:")
+	for _, a := range workAreas {
+		if works, ok := areaWorks[a]; ok {
+			fmt.Printf("  %s — also active in: %s\n", a, strings.Join(works, ", "))
+		}
+	}
+	fmt.Println()
 }
 
 func printFileTree(root, dir, indent string) {

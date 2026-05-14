@@ -243,6 +243,70 @@ implementation:
 	}
 }
 
+func TestResumeCommand_AreaOverlap(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	bp := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(bp, "projects", "proj")
+
+	// First work (active, in "adapter" area) — should appear in overlap output.
+	otherSpec := `codename: bold-crane
+type: feature
+project:
+  id: proj
+jig: feature
+jig_version: 1
+status: research
+status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+areas: [adapter]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+active_session: null
+depends_on: []
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	os.MkdirAll(filepath.Join(projDir, "bold-crane"), 0755)
+	os.WriteFile(filepath.Join(projDir, "bold-crane", "spec.yaml"), []byte(otherSpec), 0644)
+
+	// Target work to resume (shelved, shares the "adapter" area).
+	targetSpec := `codename: green-oak
+type: feature
+project:
+  id: proj
+jig: feature
+jig_version: 1
+status: research
+status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+areas: [adapter]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+active_session: null
+depends_on: []
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	os.MkdirAll(filepath.Join(projDir, "green-oak"), 0755)
+	os.WriteFile(filepath.Join(projDir, "green-oak", "spec.yaml"), []byte(targetSpec), 0644)
+
+	out := captureOutput(t, func() {
+		projectFlag = "proj"
+		defer func() { projectFlag = "" }()
+		resumeCmd.RunE(resumeCmd, []string{"green-oak"})
+	})
+
+	testutil.AssertStringContains(t, out, "Area overlap:")
+	testutil.AssertStringContains(t, out, "adapter")
+	testutil.AssertStringContains(t, out, "bold-crane")
+}
+
 func TestResumeCommand_WorkNotFound(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
