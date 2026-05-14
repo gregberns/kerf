@@ -2,6 +2,9 @@
 name: plan
 description: Write a plan before changing code. For existing projects.
 version: 1
+phase: planning
+tools: []
+composable: false
 aliases: [feature]
 status_values:
   - problem-space

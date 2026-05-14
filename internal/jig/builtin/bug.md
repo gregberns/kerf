@@ -2,6 +2,9 @@
 name: bug
 description: Investigate and specify a fix for a defect.
 version: 2
+phase: bug-fix
+tools: []
+composable: false
 status_values:
   - reported
   - research

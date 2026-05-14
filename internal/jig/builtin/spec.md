@@ -2,6 +2,9 @@
 name: spec
 description: Maintain a living spec that defines your system. Spec is always right.
 version: 1
+phase: planning
+tools: []
+composable: false
 status_values:
   - problem-space
   - decompose

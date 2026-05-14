@@ -1,14 +1,17 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/gberns/kerf/internal/areas"
 	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/dep"
@@ -52,10 +55,37 @@ func runShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Type: %s\n", s.Type)
 	fmt.Printf("Status: %s\n", s.Status)
 	fmt.Printf("Project: %s\n", s.Project.ID)
+	if len(s.Areas) > 0 {
+		fmt.Printf("Areas: %s\n", strings.Join(s.Areas, ", "))
+	} else {
+		fmt.Println("Areas: (none)")
+	}
 	fmt.Printf("Jig: %s (v%d)\n", s.Jig, s.JigVersion)
 	fmt.Printf("Created: %s\n", s.Created.Format(time.RFC3339))
 	fmt.Printf("Updated: %s\n", s.Updated.Format(time.RFC3339))
 	fmt.Println()
+
+	// Area overlap
+	if len(s.Areas) > 0 {
+		overlaps, err := areas.FindOverlappingWorks(bp, projectID, s.Areas, s.Codename)
+		if err == nil && len(overlaps) > 0 {
+			// Build a map: area -> list of "codename (status)"
+			areaWorks := make(map[string][]string)
+			for _, o := range overlaps {
+				for _, a := range o.SharedAreas {
+					areaWorks[a] = append(areaWorks[a], fmt.Sprintf("%s (%s)", o.Codename, o.Status))
+				}
+			}
+			fmt.Println("Area overlap:")
+			// Print in the order of the work's own areas
+			for _, a := range s.Areas {
+				if works, ok := areaWorks[a]; ok {
+					fmt.Printf("  %s — also active in: %s\n", a, strings.Join(works, ", "))
+				}
+			}
+			fmt.Println()
+		}
+	}
 
 	// Jig context — current pass instructions
 	if jigDef != nil {
@@ -69,6 +99,28 @@ func runShow(cmd *cobra.Command, args []string) error {
 				fmt.Println()
 			}
 		}
+
+		// Pass status for composable jigs
+		if jigDef.Composable {
+			fmt.Println("Pass status:")
+			maxLen := 0
+			for _, p := range jigDef.Passes {
+				if len(p.Status) > maxLen {
+					maxLen = len(p.Status)
+				}
+			}
+			for _, p := range jigDef.Passes {
+				status := computePassStatus(jigDef.StatusValues, s.Status, p.Status)
+				fmt.Printf("  %-*s  %s\n", maxLen, p.Status+":", status)
+			}
+			fmt.Println()
+		}
+	}
+
+	// Bead status (best-effort via bd tool)
+	if beadSummary := getBeadSummary(s.Project.ID); beadSummary != "" {
+		fmt.Println(beadSummary)
+		fmt.Println()
 	}
 
 	// File tree (excluding .history/)
@@ -169,6 +221,84 @@ func formatRelativeTime(t time.Time) string {
 		days := int(d.Hours() / 24)
 		return fmt.Sprintf("%dd ago", days)
 	}
+}
+
+// computePassStatus determines the display status of a pass based on the work's
+// current status and the ordered status_values list.
+func computePassStatus(statusValues []string, currentStatus, passStatus string) string {
+	currentIdx := -1
+	passIdx := -1
+	for i, sv := range statusValues {
+		if sv == currentStatus {
+			currentIdx = i
+		}
+		if sv == passStatus {
+			passIdx = i
+		}
+	}
+	if passIdx < 0 {
+		return "unknown"
+	}
+	if currentIdx < 0 {
+		// Current status not in list — past terminal
+		return "done"
+	}
+	if currentIdx > passIdx {
+		return "done"
+	}
+	if currentIdx == passIdx {
+		return "active"
+	}
+	return "pending"
+}
+
+// bdBead represents a single bead from bd list --json output.
+type bdBead struct {
+	Status         string `json:"status"`
+	ReviewFeedback string `json:"review_feedback"`
+}
+
+// getBeadSummary tries to run bd list --json and returns a summary string.
+// Returns empty string if bd is unavailable or no beads exist.
+func getBeadSummary(projectID string) string {
+	args := []string{"list", "--json"}
+	if projectID != "" {
+		args = append(args, "--project", projectID)
+	}
+	out, err := exec.Command("bd", args...).Output()
+	if err != nil {
+		return ""
+	}
+
+	var beads []bdBead
+	if err := json.Unmarshal(out, &beads); err != nil {
+		return ""
+	}
+	if len(beads) == 0 {
+		return ""
+	}
+
+	total := len(beads)
+	closed := 0
+	open := 0
+	unresolvedFeedback := 0
+	for _, b := range beads {
+		switch b.Status {
+		case "closed", "done", "complete":
+			closed++
+		default:
+			open++
+		}
+		if b.ReviewFeedback != "" && b.Status != "closed" && b.Status != "done" && b.Status != "complete" {
+			unresolvedFeedback++
+		}
+	}
+
+	summary := fmt.Sprintf("Beads: %d total, %d closed, %d open", total, closed, open)
+	if unresolvedFeedback > 0 {
+		summary += fmt.Sprintf(", %d with unresolved review feedback", unresolvedFeedback)
+	}
+	return summary
 }
 
 // statusProgression renders the status progression with a pointer to current.

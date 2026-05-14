@@ -39,6 +39,17 @@ func TestParsePlanJig(t *testing.T) {
 		t.Errorf("Aliases = %v, want [feature]", jig.Aliases)
 	}
 
+	// Verify new frontmatter fields
+	if jig.Phase != "planning" {
+		t.Errorf("Phase = %q, want %q", jig.Phase, "planning")
+	}
+	if !reflect.DeepEqual(jig.Tools, []string{}) {
+		t.Errorf("Tools = %v, want []", jig.Tools)
+	}
+	if jig.Composable {
+		t.Errorf("Composable = %v, want false", jig.Composable)
+	}
+
 	// Verify pass-status mapping
 	if jig.Passes[0].Status != "problem-space" {
 		t.Errorf("Pass[0].Status = %q, want %q", jig.Passes[0].Status, "problem-space")
@@ -86,6 +97,17 @@ func TestParseSpecJig(t *testing.T) {
 	if len(jig.Aliases) != 0 {
 		t.Errorf("Aliases = %v, want empty", jig.Aliases)
 	}
+
+	// Verify new frontmatter fields
+	if jig.Phase != "planning" {
+		t.Errorf("Phase = %q, want %q", jig.Phase, "planning")
+	}
+	if !reflect.DeepEqual(jig.Tools, []string{}) {
+		t.Errorf("Tools = %v, want []", jig.Tools)
+	}
+	if jig.Composable {
+		t.Errorf("Composable = %v, want false", jig.Composable)
+	}
 }
 
 func TestParseBugJig(t *testing.T) {
@@ -125,6 +147,17 @@ func TestParseBugJig(t *testing.T) {
 	readyPass := jig.Passes[5]
 	if len(readyPass.Output) != 0 {
 		t.Errorf("Ready pass output count = %d, want %d", len(readyPass.Output), 0)
+	}
+
+	// Verify new frontmatter fields
+	if jig.Phase != "bug-fix" {
+		t.Errorf("Phase = %q, want %q", jig.Phase, "bug-fix")
+	}
+	if !reflect.DeepEqual(jig.Tools, []string{}) {
+		t.Errorf("Tools = %v, want []", jig.Tools)
+	}
+	if jig.Composable {
+		t.Errorf("Composable = %v, want false", jig.Composable)
 	}
 }
 
@@ -468,8 +501,8 @@ func TestListAllBuiltinOnly(t *testing.T) {
 		t.Fatalf("ListAll error: %v", err)
 	}
 
-	if len(summaries) != 3 {
-		t.Fatalf("expected 3 built-in jigs, got %d", len(summaries))
+	if len(summaries) != 6 {
+		t.Fatalf("expected 6 built-in jigs, got %d", len(summaries))
 	}
 
 	byName := make(map[string]JigSummary)
@@ -495,6 +528,39 @@ func TestListAllBuiltinOnly(t *testing.T) {
 		t.Error("expected bug jig from built-in source")
 	} else if s.Source != "built-in" {
 		t.Errorf("bug source = %q, want %q", s.Source, "built-in")
+	}
+
+	if s, ok := byName["implementation"]; !ok {
+		t.Error("expected implementation jig from built-in source")
+	} else if s.Source != "built-in" {
+		t.Errorf("implementation source = %q, want %q", s.Source, "built-in")
+	} else if s.Phase != "implementation" {
+		t.Errorf("implementation phase = %q, want %q", s.Phase, "implementation")
+	} else if !s.Composable {
+		t.Error("implementation composable = false, want true")
+	}
+
+	if s, ok := byName["spike"]; !ok {
+		t.Error("expected spike jig from built-in source")
+	} else if s.Source != "built-in" {
+		t.Errorf("spike source = %q, want %q", s.Source, "built-in")
+	} else if len(s.Aliases) != 2 {
+		t.Errorf("spike aliases = %v, want [explore investigation]", s.Aliases)
+	}
+
+	// Verify new summary fields are populated from built-in jigs
+	wantPhase := map[string]string{
+		"plan":           "planning",
+		"spec":           "planning",
+		"bug":            "bug-fix",
+		"implementation": "implementation",
+		"spike":          "exploration",
+		"retrofit":       "exploration",
+	}
+	for _, s := range summaries {
+		if s.Phase != wantPhase[s.Name] {
+			t.Errorf("%s: Phase = %q, want %q", s.Name, s.Phase, wantPhase[s.Name])
+		}
 	}
 }
 
@@ -669,14 +735,351 @@ Do the work.
 	}
 }
 
+func TestParseNewFields(t *testing.T) {
+	content := []byte(`---
+name: deploy
+description: Deployment jig
+version: 1
+phase: implementation
+tools:
+  - docker
+  - kubectl
+composable: true
+status_values:
+  - build
+  - deploy
+  - verify
+passes:
+  - name: "Build"
+    status: build
+    output: ["build.log"]
+    tools:
+      - docker
+  - name: "Deploy"
+    status: deploy
+    output: ["deploy.log"]
+    tools:
+      - kubectl
+      - helm
+  - name: "Verify"
+    status: verify
+    output: ["report.md"]
+---
+
+# Deploy Jig
+`)
+	jig, err := Parse(content)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	if jig.Phase != "implementation" {
+		t.Errorf("Phase = %q, want %q", jig.Phase, "implementation")
+	}
+	if !reflect.DeepEqual(jig.Tools, []string{"docker", "kubectl"}) {
+		t.Errorf("Tools = %v, want [docker kubectl]", jig.Tools)
+	}
+	if !jig.Composable {
+		t.Errorf("Composable = %v, want true", jig.Composable)
+	}
+
+	// Verify pass-level tools
+	if !reflect.DeepEqual(jig.Passes[0].Tools, []string{"docker"}) {
+		t.Errorf("Pass[0].Tools = %v, want [docker]", jig.Passes[0].Tools)
+	}
+	if !reflect.DeepEqual(jig.Passes[1].Tools, []string{"kubectl", "helm"}) {
+		t.Errorf("Pass[1].Tools = %v, want [kubectl helm]", jig.Passes[1].Tools)
+	}
+	if jig.Passes[2].Tools != nil {
+		t.Errorf("Pass[2].Tools = %v, want nil", jig.Passes[2].Tools)
+	}
+}
+
+func TestParseNewFieldsDefaults(t *testing.T) {
+	content := []byte(`---
+name: bare
+description: No new fields set
+version: 1
+status_values:
+  - start
+  - end
+passes:
+  - name: "Go"
+    status: start
+    output: ["out.md"]
+---
+
+# Bare Jig
+`)
+	jig, err := Parse(content)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	if jig.Phase != "" {
+		t.Errorf("Phase = %q, want empty string", jig.Phase)
+	}
+	if jig.Tools != nil {
+		t.Errorf("Tools = %v, want nil", jig.Tools)
+	}
+	if jig.Composable {
+		t.Errorf("Composable = %v, want false", jig.Composable)
+	}
+	if jig.Passes[0].Tools != nil {
+		t.Errorf("Pass[0].Tools = %v, want nil", jig.Passes[0].Tools)
+	}
+}
+
+func TestParseRetrofitJig(t *testing.T) {
+	data, err := builtinFS.ReadFile("builtin/retrofit.md")
+	if err != nil {
+		t.Fatalf("failed to read built-in retrofit jig: %v", err)
+	}
+
+	jig, err := Parse(data)
+	if err != nil {
+		t.Fatalf("failed to parse retrofit jig: %v", err)
+	}
+
+	if jig.Name != "retrofit" {
+		t.Errorf("Name = %q, want %q", jig.Name, "retrofit")
+	}
+	if jig.Version != 1 {
+		t.Errorf("Version = %d, want %d", jig.Version, 1)
+	}
+	if jig.Phase != "exploration" {
+		t.Errorf("Phase = %q, want %q", jig.Phase, "exploration")
+	}
+	if !reflect.DeepEqual(jig.Tools, []string{}) {
+		t.Errorf("Tools = %v, want []", jig.Tools)
+	}
+	if jig.Composable {
+		t.Errorf("Composable = %v, want false", jig.Composable)
+	}
+	if len(jig.StatusValues) != 4 {
+		t.Errorf("StatusValues count = %d, want %d", len(jig.StatusValues), 4)
+	}
+	if len(jig.Passes) != 4 {
+		t.Errorf("Passes count = %d, want %d", len(jig.Passes), 4)
+	}
+
+	// First pass
+	if jig.Passes[0].Status != "capture" {
+		t.Errorf("Pass[0].Status = %q, want %q", jig.Passes[0].Status, "capture")
+	}
+	if !reflect.DeepEqual(jig.Passes[0].Output, []string{"01-capture.md"}) {
+		t.Errorf("Pass[0].Output = %v, want [01-capture.md]", jig.Passes[0].Output)
+	}
+
+	// Last pass (square) has empty output
+	if jig.Passes[3].Status != "square" {
+		t.Errorf("Pass[3].Status = %q, want %q", jig.Passes[3].Status, "square")
+	}
+	if len(jig.Passes[3].Output) != 0 {
+		t.Errorf("Pass[3].Output count = %d, want %d", len(jig.Passes[3].Output), 0)
+	}
+
+	if jig.Body == "" {
+		t.Error("Body is empty, expected markdown content")
+	}
+
+	// No aliases
+	if len(jig.Aliases) != 0 {
+		t.Errorf("Aliases = %v, want empty", jig.Aliases)
+	}
+}
+
 func TestListAllNonexistentUserDir(t *testing.T) {
 	summaries, err := ListAll("/nonexistent/path")
 	if err != nil {
 		t.Fatalf("ListAll error: %v", err)
 	}
 	// Should still return built-in jigs
-	if len(summaries) != 3 {
-		t.Errorf("expected 3 jigs from built-in, got %d", len(summaries))
+	if len(summaries) != 6 {
+		t.Errorf("expected 6 jigs from built-in, got %d", len(summaries))
+	}
+}
+
+func TestParseImplementationJig(t *testing.T) {
+	data, err := builtinFS.ReadFile("builtin/implementation.md")
+	if err != nil {
+		t.Fatalf("failed to read built-in implementation jig: %v", err)
+	}
+
+	jig, err := Parse(data)
+	if err != nil {
+		t.Fatalf("failed to parse implementation jig: %v", err)
+	}
+
+	if jig.Name != "implementation" {
+		t.Errorf("Name = %q, want %q", jig.Name, "implementation")
+	}
+	if jig.Version != 1 {
+		t.Errorf("Version = %d, want %d", jig.Version, 1)
+	}
+	if jig.Phase != "implementation" {
+		t.Errorf("Phase = %q, want %q", jig.Phase, "implementation")
+	}
+	if !reflect.DeepEqual(jig.Tools, []string{"bd", "ntm", "agent-mail"}) {
+		t.Errorf("Tools = %v, want [bd ntm agent-mail]", jig.Tools)
+	}
+	if !jig.Composable {
+		t.Error("Composable = false, want true")
+	}
+	if len(jig.StatusValues) != 5 {
+		t.Errorf("StatusValues count = %d, want 5", len(jig.StatusValues))
+	}
+	if len(jig.Passes) != 5 {
+		t.Errorf("Passes count = %d, want 5", len(jig.Passes))
+	}
+
+	// Verify pass details
+	// Pass 0: Breakdown
+	if !reflect.DeepEqual(jig.Passes[0].Tools, []string{"bd"}) {
+		t.Errorf("Passes[0].Tools = %v, want [bd]", jig.Passes[0].Tools)
+	}
+	// Pass 1: Dispatch
+	if !reflect.DeepEqual(jig.Passes[1].Tools, []string{"ntm"}) {
+		t.Errorf("Passes[1].Tools = %v, want [ntm]", jig.Passes[1].Tools)
+	}
+	// Pass 2: Implement — tools and empty output
+	if !reflect.DeepEqual(jig.Passes[2].Tools, []string{"ntm", "agent-mail"}) {
+		t.Errorf("Passes[2].Tools = %v, want [ntm agent-mail]", jig.Passes[2].Tools)
+	}
+	if len(jig.Passes[2].Output) != 0 {
+		t.Errorf("Passes[2].Output = %v, want empty", jig.Passes[2].Output)
+	}
+
+	// Verify aliases
+	wantAliases := map[string]bool{"impl": false, "implement": false}
+	for _, a := range jig.Aliases {
+		wantAliases[a] = true
+	}
+	for alias, found := range wantAliases {
+		if !found {
+			t.Errorf("missing alias %q", alias)
+		}
+	}
+
+	if jig.Body == "" {
+		t.Error("Body is empty, expected markdown content")
+	}
+}
+
+func TestResolveImplementationAlias(t *testing.T) {
+	// "impl" resolves to the implementation jig
+	jig, source, err := Resolve("impl", "")
+	if err != nil {
+		t.Fatalf("Resolve(impl) error: %v", err)
+	}
+	if source != "built-in" {
+		t.Errorf("source = %q, want %q", source, "built-in")
+	}
+	if jig.Name != "implementation" {
+		t.Errorf("Name = %q, want %q", jig.Name, "implementation")
+	}
+
+	// "implement" resolves to the implementation jig
+	jig, source, err = Resolve("implement", "")
+	if err != nil {
+		t.Fatalf("Resolve(implement) error: %v", err)
+	}
+	if source != "built-in" {
+		t.Errorf("source = %q, want %q", source, "built-in")
+	}
+	if jig.Name != "implementation" {
+		t.Errorf("Name = %q, want %q", jig.Name, "implementation")
+	}
+}
+
+func TestParseSpikeJig(t *testing.T) {
+	data, err := builtinFS.ReadFile("builtin/spike.md")
+	if err != nil {
+		t.Fatalf("failed to read built-in spike jig: %v", err)
+	}
+
+	jig, err := Parse(data)
+	if err != nil {
+		t.Fatalf("failed to parse spike jig: %v", err)
+	}
+
+	if jig.Name != "spike" {
+		t.Errorf("Name = %q, want %q", jig.Name, "spike")
+	}
+	if jig.Version != 1 {
+		t.Errorf("Version = %d, want %d", jig.Version, 1)
+	}
+	if jig.Phase != "exploration" {
+		t.Errorf("Phase = %q, want %q", jig.Phase, "exploration")
+	}
+	if !reflect.DeepEqual(jig.Tools, []string{}) {
+		t.Errorf("Tools = %v, want []", jig.Tools)
+	}
+	if jig.Composable {
+		t.Errorf("Composable = %v, want false", jig.Composable)
+	}
+
+	// Verify aliases
+	wantAliases := []string{"explore", "investigation"}
+	if !reflect.DeepEqual(jig.Aliases, wantAliases) {
+		t.Errorf("Aliases = %v, want %v", jig.Aliases, wantAliases)
+	}
+
+	// Verify status values
+	if len(jig.StatusValues) != 5 {
+		t.Errorf("StatusValues count = %d, want 5", len(jig.StatusValues))
+	}
+
+	// Verify passes
+	if len(jig.Passes) != 5 {
+		t.Errorf("Passes count = %d, want 5", len(jig.Passes))
+	}
+
+	// Pass[2] (Converge) has output = ["03-exploration-log.md"]
+	if len(jig.Passes) > 2 {
+		if !reflect.DeepEqual(jig.Passes[2].Output, []string{"03-exploration-log.md"}) {
+			t.Errorf("Passes[2].Output = %v, want [03-exploration-log.md]", jig.Passes[2].Output)
+		}
+	}
+
+	// Pass[4] (Square) has status "squared" and empty output
+	if len(jig.Passes) > 4 {
+		if jig.Passes[4].Status != "squared" {
+			t.Errorf("Passes[4].Status = %q, want %q", jig.Passes[4].Status, "squared")
+		}
+		if len(jig.Passes[4].Output) != 0 {
+			t.Errorf("Passes[4].Output = %v, want empty", jig.Passes[4].Output)
+		}
+	}
+
+	if jig.Body == "" {
+		t.Error("Body is empty, expected markdown content")
+	}
+}
+
+func TestResolveSpikeAlias(t *testing.T) {
+	// "explore" resolves to the spike jig
+	jig, source, err := Resolve("explore", "")
+	if err != nil {
+		t.Fatalf("Resolve(explore) error: %v", err)
+	}
+	if source != "built-in" {
+		t.Errorf("source = %q, want %q", source, "built-in")
+	}
+	if jig.Name != "spike" {
+		t.Errorf("Name = %q, want %q", jig.Name, "spike")
+	}
+
+	// "investigation" resolves to the spike jig
+	jig, source, err = Resolve("investigation", "")
+	if err != nil {
+		t.Fatalf("Resolve(investigation) error: %v", err)
+	}
+	if source != "built-in" {
+		t.Errorf("source = %q, want %q", source, "built-in")
+	}
+	if jig.Name != "spike" {
+		t.Errorf("Name = %q, want %q", jig.Name, "spike")
 	}
 }
 

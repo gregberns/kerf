@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mcp-agent-mail": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp/",
+      "headers": {
+        "Authorization": "Bearer 57bc4b713e0a872776cbb14fe19a7b30ee9f0d99f84a66485b85ffea2e888164"
+      }
+    }
+  }
+}

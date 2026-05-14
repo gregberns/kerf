@@ -220,3 +220,104 @@ func TestEmptySessionsAndDeps(t *testing.T) {
 		t.Errorf("active_session = %v, want nil", got.ActiveSession)
 	}
 }
+
+func TestRoundTripAreas(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	s := &SpecYAML{
+		Codename: "test",
+		Type:     "feature",
+		Project:  Project{ID: "proj"},
+		Jig:      "feature",
+		Status:   "research",
+		Created:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Areas:    []string{"auth", "api", "database"},
+	}
+
+	if err := Write(path, s); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if len(got.Areas) != 3 {
+		t.Fatalf("areas length = %d, want 3", len(got.Areas))
+	}
+	for i, want := range []string{"auth", "api", "database"} {
+		if got.Areas[i] != want {
+			t.Errorf("Areas[%d] = %q, want %q", i, got.Areas[i], want)
+		}
+	}
+}
+
+func TestRoundTripRelatedTo(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	s := &SpecYAML{
+		Codename: "test",
+		Type:     "feature",
+		Project:  Project{ID: "proj"},
+		Jig:      "feature",
+		Status:   "research",
+		Created:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		RelatedTo: []RelatedWork{
+			{Codename: "other-work", Relationship: "informs"},
+			{Codename: "third-work", Relationship: "supersedes"},
+		},
+	}
+
+	if err := Write(path, s); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if len(got.RelatedTo) != 2 {
+		t.Fatalf("related_to length = %d, want 2", len(got.RelatedTo))
+	}
+	if got.RelatedTo[0].Codename != "other-work" || got.RelatedTo[0].Relationship != "informs" {
+		t.Errorf("RelatedTo[0] = %+v, want {other-work informs}", got.RelatedTo[0])
+	}
+	if got.RelatedTo[1].Codename != "third-work" || got.RelatedTo[1].Relationship != "supersedes" {
+		t.Errorf("RelatedTo[1] = %+v, want {third-work supersedes}", got.RelatedTo[1])
+	}
+}
+
+func TestBackwardCompatibility_NoAreasOrRelatedTo(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	// Write a YAML file without areas or related_to fields.
+	content := []byte(`codename: legacy-work
+type: bug
+project:
+    id: proj
+jig: plan
+status: done
+created: 2025-01-01T00:00:00Z
+updated: 2025-01-01T00:00:00Z
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if got.Areas != nil {
+		t.Errorf("expected nil Areas for legacy spec, got %v", got.Areas)
+	}
+	if got.RelatedTo != nil {
+		t.Errorf("expected nil RelatedTo for legacy spec, got %v", got.RelatedTo)
+	}
+}

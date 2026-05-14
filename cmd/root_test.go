@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gberns/kerf/internal/testutil"
@@ -41,6 +42,127 @@ func TestRootCommand_WithBench(t *testing.T) {
 	testutil.AssertStringContains(t, out, "Bench summary")
 	testutil.AssertStringContains(t, out, "Total active works: 1")
 	testutil.AssertStringContains(t, out, "Standard workflow")
+}
+
+func TestRootCommand_WithJigChain(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	benchDir := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(benchDir, "projects", "my-proj")
+	os.MkdirAll(filepath.Join(projDir, "blue-bear"), 0755)
+	writeMinimalSpec(t, filepath.Join(projDir, "blue-bear", "spec.yaml"), "blue-bear", "my-proj")
+
+	// Create project.yaml with a jig chain
+	projectYAML := "jigs:\n  - plan\n  - bug\n"
+	os.WriteFile(filepath.Join(projDir, "project.yaml"), []byte(projectYAML), 0644)
+
+	// Set up git repo so project resolves
+	gitRepo := testutil.SetupGitRepo(t)
+	os.MkdirAll(filepath.Join(gitRepo, ".kerf"), 0755)
+	os.WriteFile(filepath.Join(gitRepo, ".kerf", "project-identifier"), []byte("my-proj\n"), 0644)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(gitRepo)
+	defer os.Chdir(oldWd)
+
+	out := captureOutput(t, func() {
+		rootCmd.SetArgs([]string{})
+		rootCmd.Run(rootCmd, []string{})
+	})
+
+	testutil.AssertStringContains(t, out, "Bench summary")
+	testutil.AssertStringContains(t, out, "This project uses:")
+	testutil.AssertStringContains(t, out, "plan")
+	testutil.AssertStringContains(t, out, "bug")
+}
+
+func TestRootCommand_NoJigChainWithoutProjectYAML(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	benchDir := filepath.Join(tmp, ".kerf")
+	os.MkdirAll(filepath.Join(benchDir, "projects", "my-proj", "blue-bear"), 0755)
+	writeMinimalSpec(t, filepath.Join(benchDir, "projects", "my-proj", "blue-bear", "spec.yaml"), "blue-bear", "my-proj")
+
+	// No project.yaml — jig chain should not appear
+
+	gitRepo := testutil.SetupGitRepo(t)
+	os.MkdirAll(filepath.Join(gitRepo, ".kerf"), 0755)
+	os.WriteFile(filepath.Join(gitRepo, ".kerf", "project-identifier"), []byte("my-proj\n"), 0644)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(gitRepo)
+	defer os.Chdir(oldWd)
+
+	out := captureOutput(t, func() {
+		rootCmd.SetArgs([]string{})
+		rootCmd.Run(rootCmd, []string{})
+	})
+
+	testutil.AssertStringContains(t, out, "Bench summary")
+	if strings.Contains(out, "This project uses:") {
+		t.Errorf("should not show jig chain without project.yaml, got: %s", out)
+	}
+}
+
+func TestRootCommand_JigChainComposable(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	benchDir := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(benchDir, "projects", "my-proj")
+	os.MkdirAll(filepath.Join(projDir, "blue-bear"), 0755)
+	writeMinimalSpec(t, filepath.Join(projDir, "blue-bear", "spec.yaml"), "blue-bear", "my-proj")
+
+	// Create a composable user jig
+	jigsDir := filepath.Join(benchDir, "jigs")
+	os.MkdirAll(jigsDir, 0755)
+	composableJig := `---
+name: deploy
+description: Deployment jig
+version: 1
+phase: implementation
+composable: true
+status_values:
+  - build
+  - test
+  - ship
+passes:
+  - name: "Build"
+    status: build
+    output: ["build.log"]
+  - name: "Test"
+    status: test
+    output: ["test.log"]
+  - name: "Ship"
+    status: ship
+    output: ["deploy.log"]
+---
+
+# Deploy
+`
+	os.WriteFile(filepath.Join(jigsDir, "deploy.md"), []byte(composableJig), 0644)
+
+	// project.yaml with composable jig and pass filtering
+	projectYAML := "jigs:\n  - plan\n  - deploy\npasses:\n  deploy:\n    - Build\n    - Ship\n"
+	os.WriteFile(filepath.Join(projDir, "project.yaml"), []byte(projectYAML), 0644)
+
+	gitRepo := testutil.SetupGitRepo(t)
+	os.MkdirAll(filepath.Join(gitRepo, ".kerf"), 0755)
+	os.WriteFile(filepath.Join(gitRepo, ".kerf", "project-identifier"), []byte("my-proj\n"), 0644)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(gitRepo)
+	defer os.Chdir(oldWd)
+
+	out := captureOutput(t, func() {
+		rootCmd.SetArgs([]string{})
+		rootCmd.Run(rootCmd, []string{})
+	})
+
+	testutil.AssertStringContains(t, out, "This project uses:")
+	testutil.AssertStringContains(t, out, "deploy (Build, Ship)")
 }
 
 func captureOutput(t *testing.T, fn func()) string {

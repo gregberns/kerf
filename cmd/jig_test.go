@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gberns/kerf/internal/testutil"
@@ -22,6 +23,13 @@ func TestJigListCommand(t *testing.T) {
 	testutil.AssertStringContains(t, out, "spec")
 	testutil.AssertStringContains(t, out, "bug")
 	testutil.AssertStringContains(t, out, "built-in")
+	// Phase column is shown.
+	testutil.AssertStringContains(t, out, "planning")
+	testutil.AssertStringContains(t, out, "implementation")
+	// Composable jig shows passes.
+	testutil.AssertStringContains(t, out, "Passes:")
+	// Implementation jig shows tools.
+	testutil.AssertStringContains(t, out, "Tools: bd, ntm, agent-mail")
 }
 
 func TestJigListCommand_MixedSources(t *testing.T) {
@@ -207,4 +215,90 @@ func TestJigSyncCommand(t *testing.T) {
 	})
 
 	testutil.AssertStringContains(t, out, "Jig sync is not yet available.")
+}
+
+func TestJigListCommand_PhaseFilter(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	os.MkdirAll(filepath.Join(tmp, ".kerf"), 0755)
+
+	// Filter to implementation phase.
+	oldPhase := jigPhaseFilter
+	jigPhaseFilter = "implementation"
+	defer func() { jigPhaseFilter = oldPhase }()
+
+	out := captureOutput(t, func() {
+		jigListCmd.RunE(jigListCmd, []string{})
+	})
+
+	testutil.AssertStringContains(t, out, "implementation")
+	// Should not contain planning-phase jigs.
+	if strings.Contains(out, "planning") {
+		t.Errorf("output should not contain planning-phase jigs when filtered to implementation, got:\n%s", out)
+	}
+}
+
+func TestJigListCommand_PhaseFilterNoMatch(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	os.MkdirAll(filepath.Join(tmp, ".kerf"), 0755)
+
+	oldPhase := jigPhaseFilter
+	jigPhaseFilter = "nonexistent-phase"
+	defer func() { jigPhaseFilter = oldPhase }()
+
+	out := captureOutput(t, func() {
+		jigListCmd.RunE(jigListCmd, []string{})
+	})
+
+	testutil.AssertStringContains(t, out, "No jigs available.")
+}
+
+func TestJigListCommand_WithProjectConfig(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// Create bench directory.
+	benchDir := filepath.Join(tmp, ".kerf")
+	os.MkdirAll(benchDir, 0755)
+
+	// Create a git repo so project resolution works.
+	repoDir := filepath.Join(tmp, "repo")
+	os.MkdirAll(filepath.Join(repoDir, ".git"), 0755)
+	os.MkdirAll(filepath.Join(repoDir, ".kerf"), 0755)
+	os.WriteFile(filepath.Join(repoDir, ".kerf", "project-identifier"), []byte("test-proj"), 0644)
+
+	// Create project.yaml with active jigs.
+	projDir := filepath.Join(benchDir, "projects", "test-proj")
+	os.MkdirAll(projDir, 0755)
+	projConfig := `jigs:
+  - plan
+  - implementation
+passes:
+  implementation:
+    - breakdown
+    - implement
+`
+	os.WriteFile(filepath.Join(projDir, "project.yaml"), []byte(projConfig), 0644)
+
+	// Change to repo dir so project resolution finds it.
+	oldDir, _ := os.Getwd()
+	os.Chdir(repoDir)
+	defer os.Chdir(oldDir)
+
+	oldPhase := jigPhaseFilter
+	jigPhaseFilter = ""
+	defer func() { jigPhaseFilter = oldPhase }()
+
+	out := captureOutput(t, func() {
+		jigListCmd.RunE(jigListCmd, []string{})
+	})
+
+	testutil.AssertStringContains(t, out, "Jigs for test-proj:")
+	testutil.AssertStringContains(t, out, "Active:")
+	testutil.AssertStringContains(t, out, "Available (not active):")
+	// Plan should be in Active section.
+	testutil.AssertStringContains(t, out, "plan")
+	// Composable jig with custom passes.
+	testutil.AssertStringContains(t, out, "Passes: breakdown, implement")
 }

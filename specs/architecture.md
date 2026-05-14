@@ -24,6 +24,8 @@ The bench is outside any git repository. This separation ensures:
       {codename}/
   projects/
     {project-id}/                # one directory per project
+      project.yaml               # per-project jig configuration (optional)
+      areas.yaml                 # area definitions for this project (see coordination.md)
       {codename}/                # one directory per work (see works.md)
 ```
 
@@ -31,6 +33,8 @@ The bench is outside any git repository. This separation ensures:
 - `jigs/` — user-level jig overrides and custom jigs. See [jig-system.md](jig-system.md) for format and resolution order.
 - `archive/` — works moved here are hidden from `kerf list` but otherwise retain their structure.
 - `projects/` — the primary storage area. Each project has its own subdirectory keyed by project ID. Each work within a project has its own subdirectory keyed by codename. See [works.md](works.md) for work directory contents.
+- `project.yaml` — per-project configuration. Declares which jigs are active and how composable jigs are configured. See [Project Configuration](#project-configuration) below.
+- `areas.yaml` — area definitions for this project. Areas are named regions of the system used for overlap detection and work coordination. See [coordination.md](coordination.md).
 
 The filesystem is the database. Files are the source of truth. There is no separate datastore.
 
@@ -150,6 +154,58 @@ These are distinct settings with different purposes:
 
 For a spec-first project, both are used during finalization: process artifacts go to `repo_spec_path`, drafted spec files go to `spec_path`. See [finalization.md](finalization.md).
 
+## Project Configuration
+
+The file `~/.kerf/projects/{project-id}/project.yaml` contains per-project settings. It is optional — projects without it use all available jigs with default settings.
+
+### Schema
+
+```yaml
+# ~/.kerf/projects/{project-id}/project.yaml
+
+# Jigs active for this project.
+# When set, only these jigs are available for `kerf new` in this project.
+# When absent, all jigs (built-in and user-level) are available.
+# jigs:
+#   - plan
+#   - implementation
+#   - spike
+
+# Composable jig pass configuration.
+# For jigs with `composable: true`, specify which passes to include.
+# Passes not listed are deactivated. Order follows the jig's definition.
+# passes:
+#   implementation:           # jig name
+#     - breakdown             # pass names to include
+#     - dispatch
+#     - implement
+#     - review
+
+# Tool declarations for process jigs.
+# Declares which tools are used for each role in this project.
+# Informational — emitted in `kerf setup` output so agents know what to use.
+# tools:
+#   orchestrator: ntm         # agent orchestration tool
+#   tasks: bd                 # task/bead management tool
+```
+
+### Semantics
+
+- **Missing file.** If `project.yaml` does not exist, all jigs are available and composable jigs use all passes. This is the default for new projects.
+- **Created by `kerf init`.** When `kerf init` runs in a project, it creates `project.yaml` with the user's jig selections. The user is prompted to choose active jigs and configure composable passes.
+- **Updated by `kerf setup`.** Running `kerf setup` re-reads `project.yaml` to generate fresh agent config. It does not modify `project.yaml` — that is the user's configuration.
+- **Unknown keys.** kerf ignores unrecognized keys without error.
+- **Relationship to `config.yaml`.** `project.yaml` contains project-specific jig configuration. `config.yaml` contains bench-wide defaults (default_jig, snapshot settings, etc.). `project.yaml` settings take precedence over `config.yaml` for the given project.
+
+### Interaction with `kerf jig list`
+
+When inside a project with a `project.yaml`:
+- `kerf jig list` shows which jigs are active for the current project vs. available but not activated
+- For composable jigs, shows which passes are active
+- Shows tool declarations
+
+When no `project.yaml` exists, `kerf jig list` shows all available jigs without activation status.
+
 ## Bench vs. Repo Boundary
 
 The bench (`~/.kerf/`) and the repository are separate domains with a defined interface.
@@ -171,3 +227,5 @@ The bench (`~/.kerf/`) and the repository are separate domains with a defined in
 - **Project identity** links the two: `.kerf/project-identifier` in the repo maps to `~/.kerf/projects/{project-id}/` in the bench.
 - **Finalization** is the only process that copies data from bench to repo. See [finalization.md](finalization.md).
 - kerf reads the repository (e.g., to determine the current project, the default branch, or uncommitted changes) but never writes to it except during finalization.
+
+For how areas and cross-work relationships support coordination across concurrent work items, see [coordination.md](coordination.md).

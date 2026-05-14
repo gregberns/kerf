@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/gberns/kerf/internal/areas"
 	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/codename"
 	"github.com/gberns/kerf/internal/config"
@@ -20,9 +21,10 @@ import (
 )
 
 var (
-	newTitle   string
-	newType    string
-	newJigFlag string
+	newTitle    string
+	newType     string
+	newJigFlag  string
+	newAreaFlag []string
 )
 
 const onboardingMessage = `No default workflow configured.
@@ -64,6 +66,7 @@ func init() {
 	newCmd.Flags().StringVar(&newTitle, "title", "", "Human-friendly title for the work")
 	newCmd.Flags().StringVar(&newType, "type", "", "Work type (defaults to jig name)")
 	newCmd.Flags().StringVar(&newJigFlag, "jig", "", "Jig to use (default: from config)")
+	newCmd.Flags().StringSliceVar(&newAreaFlag, "area", nil, "Area names to associate with the work (repeatable)")
 	rootCmd.AddCommand(newCmd)
 }
 
@@ -127,6 +130,24 @@ func runNew(cn string) error {
 		title = &newTitle
 	}
 
+	// Validate areas against areas.yaml if provided.
+	var workAreas []string
+	if len(newAreaFlag) > 0 {
+		areasPath := areas.AreasPath(bp, projectID)
+		af, err := areas.Load(areasPath)
+		if err != nil {
+			return fmt.Errorf("loading areas.yaml: %w", err)
+		}
+		// Only validate if areas.yaml exists (non-empty taxonomy).
+		if len(af.Areas) > 0 {
+			invalid := areas.Validate(af, newAreaFlag)
+			if len(invalid) > 0 {
+				return fmt.Errorf("area '%s' not found. Run 'kerf areas list' to see defined areas, or 'kerf areas add <name>' to create one", invalid[0])
+			}
+		}
+		workAreas = newAreaFlag
+	}
+
 	now := time.Now().UTC().Truncate(time.Second)
 	s := &spec.SpecYAML{
 		Codename:     cn,
@@ -141,6 +162,7 @@ func runNew(cn string) error {
 		Updated:      now,
 		Sessions:     []spec.Session{},
 		DependsOn:    []spec.Dependency{},
+		Areas:        workAreas,
 		Implementation: spec.Implementation{
 			Commits: []string{},
 		},
@@ -154,7 +176,13 @@ func runNew(cn string) error {
 		return err
 	}
 
-	// 8. Take snapshot.
+	// 8. Check area overlap.
+	var overlapEntries []areas.OverlapEntry
+	if len(workAreas) > 0 {
+		overlapEntries, _ = areas.FindOverlappingWorks(bp, projectID, workAreas, cn)
+	}
+
+	// 9. Take snapshot.
 	snapshot.Take(workDir, "")
 
 	// Output.
@@ -165,6 +193,31 @@ func runNew(cn string) error {
 	fmt.Printf("  Status:   %s\n", s.Status)
 	fmt.Printf("  Path:     %s\n", workDir)
 	fmt.Println()
+
+	// Area overlap warning.
+	if len(overlapEntries) > 0 {
+		fmt.Println("Area overlap:")
+		// Group by area: area — also touched by: work1 (status: s1), work2 (status: s2)
+		areaWorks := make(map[string][]areas.OverlapEntry)
+		for _, entry := range overlapEntries {
+			for _, a := range entry.SharedAreas {
+				areaWorks[a] = append(areaWorks[a], entry)
+			}
+		}
+		// Print each area with its overlapping works.
+		for _, a := range workAreas {
+			entries, ok := areaWorks[a]
+			if !ok {
+				continue
+			}
+			var parts []string
+			for _, e := range entries {
+				parts = append(parts, fmt.Sprintf("%s (status: %s)", e.Codename, e.Status))
+			}
+			fmt.Printf("  %s — also touched by: %s\n", a, strings.Join(parts, ", "))
+		}
+		fmt.Println()
+	}
 
 	// Jig process overview.
 	fmt.Printf("Process overview (%s jig):\n", j.Name)

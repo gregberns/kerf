@@ -34,11 +34,18 @@ The tool provides opinionated, built-in processes (**jigs**) that guide agents t
 - [snapshots.md](snapshots.md) — Versioning via `.history/`, snapshot triggers and structure
 - [dependencies.md](dependencies.md) — Work dependencies, cross-project references
 
+### Coordination
+- [areas.md](areas.md) — Area definitions, areas.yaml schema, area lifecycle
+- [coordination.md](coordination.md) — Cross-work coordination, overlap detection, computed views (map, next)
+
 ### Jigs
-- [jig-system.md](jig-system.md) — Jig format, resolution order, versioning
+- [jig-system.md](jig-system.md) — Jig format, resolution order, versioning, composable passes
 - [jig-plan.md](jig-plan.md) — Built-in plan jig: plan changes to existing codebases
 - [jig-spec.md](jig-spec.md) — Built-in spec jig: maintain a living system specification
 - [jig-bug.md](jig-bug.md) — Built-in bug jig: investigate defects and specify fixes
+- [jig-implementation.md](jig-implementation.md) — Built-in implementation jig: break down, dispatch, implement, review
+- [jig-retrofit.md](jig-retrofit.md) — Built-in retrofit jig: reconcile code and specs after untracked changes
+- [jig-spike.md](jig-spike.md) — Built-in spike jig: structured exploration when the approach is unknown
 
 ### CLI
 - [cli.md](cli.md) — CLI design principles, output philosophy, agent-first design

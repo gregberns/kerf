@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gberns/kerf/internal/spec"
@@ -147,6 +148,98 @@ implementation:
 	} else {
 		testutil.AssertStringContains(t, err.Error(), "has an active session")
 		testutil.AssertStringContains(t, err.Error(), "kerf shelve")
+	}
+}
+
+func TestResumeCommand_WithJigChain(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	bp := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(bp, "projects", "proj")
+
+	// Create a shelved work.
+	specContent := `codename: green-owl
+type: feature
+project:
+  id: proj
+jig: plan
+jig_version: 1
+status: research
+status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+active_session: null
+depends_on: []
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	os.MkdirAll(filepath.Join(projDir, "green-owl"), 0755)
+	os.WriteFile(filepath.Join(projDir, "green-owl", "spec.yaml"), []byte(specContent), 0644)
+
+	// Create project.yaml with active jigs including a composable one.
+	projConfig := `jigs:
+  - plan
+  - implementation
+passes:
+  implementation:
+    - breakdown
+    - implement
+`
+	os.WriteFile(filepath.Join(projDir, "project.yaml"), []byte(projConfig), 0644)
+
+	out := captureOutput(t, func() {
+		projectFlag = "proj"
+		defer func() { projectFlag = "" }()
+		resumeCmd.RunE(resumeCmd, []string{"green-owl"})
+	})
+
+	testutil.AssertStringContains(t, out, "Active jig chain:")
+	testutil.AssertStringContains(t, out, "This project uses:")
+	testutil.AssertStringContains(t, out, "plan")
+	testutil.AssertStringContains(t, out, "implementation (breakdown, implement)")
+}
+
+func TestResumeCommand_NoJigChainWithoutProjectConfig(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	bp := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(bp, "projects", "proj")
+
+	specContent := `codename: gray-cat
+type: feature
+project:
+  id: proj
+jig: plan
+jig_version: 1
+status: research
+status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+active_session: null
+depends_on: []
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	os.MkdirAll(filepath.Join(projDir, "gray-cat"), 0755)
+	os.WriteFile(filepath.Join(projDir, "gray-cat", "spec.yaml"), []byte(specContent), 0644)
+
+	out := captureOutput(t, func() {
+		projectFlag = "proj"
+		defer func() { projectFlag = "" }()
+		resumeCmd.RunE(resumeCmd, []string{"gray-cat"})
+	})
+
+	// No project.yaml → no jig chain section.
+	if strings.Contains(out, "Active jig chain:") {
+		t.Error("expected no jig chain without project.yaml")
 	}
 }
 

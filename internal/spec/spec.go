@@ -33,6 +33,12 @@ type SpecYAML struct {
 	// Dependencies
 	DependsOn []Dependency `yaml:"depends_on"`
 
+	// Areas
+	Areas []string `yaml:"areas,omitempty"`
+
+	// Cross-work relationships
+	RelatedTo []RelatedWork `yaml:"related_to,omitempty"`
+
 	// Implementation linkage
 	Implementation Implementation `yaml:"implementation"`
 }
@@ -55,6 +61,12 @@ type Dependency struct {
 	Codename     string  `yaml:"codename"`
 	Project      *string `yaml:"project,omitempty"`
 	Relationship string  `yaml:"relationship"`
+}
+
+// RelatedWork records a non-dependency relationship to another work.
+type RelatedWork struct {
+	Codename     string `yaml:"codename"`
+	Relationship string `yaml:"relationship"`
 }
 
 // Implementation tracks git linkage after finalization.

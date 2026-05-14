@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gberns/kerf/internal/bench"
+	"github.com/gberns/kerf/internal/cmdutil"
+	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/jig"
 )
 
@@ -30,6 +32,8 @@ Subcommands:
 
 // jig list
 
+var jigPhaseFilter string
+
 var jigListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Show available jigs",
@@ -49,41 +53,135 @@ func runJigList() error {
 		return nil
 	}
 
-	// Build display name with aliases.
+	// Filter by phase if requested.
+	if jigPhaseFilter != "" {
+		var filtered []jig.JigSummary
+		for _, s := range summaries {
+			if s.Phase == jigPhaseFilter {
+				filtered = append(filtered, s)
+			}
+		}
+		summaries = filtered
+		if len(summaries) == 0 {
+			fmt.Println("No jigs available.")
+			return nil
+		}
+	}
+
+	// Try to load project config for active/available grouping.
+	var projCfg *config.ProjectConfig
+	var projectID string
+	if pid, err := cmdutil.ResolveProject(projectFlag); err == nil {
+		projectID = pid
+		if bp, err := bench.BenchPath(); err == nil {
+			cfgPath := config.ProjectConfigPath(bp, pid)
+			if cfg, err := config.LoadProjectConfig(cfgPath); err == nil && len(cfg.Jigs) > 0 {
+				projCfg = cfg
+			}
+		}
+	}
+
+	if projCfg != nil {
+		printGroupedJigList(summaries, projCfg, projectID)
+	} else {
+		printFlatJigList(summaries)
+	}
+
+	fmt.Println()
+	fmt.Println("Commands:")
+	fmt.Println("  kerf jig show <name>    View full jig definition")
+
+	return nil
+}
+
+func printFlatJigList(summaries []jig.JigSummary) {
+	fmt.Println("Available jigs:")
+	printJigEntries(summaries, nil)
+}
+
+func printGroupedJigList(summaries []jig.JigSummary, projCfg *config.ProjectConfig, projectID string) {
+	var active, available []jig.JigSummary
+	for _, s := range summaries {
+		if projCfg.IsJigActive(s.Name) {
+			active = append(active, s)
+		} else {
+			available = append(available, s)
+		}
+	}
+
+	fmt.Printf("Jigs for %s:\n", projectID)
+	if len(active) > 0 {
+		fmt.Println()
+		fmt.Println("  Active:")
+		printJigEntries(active, projCfg)
+	}
+	if len(available) > 0 {
+		fmt.Println()
+		fmt.Println("  Available (not active):")
+		printJigEntries(available, nil)
+	}
+}
+
+func printJigEntries(summaries []jig.JigSummary, projCfg *config.ProjectConfig) {
+	// Build display names and compute column widths.
 	displayNames := make([]string, len(summaries))
+	maxName, maxDesc, maxPhase := 0, 0, 0
 	for i, s := range summaries {
 		dn := s.Name
 		if len(s.Aliases) > 0 {
 			dn += " (also: " + strings.Join(s.Aliases, ", ") + ")"
 		}
 		displayNames[i] = dn
-	}
-
-	// Column widths.
-	maxName, maxDesc := 0, 0
-	for i, s := range summaries {
-		if len(displayNames[i]) > maxName {
-			maxName = len(displayNames[i])
+		if len(dn) > maxName {
+			maxName = len(dn)
 		}
 		if len(s.Description) > maxDesc {
 			maxDesc = len(s.Description)
 		}
+		if len(s.Phase) > maxPhase {
+			maxPhase = len(s.Phase)
+		}
 	}
 
-	fmt.Println("Available jigs:")
 	for i, s := range summaries {
-		fmt.Printf("  %-*s  %-*s  v%d  %s\n",
+		phase := s.Phase
+		if phase == "" {
+			phase = "—"
+		}
+		fmt.Printf("    %-*s  %-*s  v%d  %-*s  %s\n",
 			maxName, displayNames[i],
 			maxDesc, s.Description,
 			s.Version,
+			maxPhase, phase,
 			s.Source,
 		)
-	}
-	fmt.Println()
-	fmt.Println("Commands:")
-	fmt.Println("  kerf jig show <name>    View full jig definition")
 
-	return nil
+		// Show passes for composable jigs.
+		if s.Composable {
+			var passNames []string
+			if projCfg != nil {
+				if activePasses := projCfg.GetActivePasses(s.Name); activePasses != nil {
+					passNames = activePasses
+				}
+			}
+			if passNames == nil {
+				// Show all passes — need to resolve the full jig to get pass names.
+				if j, _, err := jig.Resolve(s.Name, userJigsDir()); err == nil {
+					for _, p := range j.Passes {
+						passNames = append(passNames, strings.ToLower(p.Name))
+					}
+				}
+			}
+			if len(passNames) > 0 {
+				fmt.Printf("      Passes: %s\n", strings.Join(passNames, ", "))
+			}
+		}
+
+		// Show tools.
+		if len(s.Tools) > 0 {
+			fmt.Printf("      Tools: %s\n", strings.Join(s.Tools, ", "))
+		}
+	}
 }
 
 // jig show
@@ -255,6 +353,7 @@ var jigSyncCmd = &cobra.Command{
 
 func init() {
 	jigSaveCmd.Flags().StringVar(&jigSaveFrom, "from", "", "Path to a jig file to copy")
+	jigListCmd.Flags().StringVar(&jigPhaseFilter, "phase", "", "Filter to jigs matching this phase")
 
 	jigCmd.AddCommand(jigListCmd)
 	jigCmd.AddCommand(jigShowCmd)

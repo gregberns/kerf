@@ -20,6 +20,9 @@ type JigDefinition struct {
 	Description   string   `yaml:"description"`
 	Version       int      `yaml:"version"`
 	Aliases       []string `yaml:"aliases"`
+	Phase         string   `yaml:"phase"`
+	Tools         []string `yaml:"tools"`
+	Composable    bool     `yaml:"composable"`
 	StatusValues  []string `yaml:"status_values"`
 	Passes        []Pass   `yaml:"passes"`
 	FileStructure []string `yaml:"file_structure"`
@@ -31,6 +34,7 @@ type Pass struct {
 	Name   string   `yaml:"name"`
 	Status string   `yaml:"status"`
 	Output []string `yaml:"output"`
+	Tools  []string `yaml:"tools"`
 }
 
 // JigSummary is a brief representation for listing jigs.
@@ -40,6 +44,9 @@ type JigSummary struct {
 	Version     int
 	Source      string // "user" or "built-in"
 	Aliases     []string
+	Phase       string
+	Tools       []string
+	Composable  bool
 }
 
 // Parse parses a jig file (YAML frontmatter + markdown body) into a JigDefinition.
@@ -288,6 +295,9 @@ func ListAll(userJigsDir string) ([]JigSummary, error) {
 					Description: jig.Description,
 					Version:     jig.Version,
 					Source:      "user",
+					Phase:       jig.Phase,
+					Tools:       jig.Tools,
+					Composable:  jig.Composable,
 				})
 			}
 		}
@@ -320,6 +330,9 @@ func ListAll(userJigsDir string) ([]JigSummary, error) {
 			Version:     jig.Version,
 			Source:      "built-in",
 			Aliases:     jig.Aliases,
+			Phase:       jig.Phase,
+			Tools:       jig.Tools,
+			Composable:  jig.Composable,
 		})
 	}
 

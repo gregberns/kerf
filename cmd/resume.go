@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
+	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/dep"
 	"github.com/gberns/kerf/internal/jig"
 	"github.com/gberns/kerf/internal/session"
@@ -151,6 +153,9 @@ func runResume(cn string) error {
 	printFileTree(workDir, workDir, "  ")
 	fmt.Println()
 
+	// Active jig chain.
+	printJigChain(bp, projectID)
+
 	// Next steps.
 	fmt.Println("Next steps:")
 	fmt.Printf("  1. Continue working in %s\n", workDir)
@@ -158,4 +163,37 @@ func runResume(cn string) error {
 	fmt.Printf("  3. When done: kerf shelve %s\n", cn)
 
 	return nil
+}
+
+func printJigChain(benchPath, projectID string) {
+	cfgPath := config.ProjectConfigPath(benchPath, projectID)
+	projCfg, err := config.LoadProjectConfig(cfgPath)
+	if err != nil || len(projCfg.Jigs) == 0 {
+		return
+	}
+
+	jigsDir := filepath.Join(benchPath, "jigs")
+	var parts []string
+	for _, name := range projCfg.Jigs {
+		label := name
+		j, _, err := jig.Resolve(name, jigsDir)
+		if err == nil && j.Composable {
+			var passNames []string
+			if activePasses := projCfg.GetActivePasses(name); activePasses != nil {
+				passNames = activePasses
+			} else {
+				for _, p := range j.Passes {
+					passNames = append(passNames, strings.ToLower(p.Name))
+				}
+			}
+			if len(passNames) > 0 {
+				label += " (" + strings.Join(passNames, ", ") + ")"
+			}
+		}
+		parts = append(parts, label)
+	}
+
+	fmt.Println("Active jig chain:")
+	fmt.Printf("  This project uses: %s\n", strings.Join(parts, " → "))
+	fmt.Println()
 }

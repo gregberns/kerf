@@ -99,6 +99,11 @@ func printBenchSummary() {
 		fmt.Printf("  Project: %s (%d active works)\n", currentProject, currentProjectActive)
 	}
 	fmt.Printf("  Total active works: %d\n", totalActive)
+
+	// Show active jig chain if project.yaml has a Jigs list
+	if currentProject != "" {
+		printJigChain(bp, currentProject)
+	}
 }
 
 func printWorkflow() {

@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/config"
+	"github.com/gberns/kerf/internal/jig"
 	"github.com/gberns/kerf/internal/project"
 )
 
@@ -91,8 +93,69 @@ func runInit() error {
 		fmt.Println("  kerf config default_jig spec   # Best for new/spec-driven projects")
 	}
 
+	// Create project.yaml with all available jigs
+	projCfgPath := config.ProjectConfigPath(benchPath, projectID)
+	if err := createDefaultProjectConfig(projCfgPath); err != nil {
+		return fmt.Errorf("creating project.yaml: %w", err)
+	}
+
 	// Print the bootstrap instructions
 	fmt.Print(bootstrapInstructions(projectID, cfg.EffectiveDefaultJig()))
+
+	// Run kerf setup to generate agent-facing instructions
+	fmt.Println()
+	if err := runSetup(); err != nil {
+		// Non-fatal: setup may fail if project resolution differs, but init already succeeded
+		fmt.Printf("Note: could not generate setup instructions: %v\n", err)
+	}
+
+	return nil
+}
+
+// createDefaultProjectConfig creates project.yaml with all available jigs.
+// For composable jigs, all passes are included by default.
+func createDefaultProjectConfig(path string) error {
+	jigsDir := userJigsDir()
+	summaries, err := jig.ListAll(jigsDir)
+	if err != nil {
+		return fmt.Errorf("listing jigs: %w", err)
+	}
+
+	var jigNames []string
+	passes := make(map[string][]string)
+
+	for _, s := range summaries {
+		jigNames = append(jigNames, s.Name)
+
+		// For composable jigs, include all passes by default
+		if s.Composable {
+			def, _, err := jig.Resolve(s.Name, jigsDir)
+			if err != nil {
+				continue
+			}
+			var passNames []string
+			for _, p := range def.Passes {
+				passNames = append(passNames, p.Name)
+			}
+			if len(passNames) > 0 {
+				passes[s.Name] = passNames
+			}
+		}
+	}
+
+	projCfg := &config.ProjectConfig{
+		Jigs:   jigNames,
+		Passes: passes,
+	}
+	if len(passes) == 0 {
+		projCfg.Passes = nil
+	}
+
+	if err := config.SaveProjectConfig(path, projCfg); err != nil {
+		return err
+	}
+
+	fmt.Printf("Created project.yaml with %d active jigs: %s\n", len(jigNames), strings.Join(jigNames, ", "))
 
 	return nil
 }
@@ -154,6 +217,9 @@ decomposition, research, detailed spec, integration, and tasks.
 
 - New features or subsystems → kerf new --jig plan (or spec)
 - Bug investigations → kerf new --jig bug
+- Implementation from existing spec → kerf new --jig implementation
+- Quick explorations → kerf new --jig spike
+- Retrofitting specs to existing code → kerf new --jig retrofit
 - Trivial changes (typos, one-line fixes) → skip kerf, just make the change
 
 ### Workflow

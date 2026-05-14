@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -27,20 +29,32 @@ func init() {
 
 // squareResult holds the outcome of a square check.
 type squareResult struct {
-	StatusPass    bool
-	StatusDetail  string
-	FilesPass     bool
-	FilesPresent  int
-	FilesTotal    int
-	MissingFiles  []string
-	DepsPass      bool
-	DepsComplete  int
-	DepsTotal     int
+	StatusPass     bool
+	StatusDetail   string
+	FilesPass      bool
+	FilesPresent   int
+	FilesTotal     int
+	MissingFiles   []string
+	ProcessPass    bool
+	ProcessComplete int
+	ProcessTotal    int
+	ProcessDetails []string // "pass-name: done/active/pending"
+	HasProcessPasses bool
+	BeadTotal      int
+	BeadClosed     int
+	BeadOpen       int
+	HasBeadInfo    bool
+	DepsPass       bool
+	DepsComplete   int
+	DepsTotal      int
 	IncompleteDeps []string
 	UnresolveDeps  []string
 }
 
 func (r *squareResult) IsSquare() bool {
+	if r.HasProcessPasses {
+		return r.StatusPass && r.FilesPass && r.ProcessPass && r.DepsPass
+	}
 	return r.StatusPass && r.FilesPass && r.DepsPass
 }
 
@@ -100,6 +114,9 @@ func checkSquare(projectID, codename string) (*squareResult, error) {
 	}
 	result.FilesPass = result.FilesPresent == result.FilesTotal
 
+	// Process pass check
+	checkProcessPasses(jigDef, s.Status, result)
+
 	// Dependency check
 	blockingResults := dep.CheckBlocking(s.DependsOn, bp, projectID)
 	result.DepsTotal = len(blockingResults)
@@ -117,6 +134,120 @@ func checkSquare(projectID, codename string) (*squareResult, error) {
 	result.DepsPass = len(result.IncompleteDeps) == 0
 
 	return result, nil
+}
+
+// checkProcessPasses identifies process passes and checks their completion
+// by comparing the work's current status against each pass's status in the jig's ordering.
+//
+// Process passes are passes with empty output in composable jigs (e.g., the Implement and
+// Complete passes in the implementation jig). Terminal passes with empty output in
+// non-composable jigs (e.g., Ready in plan, Square in spike/retrofit) are NOT process passes.
+// Per verification.md: "Process pass checks apply only to jigs that have process passes.
+// Spec-writing jigs (plan, spec, bug) have only artifact passes and are unaffected."
+func checkProcessPasses(jigDef *jig.JigDefinition, workStatus string, result *squareResult) {
+	// Only composable jigs have process passes
+	if !jigDef.Composable {
+		return
+	}
+
+	// Build status index for ordering comparison
+	statusIndex := make(map[string]int)
+	for i, sv := range jigDef.StatusValues {
+		statusIndex[sv] = i
+	}
+
+	var processPasses []jig.Pass
+	for _, p := range jigDef.Passes {
+		if len(p.Output) == 0 {
+			processPasses = append(processPasses, p)
+		}
+	}
+
+	if len(processPasses) == 0 {
+		return
+	}
+
+	result.HasProcessPasses = true
+	result.ProcessTotal = len(processPasses)
+
+	// If the work has reached terminal status, all process passes are complete
+	atTerminal := jigDef.IsAtOrPastTerminal(workStatus)
+
+	workIdx, workKnown := statusIndex[workStatus]
+
+	for _, p := range processPasses {
+		passIdx, passKnown := statusIndex[p.Status]
+
+		var complete bool
+		if atTerminal {
+			complete = true
+		} else if !workKnown {
+			// Work status not in list — past all known statuses
+			complete = true
+		} else if !passKnown {
+			// Pass status not in list — cannot determine, treat as incomplete
+			complete = false
+		} else {
+			complete = workIdx > passIdx
+		}
+
+		if complete {
+			result.ProcessComplete++
+			result.ProcessDetails = append(result.ProcessDetails, p.Name+": done")
+		} else if workKnown && passKnown && workIdx == passIdx {
+			result.ProcessDetails = append(result.ProcessDetails, p.Name+": active")
+		} else {
+			result.ProcessDetails = append(result.ProcessDetails, p.Name+": pending")
+		}
+	}
+
+	result.ProcessPass = result.ProcessComplete == result.ProcessTotal
+
+	// Try to get bead info for implementation jigs
+	if jigDef.Name == "implementation" {
+		tryLoadBeadInfo(result)
+	}
+}
+
+// tryLoadBeadInfo attempts to read bead status via `bd list`. Fails silently if bd unavailable.
+func tryLoadBeadInfo(result *squareResult) {
+	out, err := exec.Command("bd", "list").Output()
+	if err != nil {
+		return
+	}
+	total, closed, open := parseBeadOutput(string(out))
+	if total > 0 {
+		result.HasBeadInfo = true
+		result.BeadTotal = total
+		result.BeadClosed = closed
+		result.BeadOpen = open
+	}
+}
+
+// parseBeadOutput extracts bead counts from bd list output.
+// It looks for lines containing "total", "closed", "open" with numeric values.
+func parseBeadOutput(output string) (total, closed, open int) {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		n, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		label := strings.ToLower(fields[1])
+		switch {
+		case strings.HasPrefix(label, "total"):
+			total = n
+		case strings.HasPrefix(label, "closed"):
+			closed = n
+		case strings.HasPrefix(label, "open"):
+			open = n
+		}
+	}
+	return
 }
 
 // detectComponents scans the work directory to find component names
@@ -196,6 +327,18 @@ func printSquareResult(codename string, r *squareResult) {
 		fmt.Printf("  Files:         fail — %d/%d expected files present\n", r.FilesPresent, r.FilesTotal)
 		for _, f := range r.MissingFiles {
 			fmt.Printf("    Missing:     %s\n", f)
+		}
+	}
+
+	// Process passes
+	if r.HasProcessPasses {
+		if r.ProcessPass {
+			fmt.Printf("  Process:       pass — %d/%d process passes complete\n", r.ProcessComplete, r.ProcessTotal)
+		} else {
+			fmt.Printf("  Process:       fail — %d/%d process passes complete\n", r.ProcessComplete, r.ProcessTotal)
+		}
+		if r.HasBeadInfo {
+			fmt.Printf("    Beads:       %d total, %d closed, %d open\n", r.BeadTotal, r.BeadClosed, r.BeadOpen)
 		}
 	}
 

@@ -59,7 +59,7 @@ Create a new [work](works.md) on the bench.
 ### Syntax
 
 ```
-kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--project <project-id>]
+kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <name>...] [--project <project-id>]
 ```
 
 ### Arguments and Flags
@@ -70,6 +70,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--project 
 | `--title` | No | `null` | Human-friendly title for the work. |
 | `--type` | No | Matches jig name | Work type (e.g., `feature`, `bug`). |
 | `--jig` | No | `default_jig` from config.yaml (required if `default_jig` unset) | Jig to use for this work. Resolved via jig resolution order (see [jig-system.md](jig-system.md)). |
+| `--area` | No | `[]` | One or more area names to associate with the work. May be repeated (e.g., `--area auth --area api`). Each name must exist in `areas.yaml`. |
 | `--project` | No | Inferred from `.kerf/project-identifier` | Project to create the work under. |
 
 ### Behavior
@@ -83,13 +84,19 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--project 
 3. **Resolve codename.** If no codename argument is provided, auto-generate an `adjective-noun` slug (e.g., `blue-bear`, `swift-maple`). Validate the codename format. Error if a work with this codename already exists in the project.
 4. **Resolve jig.** Look up the jig via the resolution order (see [jig-system.md](jig-system.md)). Error if the jig is not found.
 5. **Create the work directory** at `~/.kerf/projects/{project-id}/{codename}/`.
-6. **Initialize `spec.yaml`** with: codename, title, type, project ID, jig name, jig version, initial status (first value in the jig's `status_values`), `created` and `updated` timestamps, empty `sessions` list, empty `depends_on` list, null `implementation` fields, and the jig's `status_values` list.
-7. **Record session.** Append a session entry to `sessions` with the current timestamp and `ended: null`. Set `active_session`.
-8. **Take a snapshot** of the initial state (see [snapshots.md](snapshots.md)).
+6. **Initialize `spec.yaml`** with: codename, title, type, project ID, jig name, jig version, initial status (first value in the jig's `status_values`), `created` and `updated` timestamps, empty `sessions` list, empty `depends_on` list, empty `related_to` list, null `implementation` fields, the jig's `status_values` list, and the `areas` list from `--area` flags (empty if none provided).
+7. **Check area overlap.** If `--area` flags were provided, scan other active (non-archived) works in the project for overlapping areas. If any other work shares an area, emit an overlap warning in the output (see Output below). This is informational — it does not block creation.
+8. **Record session.** Append a session entry to `sessions` with the current timestamp and `ended: null`. Set `active_session`.
+9. **Take a snapshot** of the initial state (see [snapshots.md](snapshots.md)).
 
 ### Output
 
 - Confirmation: work created, codename, project ID, jig name.
+- If areas were assigned and other works share those areas, an overlap warning:
+  ```
+  Area overlap:
+    auth — also touched by: token-refresh (status: research), session-mgmt (status: tasks)
+  ```
 - The jig's process overview: list of passes with descriptions.
 - Agent instructions for the first pass (from the jig's markdown body).
 - Next steps block: how to begin the first pass, where to write artifacts.
@@ -102,6 +109,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--project 
 | Codename already exists in project | `Error: work '{codename}' already exists in project '{project-id}'.` |
 | Codename format invalid | `Error: codename must be lowercase alphanumeric and hyphens (matching [a-z0-9]+(-[a-z0-9]+)*).` |
 | Jig not found | `Error: jig '{name}' not found. Run 'kerf jig list' to see available jigs.` |
+| Area name not in `areas.yaml` | `Error: area '{name}' not found. Run 'kerf areas list' to see defined areas, or 'kerf areas add <name>' to create one.` |
 | `default_jig` unset and no `--jig` flag | See First-Run Onboarding below. |
 
 ### First-Run Onboarding
@@ -225,6 +233,19 @@ The output includes:
 - **Session history**: the `sessions` list from `spec.yaml`, with active session highlighted.
 - **Dependencies**: each dependency's codename, project, relationship, and current status.
 - **SESSION.md contents**: the full text of SESSION.md, if present.
+- **Pass status** (for implementation works): when the work uses a composable jig (e.g., `jig-implementation`), show the completion status of each pass. Example:
+  ```
+  Pass status:
+    breakdown:  done
+    dispatch:   done
+    implement:  3/7 beads complete
+    review:     0/3 beads reviewed
+  ```
+- **Bead status** (when available): when the work has beads (produced by the breakdown pass), show a summary of bead state:
+  ```
+  Beads: 7 total, 3 closed, 4 open, 1 with unresolved review feedback
+  ```
+  If no beads exist, this section is omitted.
 - **Commands block**: contextually relevant next actions:
 
 ```
@@ -579,33 +600,69 @@ Recommended: {status-1}, {status-2}, ..., {status-n}
 
 ### Purpose
 
-Show available jigs.
+Show available jigs with phase, tool, and activation information.
 
 ### Syntax
 
 ```
-kerf jig list
+kerf jig list [--phase <phase>]
 ```
+
+### Flags
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--phase` | No | — | Filter to jigs matching this SDLC phase (e.g., `planning`, `implementation`, `bug-fix`). |
 
 ### Behavior
 
 1. Enumerate jigs from all resolution sources in order: user-level (`~/.kerf/jigs/`), then built-in defaults.
-2. For each jig, read its frontmatter to extract name, description, and version.
+2. For each jig, read its frontmatter to extract name, description, version, phase, and tools.
 3. If a user-level jig has the same name as a built-in jig, only the user-level jig appears (it overrides the built-in).
+4. If `--phase` is provided, filter to jigs whose `phase` field matches the given value.
+5. If inside a project with a `project.yaml` (see [architecture.md](architecture.md)), determine which jigs are active for the current project vs. available but not activated.
+6. For composable jigs (jigs with `composable: true`), determine which passes are active from the project's `project.yaml` pass configuration.
 
 ### Output
 
+**When inside a project with `project.yaml`:**
+
 ```
-Available jigs:
-  plan (also: feature)    Write a plan before changing code. ...    v1    built-in
-  spec                    Maintain a living spec that defines ...   v1    built-in
-  bug                     Investigate and specify a fix for ...     v2    built-in
+Jigs for {project-id}:
+
+  Active:
+    plan (also: feature)    Write a plan before changing code. ...    v1    planning       built-in
+    implementation          Spec-to-code with composable passes ...   v1    implementation built-in
+      Passes: breakdown, dispatch, implement, review
+      Tools: bd, ntm
+    spike                   Explore before you spec ...               v1    planning       built-in
+      Tools: —
+
+  Available (not active):
+    spec                    Maintain a living spec that defines ...   v1    planning       built-in
+    bug                     Investigate and specify a fix for ...     v2    bug-fix        built-in
+    retrofit                Sync specs to code after the fact ...     v1    planning       built-in
 
 Commands:
   kerf jig show <name>    View full jig definition
 ```
 
-If a jig has aliases, they appear in parentheses after the canonical name. User-level jigs that override a built-in show `user` as the source.
+**When no `project.yaml` exists:**
+
+```
+Available jigs:
+  plan (also: feature)    Write a plan before changing code. ...    v1    planning       built-in
+  spec                    Maintain a living spec that defines ...   v1    planning       built-in
+  bug                     Investigate and specify a fix for ...     v2    bug-fix        built-in
+  implementation          Spec-to-code with composable passes ...   v1    implementation built-in
+    Passes: breakdown, dispatch, implement, review
+    Tools: bd, ntm
+
+Commands:
+  kerf jig show <name>    View full jig definition
+```
+
+If a jig has aliases, they appear in parentheses after the canonical name. User-level jigs that override a built-in show `user` as the source. Each jig's phase is displayed. For jigs that declare tools, the tools are listed below the jig entry. For composable jigs, active passes are listed below the jig entry.
 
 ### Errors
 
@@ -1085,7 +1142,7 @@ Work '{codename}' deleted.
 
 ### Purpose
 
-Bootstrap kerf in a project. Creates the project identifier, optionally sets the default workflow, and prints agent setup instructions.
+Bootstrap kerf in a project. Creates the project identifier, prompts the user to select active jigs, creates `project.yaml`, optionally sets the default workflow, and runs `kerf setup` to generate agent instructions.
 
 This is the entry point for adopting kerf in any project. The user runs `kerf init` (or tells their AI agent to run it), and the output contains everything needed to complete the setup.
 
@@ -1109,7 +1166,9 @@ kerf init [--jig <plan|spec>]
 4. If `.kerf/project-identifier` does not exist, create it and print the derived ID.
 5. If `--jig` is provided, set `default_jig` in config and print confirmation.
 6. If `--jig` is not provided and `default_jig` is not set, print a note with the two options (`kerf config default_jig plan` and `kerf config default_jig spec`).
-7. Print the agent setup instructions block (see Output below).
+7. **Prompt the user to select active jigs** for the project. Present the available jigs (from the jig library) and allow the user to choose which ones to activate. For composable jigs (e.g., `implementation`), also prompt for which passes to include.
+8. **Create `project.yaml`** at `~/.kerf/projects/{project-id}/project.yaml` with the selected jig and pass configuration. See [architecture.md](architecture.md) for the `project.yaml` schema.
+9. **Run `kerf setup`** to generate agent-facing instructions from the project's active jigs. The setup output is included in the init output (see Output below).
 
 ### Output
 
@@ -1117,11 +1176,13 @@ The output includes:
 
 1. Project initialization status (created or already exists).
 2. Default jig status (set, or instructions to set it).
-3. A clearly delimited block of **agent setup instructions** containing:
+3. Active jig selection summary (which jigs and passes were selected).
+4. `project.yaml` creation confirmation.
+5. The full output of `kerf setup` (see [`kerf setup`](#kerf-setup)), which includes:
+   - Agent setup instructions: process instructions from each active jig, tool requirements, jig sequencing, references to kerf commands
    - What to add to `.gitignore` (`.kerf/` but commit `.kerf/project-identifier`)
    - Agent-agnostic instructions to add to the agent's configuration file (CLAUDE.md, .cursorrules, etc.)
-   - The instructions include: when to use kerf, key commands, the standard workflow, and the "measure twice, cut once" principle
-4. A verification step the agent can run to confirm the setup works.
+6. A verification step the agent can run to confirm the setup works.
 
 The instructions are agent-agnostic. kerf does not know or reference any specific AI tool. The agent reading the output determines where to put the instructions based on its own configuration conventions.
 
@@ -1131,3 +1192,318 @@ The instructions are agent-agnostic. kerf does not know or reference any specifi
 |-----------|---------|
 | Not in a git repository | `Error: not in a git repository. kerf requires a git repo.` |
 | `--jig` value not `plan` or `spec` | `Error: --jig must be 'plan' or 'spec', got '{value}'.` |
+
+---
+
+## `kerf setup`
+
+### Purpose
+
+Generate agent-facing instructions from the project's active jigs. The agent applies the output to its configuration file (CLAUDE.md, AGENTS.md, etc.) — kerf does not write to these files directly.
+
+`kerf setup` is re-runnable. It generates fresh instructions whenever jigs are updated. `kerf init` calls `kerf setup` as part of its flow; `kerf setup` can also be run independently to refresh stale agent configuration.
+
+### Syntax
+
+```
+kerf setup
+```
+
+### Behavior
+
+1. Resolve the project ID from `.kerf/project-identifier` in the current repository.
+2. Read `project.yaml` from `~/.kerf/projects/{project-id}/project.yaml` to determine active jigs and pass configurations. See [architecture.md](architecture.md) for the `project.yaml` schema.
+3. For each active jig, load the jig definition and extract:
+   - Process instructions (the full agent-facing instructions from each pass)
+   - Tool requirements (declared in the jig's `tools` field)
+   - Jig sequencing (the recommended order of jigs for the project's SDLC)
+   - References to kerf commands used by the jig
+4. For composable jigs, include only the passes that are active per `project.yaml`.
+5. Assemble the complete agent-facing instruction block.
+
+**When no `project.yaml` exists:** kerf emits default instructions — all jigs are presented as available, basic kerf usage is included, and no project-specific jig or pass filtering is applied.
+
+### Output
+
+The output is a clearly delimited block of agent-facing instructions containing:
+
+- **Process instructions** from each active jig: the full agent-facing process for each jig's passes.
+- **Tool requirements**: which external tools are needed (e.g., `bd` for bead management, `ntm` for orchestration), as declared by the active jigs.
+- **Jig sequencing**: the composition chain for this project — which jigs are available and in what SDLC order.
+- **References to kerf commands**: the kerf commands relevant to each phase (e.g., `kerf new --jig plan` for planning, `kerf new --jig implementation` for implementation).
+
+When no `project.yaml` exists:
+
+```
+No project.yaml found — showing default instructions.
+All available jigs can be used with `kerf new --jig <name>`.
+
+{default kerf usage instructions}
+{list of all available jigs with descriptions}
+```
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| Not in a git repository | `Error: not in a git repository. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+| No `.kerf/project-identifier` found | `Error: project not initialized. Run 'kerf init' first.` |
+
+---
+
+## `kerf map`
+
+### Purpose
+
+Show all active work items with their areas, status, and bead progress. Provides a portfolio-level view of what the project is doing across all areas.
+
+### Syntax
+
+```
+kerf map [--project <project-id>]
+```
+
+### Flags
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--project` | No | Inferred from cwd | Show the map for this project. |
+
+### Behavior
+
+1. Resolve the project ID.
+2. Read all active (non-archived) work directories under `~/.kerf/projects/{project-id}/`. For each, read `spec.yaml` to get codename, title, type, status, areas, and `depends_on`.
+3. Read `areas.yaml` for the project to get area definitions.
+4. If bead integration is available (the project uses a jig that declares bead tooling), query bead status per work.
+5. Group works by area. Works with no areas appear under an "unassigned" group. Works with multiple areas appear under each area.
+
+### Output
+
+```
+Map for {project-id}:
+
+  auth:
+    token-refresh     plan   research    3/7 beads
+    session-mgmt      plan   tasks       —
+
+  api-gateway:
+    token-refresh     plan   research    3/7 beads
+    rate-limiter      spec   decompose   —
+
+  unassigned:
+    quick-fix         bug    reported    —
+
+Dependencies:
+  token-refresh -> database-migration [ready]
+  session-mgmt -> token-refresh [research]
+
+Commands:
+  kerf show <codename>      View work details
+  kerf next                 See suggested work ordering
+  kerf areas list           View all areas
+```
+
+- Works are listed under each area they touch. A work touching multiple areas appears in each group.
+- Bead progress (e.g., `3/7 beads`) is shown when bead data is available; `—` otherwise.
+- The Dependencies section shows cross-work dependencies with the dependency's current status.
+- If no works exist, output says so and suggests `kerf new`.
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+
+---
+
+## `kerf next`
+
+### Purpose
+
+Computed ordering of actionable work items. Filters out blocked and shelved works. Orders by dependency depth and completion momentum. The output is a view over current state, not stored data.
+
+### Syntax
+
+```
+kerf next [--project <project-id>]
+```
+
+### Flags
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--project` | No | Inferred from cwd | Show next actions for this project. |
+
+### Behavior
+
+1. Resolve the project ID.
+2. Read all active works and their `spec.yaml` files.
+3. **Filter**: exclude works that are blocked (have unmet `must-complete-first` dependencies), archived, or finalized.
+4. **Order** the remaining works. The ordering considers:
+   - **Dependency depth**: works that unblock other works are prioritized (a work that is a dependency for many others ranks higher).
+   - **Completion momentum**: works closer to their terminal status rank higher (position in `status_values` relative to total).
+   - The ordering algorithm is in a single location in the codebase for easy tuning.
+5. For each work, determine a suggested action based on its current status and jig (e.g., "continue research pass", "ready for finalization").
+
+### Output
+
+```
+Next actions for {project-id}:
+
+  1. database-migration   plan   tasks          Unblocks: token-refresh, session-mgmt
+     → Ready for finalization
+
+  2. token-refresh        plan   research       Areas: auth, api-gateway
+     → Continue research pass
+
+  3. rate-limiter         spec   decompose      Areas: api-gateway
+     → Continue decompose pass
+
+Commands:
+  kerf resume <codename>    Resume working on a work
+  kerf show <codename>      View work details
+```
+
+- Each entry shows rank, codename, type, status, areas (if any), and which works it unblocks (if any).
+- The suggested action line indicates what to do next.
+- If no actionable works exist, output says so.
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+
+---
+
+## `kerf areas list`
+
+### Purpose
+
+Show all defined areas for the current project.
+
+### Syntax
+
+```
+kerf areas list [--project <project-id>]
+```
+
+### Behavior
+
+1. Resolve the project ID.
+2. Read `areas.yaml` from `~/.kerf/projects/{project-id}/areas.yaml`.
+3. For each area, count how many active works reference it.
+
+### Output
+
+```
+Areas for {project-id}:
+
+  auth             "Authentication and session management"     2 works
+  api-gateway      "Public API surface and rate limiting"      1 work
+  storage          "Database and cache layers"                 0 works
+
+Commands:
+  kerf areas add <name> --description "..."    Define a new area
+  kerf areas remove <name>                     Remove an area
+  kerf map                                     View works by area
+```
+
+If no areas are defined, output says so and suggests `kerf areas add`.
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+
+---
+
+## `kerf areas add`
+
+### Purpose
+
+Define a new area for the current project.
+
+### Syntax
+
+```
+kerf areas add <name> [--description <text>]
+```
+
+### Arguments and Flags
+
+| Argument/Flag | Required | Default | Description |
+|---------------|----------|---------|-------------|
+| `name` | Yes | — | Area name. Must be a lowercase slug: alphanumeric and hyphens. |
+| `--description` | No | `""` | Human-readable description of what this area covers. |
+
+### Behavior
+
+1. Resolve the project ID.
+2. Read `areas.yaml` (create it if it does not exist).
+3. Validate the name format. Error if an area with this name already exists.
+4. Append the new area to `areas.yaml`.
+
+### Output
+
+```
+Area '{name}' added to project '{project-id}'.
+```
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| Area already exists | `Error: area '{name}' already exists in project '{project-id}'.` |
+| Invalid name format | `Error: area name must be lowercase alphanumeric and hyphens (matching [a-z0-9]+(-[a-z0-9]+)*).` |
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+
+---
+
+## `kerf areas remove`
+
+### Purpose
+
+Remove an area definition from the current project.
+
+### Syntax
+
+```
+kerf areas remove <name>
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `name` | Yes | The area to remove. |
+
+### Behavior
+
+1. Resolve the project ID.
+2. Read `areas.yaml`. Error if the area does not exist.
+3. Check if any active works reference this area. If so, emit a warning listing those works (but proceed with removal).
+4. Remove the area from `areas.yaml`.
+5. The area name is not automatically removed from works that reference it. Works retain stale area references until manually updated.
+
+### Output
+
+```
+Area '{name}' removed from project '{project-id}'.
+```
+
+If active works reference the area:
+
+```
+Warning: the following works still reference area '{name}':
+  {codename-1}, {codename-2}
+Area '{name}' removed from project '{project-id}'.
+```
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| Area not found | `Error: area '{name}' not found in project '{project-id}'. Run 'kerf areas list' to see defined areas.` |
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |

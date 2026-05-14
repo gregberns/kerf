@@ -33,6 +33,24 @@ The check **passes** if every expected file exists. The check **fails** if one o
 
 `spec.yaml` and `SESSION.md` are included in `file_structure` and are checked like any other expected file.
 
+### Process Pass Check
+
+For jigs that include **process passes** (see [jig-system.md](jig-system.md) §Process Passes vs. Artifact Passes), kerf checks process completion status in addition to file existence.
+
+Process passes do not produce primary output files — their state lives in external tools (e.g., the bead database for implementation tasks). kerf checks process pass completion by examining the work's status progression:
+
+- A process pass is **complete** if the work's status has advanced past the pass's status value
+- A process pass is **incomplete** if the work's status matches the pass's status value (still in progress) or precedes it (not yet started)
+
+For **implementation works** specifically, kerf also reports bead status when available:
+
+- Total beads, open beads, closed beads
+- Whether any beads have unresolved review feedback
+
+This is informational — bead counts are reported alongside the process pass status to give visibility into implementation progress. kerf reads bead status via `bd list` if `bd` is available. If `bd` is not available, the process pass check relies solely on the work's status value.
+
+Process pass checks apply only to jigs that have process passes. Spec-writing jigs (plan, spec, bug) have only artifact passes and are unaffected.
+
 ### Dependency Check
 
 kerf reads the work's `depends_on` list from [spec.yaml](works.md) and checks each dependency with a `must-complete-first` [relationship](dependencies.md).
@@ -88,6 +106,35 @@ When unresolvable dependencies exist:
 ```
 
 See [commands.md](commands.md) for the full command syntax and error messages.
+
+When process passes are present (implementation works):
+
+```
+Square check for api-refactor:
+
+  Status:        pass — complete (expected: complete or later)
+  Files:         pass — 3/3 expected files present
+  Process:       pass — 4/4 process passes complete
+    Beads:       37 total, 37 closed, 0 open
+  Dependencies:  pass — 1/1 blocking dependencies complete
+
+Result: SQUARE
+```
+
+When an implementation work is still in progress:
+
+```
+Square check for api-refactor:
+
+  Status:        fail — implementing (expected: complete or later)
+  Files:         fail — 2/3 expected files present
+    Missing:     03-verify.md
+  Process:       fail — 2/4 process passes complete
+    Beads:       37 total, 22 closed, 15 open (3 with unresolved review feedback)
+  Dependencies:  pass — 1/1 blocking dependencies complete
+
+Result: NOT SQUARE
+```
 
 ## What Square Does Not Check
 

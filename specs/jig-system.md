@@ -4,13 +4,21 @@
 
 ## Definition
 
-A **jig** is a process template defining how an agent walks through a [work](works.md). It declares an ordered sequence of passes, expected output files, recommended status values, and agent instructions for each phase. Jigs are the repeatable guide that makes spec-writing structured and resumable.
+A **jig** is a process template defining how an agent walks through a [work](works.md). It declares an ordered sequence of passes, expected output files, recommended status values, and agent instructions for each phase. Jigs are the repeatable guide that makes work structured and resumable.
+
+Jigs cover the full software development lifecycle — from spec-writing through implementation. Some jigs guide agents through producing specification artifacts (plan, spec, bug). Others guide agents through executing implementation processes (breakdown, dispatch, implement, review). The format and mechanics are the same; only the content and purpose differ.
 
 kerf ships with built-in jigs:
 
+**Spec-writing jigs:**
 - [`plan`](jig-plan.md) -- write a plan before changing code, for existing projects
 - [`spec`](jig-spec.md) -- maintain a living spec that defines your system, for spec-first projects
 - [`bug`](jig-bug.md) -- investigate and specify a fix for a defect
+
+**Process jigs:**
+- [`implementation`](jig-implementation.md) -- implement a spec: break down into tasks, dispatch to agents, execute with review gates
+- [`retrofit`](jig-retrofit.md) -- reconcile code and specs when code changed without the spec workflow
+- [`spike`](jig-spike.md) -- structured exploration when the approach is unknown
 
 ## File Format
 
@@ -23,8 +31,12 @@ Jigs are markdown files with YAML frontmatter. All machine-readable data (pass d
 name: <string>            # Identifier used in `kerf new --jig <name>`
 description: <string>     # One-line summary of this jig's purpose
 version: <integer>        # Incremented on breaking changes to the jig
+phase: <string>           # SDLC phase: planning, implementation, bug-fix, exploration
+tools:                    # Optional. External tools this jig's passes use.
+  - <string>              # Informational — agents know what's needed. kerf does not verify.
 aliases:                  # Optional. List of alternative names that resolve to this jig.
   - <string>
+composable: <boolean>     # Optional. Default false. If true, project config can select which passes to include.
 status_values:            # Ordered list of recommended status strings
   - <string>
   - <string>
@@ -33,6 +45,8 @@ passes:                   # Ordered list of passes
     status: <string>      # Status value when this pass is active (must appear in status_values)
     output:               # Files produced by this pass
       - <string>          # May include `{component}` placeholders for dynamic paths
+    tools:                # Optional. Tools used by this specific pass (inherits from jig-level if omitted)
+      - <string>
   - name: <string>
     status: <string>
     output:
@@ -41,6 +55,12 @@ file_structure:           # Complete list of expected files in the work director
   - <string>              # Includes spec.yaml, SESSION.md, and all pass outputs
 ---
 ```
+
+**New fields:**
+
+- **`phase`** — Which SDLC phase this jig applies to. Values: `planning` (plan, spec), `implementation` (implementation), `bug-fix` (bug), `exploration` (spike, retrofit). Used for display grouping in `kerf jig list` and for agent discovery. Not enforced — informational only.
+- **`tools`** — External tools the jig depends on (e.g., `bd`, `ntm`, `agent-mail`). Declared at the jig level and optionally overridden per-pass. Informational — lets agents and users know what needs to be available. kerf does not verify tool availability.
+- **`composable`** — Whether a project can select which of this jig's passes to include. When `false` (default), all passes are used. When `true`, the project config specifies which passes are active. Composable jigs define the full set of available passes; the project selects a subset.
 
 ### Markdown Body
 
@@ -191,13 +211,38 @@ Passes are the ordered phases of a jig. Each pass has:
 
 Passes are guidance, not gates. An agent can skip a pass if the user directs it to (e.g., "we already know the root cause, skip to fix spec"). Each pass produces zero or more files -- if work is not captured in a file, it is lost when the session ends.
 
+### Composable Passes
+
+When a jig has `composable: true`, its passes can be selectively activated per-project. The jig file defines the full set of available passes; the project's configuration specifies which ones to include for that project.
+
+Example: The `implementation` jig defines four passes (breakdown, dispatch, implement, review). A project using single-agent development might activate only breakdown and implement, skipping dispatch and review.
+
+When passes are deactivated:
+- They are omitted from `kerf show` output and status progression
+- Their output files are not expected by `kerf square`
+- The jig's markdown instructions for deactivated passes are not emitted by `kerf setup`
+- The remaining passes retain their relative ordering
+
+Non-composable jigs (the default) always use all defined passes. The spec-writing jigs (plan, spec, bug) are not composable — their passes have sequential dependencies that make selective activation impractical.
+
+### Process Passes vs. Artifact Passes
+
+Spec-writing jigs produce **artifact passes** — each pass creates a file (01-problem-space.md, 02-analysis.md, etc.). The numbered files on disk show exactly which passes are complete. `kerf square` checks for file existence.
+
+Process jigs (implementation, retrofit) may include **process passes** — passes where the primary output is an action (dispatch beads to agents, run reviews) rather than a document. Process passes may produce tracking artifacts but their completion is measured differently:
+
+- Artifact passes: complete when the output file exists on disk
+- Process passes: complete when the process step has been executed (tracked via pass status in the work)
+
+`kerf show` reports the status of both types. `kerf square` checks both — file existence for artifact passes, status completion for process passes. See [verification.md](verification.md).
+
 ## Status Values
 
 A jig declares an ordered list of `status_values` representing the recommended progression through the work. These values are cached in the work's `spec.yaml` at creation time.
 
 Status is an open string. The CLI emits the jig's status list so agents follow conventions, but accepts any string. When a status is set to a value not in the jig's recommended list, the CLI warns but does not error. This catches typos without blocking custom statuses from orchestrators.
 
-Statuses beyond the jig's final value (e.g., `implementing`, `done`) are orchestrator-defined and not part of the jig. kerf manages specs through the jig's terminal status; what happens after finalization is the responsibility of other tools.
+Statuses beyond a spec-writing jig's final value (e.g., `implementing`, `done`) are orchestrator-defined and not part of the jig. For spec-writing jigs, kerf manages works through the jig's terminal status; what happens after finalization is the responsibility of other tools. Process jigs (implementation, retrofit) define their own status progressions that cover the full process lifecycle.
 
 ## File Structure
 
@@ -221,10 +266,11 @@ See [commands.md](commands.md) for full command syntax.
 
 ## Customization
 
-Jigs are customizable at two levels:
+Jigs are customizable at three levels:
 
 - **Per-user** -- place jig files in `~/.kerf/jigs/`. These override built-in jigs of the same name and are available across all projects.
-- **Per-project** -- a project's `config.yaml` can set `default_jig` to control which jig is used when `kerf new` is run without `--jig`. The jig itself is still resolved via the standard resolution order.
+- **Per-project jig selection** -- a project's configuration declares which jigs are active and, for composable jigs, which passes to include. See [architecture.md](architecture.md) for project configuration details.
+- **Per-project defaults** -- a project's `config.yaml` can set `default_jig` to control which jig is used when `kerf new` is run without `--jig`. The jig itself is still resolved via the standard resolution order.
 
 Users create custom jigs by copying and modifying a built-in jig (via the save/load commands) or by writing a new jig file from scratch following the format defined in this spec.
 
@@ -262,7 +308,10 @@ If an agent is compacted mid-pass, it re-reads the work directory to restore con
 These principles govern the jig system and the design of individual jigs:
 
 1. **Opinionated but not rigid.** Passes are guidance, not gates. An agent can skip passes when directed.
-2. **Each content pass produces a file.** Terminal passes (e.g., `ready`) may produce no files. For content passes, this is critical for persistence and resumability.
+2. **Each content pass produces a file.** Terminal passes (e.g., `ready`) may produce no files. Process passes may produce tracking artifacts rather than primary documents. For content passes, file output is critical for persistence and resumability.
 3. **Requirements before implementation.** Passes that capture what is needed come before passes that capture how to build it.
 4. **Concrete over vague.** "Supports up to 10,000 concurrent sessions" not "is scalable."
-5. **The jig teaches the agent.** A new agent with no context reads the jig file and knows exactly what to do.
+5. **The jig teaches the agent.** A new agent with no context reads the jig file and knows exactly what to do. This applies equally to spec-writing jigs and process jigs — the jig contains the full instructions for how to use the tools and follow the process.
+6. **Recovery over prevention.** Process jigs make work state durable and visible rather than trying to gate agents from deviating. Beads persist in Git. Pass status is tracked. If an agent crashes or goes off-script, the next session finds its place and picks up. Visibility without enforcement.
+7. **Portable process.** Jig instructions are the single source of truth for how a process works. They live in kerf's jig library, not in per-project CLAUDE.md files or skills. Update a jig once, every project using it gets the improvement.
+8. **kerf defines, tools execute.** kerf stores process knowledge and emits it. Orchestration tools (ntm, Kilroy) execute the process. kerf never launches or manages agent sessions.

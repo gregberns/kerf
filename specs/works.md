@@ -7,11 +7,11 @@
 A work is a self-contained directory on the bench containing:
 
 - An **index file** (`spec.yaml`) — the source of truth for all work metadata
-- **Artifact files** — specification documents produced by the agent during the jig's passes
+- **Artifact files** — documents produced by the agent during the jig's passes (specs, plans, verification reports, etc.)
 - A **session file** (`SESSION.md`) — agent-written state for resumability (see [sessions](sessions.md))
 - A **history directory** (`.history/`) — auto-versioned snapshots (see [snapshots](snapshots.md))
 
-A work progresses through passes defined by its [jig](jig-system.md). At any point it can be shelved (paused) and resumed.
+A work progresses through passes defined by its [jig](jig-system.md). At any point it can be shelved (paused) and resumed. Some jigs include **process passes** where the primary output is an action (e.g., dispatching tasks to agents) rather than a document — see [jig-system.md](jig-system.md) §Process Passes vs. Artifact Passes.
 
 ## Work Directory Structure
 
@@ -93,7 +93,22 @@ Bug jig:
 reported -> research -> reproducing -> root-cause -> fix-spec -> ready
 ```
 
-Statuses beyond `ready` (e.g., `implementing`, `done`) are orchestrator-defined. kerf manages specifications through `ready`; what happens after [finalization](finalization.md) is the responsibility of other tools.
+Implementation jig:
+```
+breakdown -> dispatch -> implementing -> verify -> complete
+```
+
+Retrofit jig:
+```
+capture -> rationale -> spec-sync -> squared
+```
+
+Spike jig:
+```
+frame -> explore -> converge -> align -> squared
+```
+
+Spec-writing jigs (plan, spec, bug) manage works through `ready`; what happens after [finalization](finalization.md) is the responsibility of other tools. Process jigs (implementation, retrofit, spike) manage the full lifecycle through their own terminal status (`complete`, `squared`).
 
 ### Unrecognized Values
 
@@ -138,11 +153,21 @@ sessions:                               # list of session objects, optional (emp
 
 active_session: 5829f3a1-357e-4ee7-92b6-fff4a0e93251  # string or null — UUID, "anonymous", or null
 
+# Areas — see coordination.md
+areas:                                  # list of strings, optional (empty list default)
+  - auth                                # references area names from areas.yaml
+  - api-gateway
+
 # Dependencies — see dependencies.md for full details
 depends_on:                             # list of dependency objects, optional (empty list default)
   - codename: database-migration        # string, required — codename of dependency
     project: acme-webapp                # string, optional — omit for same project
     relationship: must-complete-first   # string, required
+
+# Cross-work relationships — see coordination.md
+related_to:                             # list of relationship objects, optional (empty list default)
+  - codename: token-refresh             # string, required — codename of related work
+    relationship: co-design             # string, required — e.g., co-design, informs, supersedes
 
 # Implementation linkage — see finalization.md
 implementation:                         # object, optional
@@ -157,7 +182,7 @@ implementation:                         # object, optional
 |-------|------|----------|---------|---------|-------------|
 | `codename` | string | yes | auto-generated | **no** | Primary identifier. Lowercase alphanumeric and hyphens. |
 | `title` | string | no | `null` | yes | Human-friendly description. |
-| `type` | string | yes | — | yes | Work category (e.g., `plan`, `spec`, `bug`). |
+| `type` | string | yes | — | yes | Work category (e.g., `plan`, `spec`, `bug`, `implementation`, `retrofit`, `spike`). |
 | `project.id` | string | yes | — | no | Project identifier from `.kerf/project-identifier`. |
 | `jig` | string | yes | — | no | Name of the [jig](jig-system.md) governing this work. |
 | `jig_version` | integer | yes | — | no | Jig version recorded at creation time. |
@@ -167,7 +192,9 @@ implementation:                         # object, optional
 | `updated` | RFC 3339 timestamp | yes | creation time | yes | When metadata was last changed. |
 | `sessions` | list\<session\> | no | `[]` | yes | Session history. See [sessions](sessions.md). |
 | `active_session` | string \| null | no | `null` | yes | UUID of current session, `"anonymous"` if no ID available, or `null` when inactive. See [sessions](sessions.md). |
+| `areas` | list\<string\> | no | `[]` | yes | Area names from `areas.yaml`. See [coordination](coordination.md). |
 | `depends_on` | list\<dependency\> | no | `[]` | yes | Work dependencies. See [dependencies](dependencies.md). |
+| `related_to` | list\<relationship\> | no | `[]` | yes | Cross-work relationships beyond dependencies (e.g., co-design). See [coordination](coordination.md). |
 | `implementation` | object | no | `{branch: null, pr: null, commits: []}` | yes | Populated at [finalization](finalization.md). |
 
 ### Immutability Rules
@@ -186,3 +213,44 @@ All other fields may be updated during the work's lifecycle.
 ### Timestamps
 
 All timestamps are RFC 3339 format in UTC (e.g., `2026-04-07T10:00:00Z`). The `updated` field is set whenever any metadata in `spec.yaml` changes.
+
+## SDLC Work Patterns
+
+With the full set of jigs (spec-writing and process jigs), a piece of work may flow through the SDLC as multiple linked works. The dependency system (see [dependencies](dependencies.md)) connects them:
+
+### Plan → Implementation
+
+The most common pattern. A plan work reaches `ready`, is finalized, and an implementation work is created with a dependency on it:
+
+```
+plan-work (jig: plan, status: ready)
+  → impl-work (jig: implementation, depends_on: plan-work)
+```
+
+The implementation work reads the plan work's finalized `SPEC.md` and `07-tasks.md` as inputs for the breakdown pass.
+
+### Spike → Plan → Implementation
+
+When exploration is needed before planning:
+
+```
+spike-work (jig: spike, status: squared)
+  → plan-work (jig: plan, depends_on: spike-work)
+    → impl-work (jig: implementation, depends_on: plan-work)
+```
+
+The spike work's exploration log informs the plan work's problem space.
+
+### Retrofit (standalone)
+
+Retrofit works typically stand alone — they reconcile an existing divergence:
+
+```
+retrofit-work (jig: retrofit, status: squared)
+```
+
+A retrofit work may depend on the original plan work it is reconciling against, using the `inform` relationship.
+
+### Key Invariant
+
+Each work has exactly one jig. The "one work, one jig" invariant holds across all patterns. SDLC progression is modeled as multiple linked works, not as one work evolving through multiple jigs.
