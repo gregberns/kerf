@@ -218,3 +218,47 @@ func TestForWork_Empty(t *testing.T) {
 		t.Errorf("expected nil for nil input, got %v", result)
 	}
 }
+
+func TestIsRework(t *testing.T) {
+	tests := []struct {
+		name string
+		b    Bead
+		want bool
+	}{
+		{"no labels", Bead{ID: "1"}, false},
+		{"empty labels", Bead{ID: "1", Labels: []string{}}, false},
+		{"unrelated labels", Bead{ID: "1", Labels: []string{"work:alpha", "backend"}}, false},
+		{"pure rework label", Bead{ID: "1", Labels: []string{"rework:true"}}, true},
+		{"finding prefix only", Bead{ID: "1", Labels: []string{"finding:"}}, true},
+		{"finding with origin", Bead{ID: "1", Labels: []string{"finding:work-a"}}, true},
+		{"mixed labels with rework", Bead{ID: "1", Labels: []string{"work:alpha", "rework:true", "backend"}}, true},
+		{"mixed labels with finding", Bead{ID: "1", Labels: []string{"work:alpha", "finding:work-b"}}, true},
+		{"case insensitive rework", Bead{ID: "1", Labels: []string{"ReWork:True"}}, true},
+		{"case insensitive finding prefix", Bead{ID: "1", Labels: []string{"FINDING:Work-A"}}, true},
+		{"finding substring not prefix", Bead{ID: "1", Labels: []string{"prefinding:foo"}}, false},
+		{"rework:false is not rework", Bead{ID: "1", Labels: []string{"rework:false"}}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsRework(tc.b); got != tc.want {
+				t.Errorf("IsRework(%v) = %v, want %v", tc.b.Labels, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReworkCount(t *testing.T) {
+	beads := []Bead{
+		{ID: "1", Labels: []string{"work:alpha"}},
+		{ID: "2", Labels: []string{"rework:true"}},
+		{ID: "3", Labels: []string{"finding:work-a"}},
+		{ID: "4", Labels: []string{"FINDING:work-b", "extra"}},
+		{ID: "5", Labels: nil},
+	}
+	if got := ReworkCount(beads); got != 3 {
+		t.Errorf("ReworkCount = %d, want 3", got)
+	}
+	if got := ReworkCount(nil); got != 0 {
+		t.Errorf("ReworkCount(nil) = %d, want 0", got)
+	}
+}

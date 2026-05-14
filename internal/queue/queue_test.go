@@ -377,6 +377,41 @@ func TestZeroTotalBeads(t *testing.T) {
 	// Should not panic on divide-by-zero.
 }
 
+func TestReworkOutranksHigherMomentum(t *testing.T) {
+	// Two unrelated works (no deps so fan-out is equal at 0).
+	// - "rework-work": modest momentum (2/10), but 1 rework bead.
+	// - "ahead": high momentum (9/10), no rework.
+	// Under default weights, rework's bonus (15.0) should beat the momentum gap.
+	reworkWork := makeWork("rework-work", "research",
+		[]string{"problem-space", "research", "ready"}, baseTime)
+	ahead := makeWork("ahead", "research",
+		[]string{"problem-space", "research", "ready"}, baseTime.Add(time.Hour))
+
+	beadsByWork := map[string]beads.EpicSummary{
+		"rework-work": {Total: 10, Complete: 2, Rework: 1},
+		"ahead":       {Total: 10, Complete: 9},
+	}
+
+	result := Compute([]*spec.SpecYAML{reworkWork, ahead}, beadsByWork, DefaultWeights())
+	if len(result) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result))
+	}
+	if result[0].Codename != "rework-work" {
+		t.Errorf("expected 'rework-work' to rank first under default weights, got %q", result[0].Codename)
+	}
+
+	// Verify the rework reason was emitted.
+	hasRework := false
+	for _, r := range result[0].Reasons {
+		if len(r) >= 6 && r[:6] == "rework" {
+			hasRework = true
+		}
+	}
+	if !hasRework {
+		t.Errorf("expected a 'rework' reason on top entry, got %v", result[0].Reasons)
+	}
+}
+
 func TestCustomWeightsChangeOrdering(t *testing.T) {
 	blocker := makeWork("blocker", "research",
 		[]string{"problem-space", "research", "ready"}, baseTime)

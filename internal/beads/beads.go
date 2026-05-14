@@ -27,6 +27,7 @@ type EpicSummary struct {
 	Complete   int
 	InProgress int
 	Blocked    int
+	Rework     int
 }
 
 // IsAvailable checks whether the br binary is on PATH.
@@ -101,6 +102,33 @@ func Available(beads []Bead) []Bead {
 		}
 	}
 	return result
+}
+
+// IsRework reports whether the bead is tagged as rework. A bead is rework if
+// any of its labels equals "rework:true" (case-insensitive) or begins with the
+// "finding:" prefix (case-insensitive). The finding: prefix typically carries
+// an attribution to the originating work (e.g. "finding:work-a").
+func IsRework(b Bead) bool {
+	for _, label := range b.Labels {
+		if strings.EqualFold(label, "rework:true") {
+			return true
+		}
+		if len(label) >= len("finding:") && strings.EqualFold(label[:len("finding:")], "finding:") {
+			return true
+		}
+	}
+	return false
+}
+
+// ReworkCount returns the number of beads in the slice that are tagged as rework.
+func ReworkCount(beads []Bead) int {
+	n := 0
+	for _, b := range beads {
+		if IsRework(b) {
+			n++
+		}
+	}
+	return n
 }
 
 // ForWork filters beads whose labels contain "work:<codename>".

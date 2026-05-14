@@ -18,13 +18,15 @@ const (
 	WeightFanOut   = 10.0
 	WeightMomentum = 5.0
 	WeightCreation = 0.1
+	WeightRework   = 15.0
 )
 
-// Weights controls the three scoring multipliers in Compute.
+// Weights controls the scoring multipliers in Compute.
 type Weights struct {
 	FanOut   float64
 	Momentum float64
 	Creation float64
+	Rework   float64
 }
 
 // DefaultWeights returns the built-in default scoring weights.
@@ -33,6 +35,7 @@ func DefaultWeights() Weights {
 		FanOut:   WeightFanOut,
 		Momentum: WeightMomentum,
 		Creation: WeightCreation,
+		Rework:   WeightRework,
 	}
 }
 
@@ -105,11 +108,19 @@ func Compute(works []*spec.SpecYAML, beadsByWork map[string]beads.EpicSummary, w
 		score += foScore
 
 		// Momentum score.
-		if summary, ok := beadsByWork[w.Codename]; ok && summary.Total > 0 {
+		summary, hasSummary := beadsByWork[w.Codename]
+		if hasSummary && summary.Total > 0 {
 			ratio := float64(summary.Complete) / float64(summary.Total)
 			mScore := ratio * weights.Momentum
 			score += mScore
 			reasons = append(reasons, fmt.Sprintf("completion %d/%d (+%.1f)", summary.Complete, summary.Total, mScore))
+		}
+
+		// Rework score: per-bead bonus so works with active rework outrank new-work-only works.
+		if hasSummary && summary.Rework > 0 {
+			rScore := float64(summary.Rework) * weights.Rework
+			score += rScore
+			reasons = append(reasons, fmt.Sprintf("rework %dx (+%.1f)", summary.Rework, rScore))
 		}
 
 		// Creation order score: older works get a slight boost.

@@ -23,6 +23,7 @@ type QueueConfig struct {
 	FanOut   *float64 `yaml:"fan_out,omitempty"`
 	Momentum *float64 `yaml:"momentum,omitempty"`
 	Creation *float64 `yaml:"creation,omitempty"`
+	Rework   *float64 `yaml:"rework,omitempty"`
 }
 
 // ResolvedQueueWeights is the result of overlaying QueueConfig on defaults.
@@ -30,6 +31,7 @@ type ResolvedQueueWeights struct {
 	FanOut   float64
 	Momentum float64
 	Creation float64
+	Rework   float64
 }
 
 // QueueWeights returns the effective queue weights for this project, with any
@@ -47,6 +49,9 @@ func (c *ProjectConfig) QueueWeights(defaults ResolvedQueueWeights) ResolvedQueu
 	}
 	if c.Queue.Creation != nil {
 		out.Creation = *c.Queue.Creation
+	}
+	if c.Queue.Rework != nil {
+		out.Rework = *c.Queue.Rework
 	}
 	return out
 }

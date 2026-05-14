@@ -74,9 +74,18 @@ This is one graph with multiple entry points, not separate pipelines. The entry 
 
 When execution or testing surfaces a problem — a bug, a gap, a contradiction — that signal is a **finding**. Findings are not a separate entity in kerf. They are tagged beads: a bead whose metadata indicates it surfaced an issue that needs attention. kerf can surface findings via `kerf next` by querying bead status and tags.
 
+#### Tag Conventions
+
+kerf treats a bead as **rework** if any of its labels match either of these forms (case-insensitive):
+
+- `rework:true` — explicitly marks the bead as corrective work.
+- `finding:<origin>` — marks the bead as a finding from another work; the suffix carries attribution (e.g. `finding:work-a`). Any label starting with `finding:` counts.
+
+These two forms are equivalent for ordering purposes — both flag the bead as rework. The `finding:` form is preferred when attribution to an originating work item is useful; `rework:true` is a generic fallback. Beads are otherwise normal beads — same statuses, same dependencies, same lifecycle.
+
 The classification of a finding determines what happens next:
 
-- **Code-level fix.** Corrective beads are created within the existing work. They enter the queue with rework priority. This is the tight or rework loop.
+- **Code-level fix.** Corrective beads are created within the existing work, tagged as rework. They enter the queue with a score bonus (see below). This is the tight or rework loop.
 - **Implementation gap.** A new work item is created (e.g., with the bug jig) covering the missing piece. Compressed planning cycle, then new beads.
 - **Spec deficiency.** A new work item is created with the affected area tags. This requires full planning attention. `kerf map` surfaces it prominently so it is addressed when a planning agent is next active.
 
@@ -135,7 +144,7 @@ Execution is pull-based. Agents pull work when ready via `kerf next`. Everything
 
 Priority is computed from graph structure, not assigned as static labels. The factors that compose into the ranking:
 
-1. **Rework before new work.** Beads born from findings (rework) have structural priority over beads born from new work items. Fixing what is broken takes precedence over starting something new.
+1. **Rework before new work.** `kerf next` adds a per-bead score bonus for each rework-tagged bead in a work, so works with active rework typically rank ahead of new-work-only works. The bonus is governed by the configurable `rework` weight (see below); rework beads are identified by the tag conventions described above.
 
 2. **Completion momentum.** When most beads from an epic or work item are complete, the remaining beads get priority. This prevents orphaned work — when four of five beads are done, the fifth should not be stranded while beads from another area are dispatched.
 
@@ -151,17 +160,19 @@ The ordering algorithm lives in one place in the codebase — the `kerf next` co
 
 #### Configurable Weights
 
-Three scoring weights are read from `project.yaml` under a `queue:` section:
+Scoring weights are read from `project.yaml` under a `queue:` section:
 
 - `fan_out` — multiplier applied per transitive downstream dependent a work unblocks. Default: `10.0`.
 - `momentum` — multiplier applied to the completed/total bead ratio (a work at 100% completion gets the full value added). Default: `5.0`.
 - `creation` — small tiebreaker added per position from newest, favoring older works. Default: `0.1`.
+- `rework` — multiplier applied per rework-tagged bead in a work (see Tag Conventions). Default: `15.0`.
 
 ```yaml
 queue:
   fan_out: 10.0
   momentum: 5.0
   creation: 0.1
+  rework: 15.0
 ```
 
 When the `queue:` section is absent, or any individual field is unset, the defaults above are used. Each field is independent — specifying `fan_out` alone leaves `momentum` and `creation` at their defaults.

@@ -110,6 +110,7 @@ func runNext() error {
 						Complete:   done,
 						InProgress: inProgress,
 						Blocked:    blocked,
+						Rework:     beads.ReworkCount(wb),
 					}
 				}
 			}
@@ -121,6 +122,7 @@ func runNext() error {
 		FanOut:   queue.WeightFanOut,
 		Momentum: queue.WeightMomentum,
 		Creation: queue.WeightCreation,
+		Rework:   queue.WeightRework,
 	}
 	projCfg, _ := config.LoadProjectConfig(config.ProjectConfigPath(bp, projectID))
 	resolved := projCfg.QueueWeights(defaults)
@@ -128,6 +130,7 @@ func runNext() error {
 		FanOut:   resolved.FanOut,
 		Momentum: resolved.Momentum,
 		Creation: resolved.Creation,
+		Rework:   resolved.Rework,
 	}
 
 	// Compute the queue ordering.

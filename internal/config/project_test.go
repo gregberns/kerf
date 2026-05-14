@@ -173,6 +173,7 @@ func TestLoadProjectConfigQueueSection(t *testing.T) {
 	content := `queue:
   fan_out: 20.0
   momentum: 2.5
+  rework: 30.0
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -194,17 +195,45 @@ func TestLoadProjectConfigQueueSection(t *testing.T) {
 	if cfg.Queue.Creation != nil {
 		t.Errorf("Creation should be nil (unset), got %v", *cfg.Queue.Creation)
 	}
+	if cfg.Queue.Rework == nil || *cfg.Queue.Rework != 30.0 {
+		t.Errorf("Rework = %v, want 30.0", cfg.Queue.Rework)
+	}
 
-	defaults := ResolvedQueueWeights{FanOut: 10.0, Momentum: 5.0, Creation: 0.1}
+	defaults := ResolvedQueueWeights{FanOut: 10.0, Momentum: 5.0, Creation: 0.1, Rework: 15.0}
 	got := cfg.QueueWeights(defaults)
-	want := ResolvedQueueWeights{FanOut: 20.0, Momentum: 2.5, Creation: 0.1}
+	want := ResolvedQueueWeights{FanOut: 20.0, Momentum: 2.5, Creation: 0.1, Rework: 30.0}
+	if got != want {
+		t.Errorf("QueueWeights = %+v, want %+v", got, want)
+	}
+}
+
+func TestQueueWeightsReworkDefaultFallback(t *testing.T) {
+	// rework: omitted entirely. Defaults must carry through.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "project.yaml")
+	content := `queue:
+  fan_out: 7.0
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadProjectConfig(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Queue.Rework != nil {
+		t.Errorf("Rework should be nil (unset), got %v", *cfg.Queue.Rework)
+	}
+	defaults := ResolvedQueueWeights{FanOut: 10.0, Momentum: 5.0, Creation: 0.1, Rework: 15.0}
+	got := cfg.QueueWeights(defaults)
+	want := ResolvedQueueWeights{FanOut: 7.0, Momentum: 5.0, Creation: 0.1, Rework: 15.0}
 	if got != want {
 		t.Errorf("QueueWeights = %+v, want %+v", got, want)
 	}
 }
 
 func TestQueueWeightsDefaultsWhenMissing(t *testing.T) {
-	defaults := ResolvedQueueWeights{FanOut: 10.0, Momentum: 5.0, Creation: 0.1}
+	defaults := ResolvedQueueWeights{FanOut: 10.0, Momentum: 5.0, Creation: 0.1, Rework: 15.0}
 
 	// nil receiver should return defaults.
 	var nilCfg *ProjectConfig
