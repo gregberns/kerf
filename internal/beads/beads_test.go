@@ -48,6 +48,23 @@ func TestParseJSON(t *testing.T) {
 	}
 }
 
+func TestParseJSON_Wrapped(t *testing.T) {
+	input := `{"issues":[
+		{"id":"b-1","title":"First","status":"open","labels":["work:foo"]},
+		{"id":"b-2","title":"Second","status":"closed","labels":[]}
+	],"total":2,"limit":0,"offset":0,"has_more":false}`
+	beads, err := ParseJSON([]byte(input))
+	if err != nil {
+		t.Fatalf("ParseJSON failed: %v", err)
+	}
+	if len(beads) != 2 {
+		t.Fatalf("expected 2 beads, got %d", len(beads))
+	}
+	if beads[0].ID != "b-1" || beads[1].Status != "closed" {
+		t.Errorf("unexpected parse: %+v", beads)
+	}
+}
+
 func TestParseJSON_Empty(t *testing.T) {
 	beads, err := ParseJSON([]byte("[]"))
 	if err != nil {

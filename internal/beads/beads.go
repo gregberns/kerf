@@ -6,6 +6,7 @@
 package beads
 
 import (
+	"bytes"
 	"encoding/json"
 	"os/exec"
 	"strings"
@@ -54,8 +55,19 @@ func List() ([]Bead, error) {
 }
 
 // ParseJSON parses br's JSON output into a slice of Bead.
-// Exported so callers (and tests) can parse cached or piped output.
+// Accepts either a bare array or the wrapped `{"issues":[...]}` envelope
+// that current br versions emit.
 func ParseJSON(data []byte) ([]Bead, error) {
+	trimmed := bytes.TrimLeft(data, " \t\r\n")
+	if len(trimmed) > 0 && trimmed[0] == '{' {
+		var wrapped struct {
+			Issues []Bead `json:"issues"`
+		}
+		if err := json.Unmarshal(data, &wrapped); err != nil {
+			return nil, err
+		}
+		return wrapped.Issues, nil
+	}
 	var beads []Bead
 	if err := json.Unmarshal(data, &beads); err != nil {
 		return nil, err
