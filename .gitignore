@@ -9,3 +9,9 @@ kerf
 .dolt/
 *.db
 .beads-credential-key
+
+# Session state and local agent tooling
+HANDOFF.md
+.codex/
+.ntm/
+.vscode/
