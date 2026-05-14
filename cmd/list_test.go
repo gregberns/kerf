@@ -2,11 +2,127 @@ package cmd
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/gberns/kerf/internal/testutil"
 )
+
+func setupGitRepoForTest(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "test")
+	run("config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("hi\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "README")
+	run("commit", "-q", "-m", "init")
+	return dir
+}
+
+func chdirT(t *testing.T, dir string) {
+	t.Helper()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(old) })
+}
+
+func TestListCommand_RetrofitHint_DirtyRepoWithActiveWork(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := setupGitRepoForTest(t)
+	// Dirty change.
+	if err := os.WriteFile(filepath.Join(repo, "untracked.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	chdirT(t, repo)
+
+	benchDir := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(benchDir, "projects", "test-proj")
+	writeMinimalSpec(t,
+		filepath.Join(projDir, "blue-bear", "spec.yaml"),
+		"blue-bear", "test-proj")
+
+	out := captureOutput(t, func() {
+		projectFlag = "test-proj"
+		defer func() { projectFlag = "" }()
+		listCmd.RunE(listCmd, []string{})
+	})
+
+	testutil.AssertStringContains(t, out, "blue-bear")
+	testutil.AssertStringContains(t, out, "kerf new --jig retrofit")
+}
+
+func TestListCommand_RetrofitHint_CleanRepoNoHint(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := setupGitRepoForTest(t)
+	chdirT(t, repo)
+
+	benchDir := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(benchDir, "projects", "test-proj")
+	writeMinimalSpec(t,
+		filepath.Join(projDir, "blue-bear", "spec.yaml"),
+		"blue-bear", "test-proj")
+
+	out := captureOutput(t, func() {
+		projectFlag = "test-proj"
+		defer func() { projectFlag = "" }()
+		listCmd.RunE(listCmd, []string{})
+	})
+
+	if containsString(out, "kerf new --jig retrofit") {
+		t.Errorf("did not expect retrofit hint for clean repo, got:\n%s", out)
+	}
+}
+
+func TestListCommand_RetrofitHint_NoActiveWorkNoHint(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := setupGitRepoForTest(t)
+	if err := os.WriteFile(filepath.Join(repo, "untracked.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	chdirT(t, repo)
+
+	benchDir := filepath.Join(tmp, ".kerf")
+	os.MkdirAll(filepath.Join(benchDir, "projects", "test-proj"), 0755)
+
+	out := captureOutput(t, func() {
+		projectFlag = "test-proj"
+		defer func() { projectFlag = "" }()
+		listCmd.RunE(listCmd, []string{})
+	})
+
+	if containsString(out, "kerf new --jig retrofit") {
+		t.Errorf("did not expect retrofit hint when no active work, got:\n%s", out)
+	}
+}
 
 func TestListCommand_EmptyProject(t *testing.T) {
 	tmp := t.TempDir()

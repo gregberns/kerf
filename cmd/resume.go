@@ -165,6 +165,13 @@ func runResume(cn string) error {
 	fmt.Printf("  2. Advance status: kerf status %s <next-status>\n", cn)
 	fmt.Printf("  3. When done: kerf shelve %s\n", cn)
 
+	if cwd, err := os.Getwd(); err == nil {
+		if hint := cmdutil.MaybeRetrofitHint(cwd); hint != "" {
+			fmt.Println()
+			fmt.Println(hint)
+		}
+	}
+
 	return nil
 }
 

@@ -187,6 +187,7 @@ Commands:
 - Archived works (when `--all` is set) are marked with `[archived]`.
 - A Commands block suggests likely next actions.
 - If no works exist, output says so and suggests `kerf new`.
+- When `kerf list` is run inside a git repo that has uncommitted changes and at least one active (non-complete, non-archived) work exists for the project, the output may include an informational hint at the end suggesting `kerf new --jig retrofit`. The hint is best-effort and non-blocking: if git is unavailable or the check fails for any reason, no hint is shown. See [jig-retrofit.md](jig-retrofit.md).
 
 ### Errors
 
@@ -305,6 +306,7 @@ The resume context block contains:
 - **File listing**: files present in the work directory.
 - **Area overlap**: when the work has areas and other active works share them, list the shared areas and the overlapping codenames. Same format as `kerf show`.
 - **Next steps**: suggested actions based on the current pass and SESSION.md content.
+- **Retrofit hint** (optional): when the repo has uncommitted changes, `kerf resume` may append an informational suggestion to consider `kerf new --jig retrofit`. The hint is non-blocking and silently skipped if git is unavailable. See [jig-retrofit.md](jig-retrofit.md).
 
 ### Degraded Mode
 

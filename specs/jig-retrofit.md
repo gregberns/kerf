@@ -8,6 +8,8 @@ Code has changed without going through the spec workflow. Specs and code are out
 
 Use the `retrofit` jig when code has diverged from specs outside the normal spec workflow. This includes: an agent made changes without creating a plan first, a quick fix was applied weeks ago without updating specs, a different agent or human modified code and nobody updated the corresponding specs, or specs simply drifted out of date over time.
 
+`kerf list` and `kerf resume` may surface an informational suggestion to consider `kerf new --jig retrofit` when uncommitted changes are detected in the repo. The hint is non-blocking and best-effort; see [commands.md](commands.md).
+
 If the work involves designing something new, use the [`plan`](jig-plan.md) jig. If the work involves investigating a defect, use the [`bug`](jig-bug.md) jig. If the work involves iterative exploration where the approach is unknown, use the [`spike`](jig-spike.md) jig. A spike that has already converged on an approach may use the retrofit jig for the final sync step.
 
 ## Entry Modes

@@ -10,6 +10,89 @@ import (
 	"github.com/gberns/kerf/internal/testutil"
 )
 
+func TestResumeCommand_RetrofitHint_Dirty(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := setupGitRepoForTest(t)
+	if err := os.WriteFile(filepath.Join(repo, "stray.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	chdirT(t, repo)
+
+	bp := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(bp, "projects", "proj")
+	specContent := `codename: blue-bear
+type: feature
+project:
+  id: proj
+jig: feature
+jig_version: 1
+status: research
+status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+active_session: null
+depends_on: []
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	os.MkdirAll(filepath.Join(projDir, "blue-bear"), 0755)
+	os.WriteFile(filepath.Join(projDir, "blue-bear", "spec.yaml"), []byte(specContent), 0644)
+
+	out := captureOutput(t, func() {
+		projectFlag = "proj"
+		defer func() { projectFlag = "" }()
+		resumeCmd.RunE(resumeCmd, []string{"blue-bear"})
+	})
+
+	testutil.AssertStringContains(t, out, "kerf new --jig retrofit")
+}
+
+func TestResumeCommand_RetrofitHint_Clean(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := setupGitRepoForTest(t)
+	chdirT(t, repo)
+
+	bp := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(bp, "projects", "proj")
+	specContent := `codename: blue-bear
+type: feature
+project:
+  id: proj
+jig: feature
+jig_version: 1
+status: research
+status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+active_session: null
+depends_on: []
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	os.MkdirAll(filepath.Join(projDir, "blue-bear"), 0755)
+	os.WriteFile(filepath.Join(projDir, "blue-bear", "spec.yaml"), []byte(specContent), 0644)
+
+	out := captureOutput(t, func() {
+		projectFlag = "proj"
+		defer func() { projectFlag = "" }()
+		resumeCmd.RunE(resumeCmd, []string{"blue-bear"})
+	})
+
+	if strings.Contains(out, "kerf new --jig retrofit") {
+		t.Errorf("did not expect retrofit hint for clean repo, got:\n%s", out)
+	}
+}
+
 func TestResumeCommand_HappyPath(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

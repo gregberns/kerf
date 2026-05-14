@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"time"
@@ -174,7 +175,29 @@ func runList() error {
 	fmt.Println("  kerf resume <codename>    Resume working on a work")
 	fmt.Println("  kerf new                  Start a new work")
 
+	if hasActiveNonComplete(entries) {
+		if cwd, err := os.Getwd(); err == nil {
+			if hint := cmdutil.MaybeRetrofitHint(cwd); hint != "" {
+				fmt.Println()
+				fmt.Println(hint)
+			}
+		}
+	}
+
 	return nil
+}
+
+func hasActiveNonComplete(entries []workEntry) bool {
+	for _, e := range entries {
+		if e.archived {
+			continue
+		}
+		if e.status == "complete" || e.status == "archived" {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func readWorkEntry(r *storage.Resolver, codename string, archived bool) (workEntry, bool) {
