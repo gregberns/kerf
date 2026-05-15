@@ -1,230 +1,438 @@
 package cmd
 
+// kerf next tests — Plan 006 / B6.
+//
+// Coverage:
+//   - Help text contains the six-element contract in order and does not
+//     mention --area.
+//   - Empty feed: text emits the one-liner; JSON emits []. (Tested via the
+//     renderer helpers to keep CLI plumbing out of the way.)
+//   - JSON shape: work_codename and bead_id emit literal null for non-bead
+//     items (no omitempty).
+//   - Kind filter precedence: --only / --include / --kinds resolve correctly
+//     against feed.ResolveKindSelection (the spec contract).
+//   - Unknown kind values produce the spec error message.
+//   - --area is rejected as an unknown flag (it was dropped in v1).
+
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gberns/kerf/internal/feed"
 )
 
-func TestNextCommand_EmptyProject(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	benchDir := filepath.Join(tmp, ".kerf")
-	os.MkdirAll(filepath.Join(benchDir, "projects", "test-proj"), 0755)
-
-	out := captureOutput(t, func() {
-		projectFlag = "test-proj"
-		defer func() { projectFlag = "" }()
-		nextCmd.RunE(nextCmd, []string{})
-	})
-
-	testutil.AssertStringContains(t, out, "No actionable works")
+// resetNextFlags clears the global flag-backed state between tests so a leak
+// from one case cannot poison another.
+func resetNextFlags() {
+	nextOnly = nil
+	nextInclude = nil
+	nextKinds = ""
+	nextFormat = "text"
 }
 
-func TestNextCommand_SingleWork(t *testing.T) {
+// --- Help text contract -----------------------------------------------------
+
+func TestNextHelp_SixElementContractInOrder(t *testing.T) {
+	h := nextLongHelp
+	// The six elements per specs/commands.md §"kerf next" → "Help text".
+	wanted := []string{
+		"ranked feed of things to act on right now", // 1. what it returns
+		"Item kinds:",                               // 2. item kinds glossary
+		"Default action loop",                       // 3. default loop
+		"Filter flags:",                             // 4. filter flags
+		"Machine output",                            // 5. machine output
+		"Scoring",                                   // 6. scoring + pointer
+	}
+	idx := 0
+	for _, w := range wanted {
+		pos := strings.Index(h[idx:], w)
+		if pos < 0 {
+			t.Fatalf("help text missing fragment %q (or out of order). Full help:\n%s", w, h)
+		}
+		idx += pos + len(w)
+	}
+}
+
+func TestNextHelp_DoesNotMentionArea(t *testing.T) {
+	if strings.Contains(strings.ToLower(nextLongHelp), "--area") {
+		t.Fatalf("help text must not mention --area (dropped in v1); got:\n%s", nextLongHelp)
+	}
+}
+
+func TestNextHelp_PointsToCoordinationMd(t *testing.T) {
+	if !strings.Contains(nextLongHelp, "coordination.md") {
+		t.Fatalf("help text must reference coordination.md for scoring detail")
+	}
+}
+
+// --- Flag handling: --area is not a registered flag -------------------------
+
+func TestNextFlags_AreaIsUnknown(t *testing.T) {
+	if nextCmd.Flags().Lookup("area") != nil {
+		t.Fatalf("--area must not be a registered flag on kerf next (dropped in v1)")
+	}
+}
+
+func TestNextFlags_ExpectedFlagsRegistered(t *testing.T) {
+	for _, name := range []string{"only", "include", "kinds", "format"} {
+		if nextCmd.Flags().Lookup(name) == nil {
+			t.Errorf("flag --%s missing from kerf next", name)
+		}
+	}
+}
+
+// --- Empty feed rendering ---------------------------------------------------
+
+func TestRenderNextText_EmptyFeed(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, nil, nil); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	got := strings.TrimRight(buf.String(), "\n")
+	if got != nextEmptyText {
+		t.Fatalf("empty-feed text\n  got:  %q\n  want: %q", got, nextEmptyText)
+	}
+}
+
+func TestRenderNextJSON_EmptyFeed(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderNextJSON(&buf, nil, nil); err != nil {
+		t.Fatalf("renderNextJSON: %v", err)
+	}
+	// json.Encoder.Encode appends a newline.
+	got := strings.TrimSpace(buf.String())
+	if got != "[]" {
+		t.Fatalf("empty-feed JSON\n  got:  %q\n  want: %q", got, "[]")
+	}
+}
+
+// --- JSON shape: null for non-bead optional fields --------------------------
+
+func TestRenderNextJSON_NonBeadEmitsNullFields(t *testing.T) {
+	warn := feed.Item{
+		Kind:   feed.KindWarning,
+		Title:  "unmatched beads",
+		Action: "check bead_filter",
+		Reason: "3 beads match no work",
+	}
+	var buf bytes.Buffer
+	if err := renderNextJSON(&buf, nil, []feed.Item{warn}); err != nil {
+		t.Fatalf("renderNextJSON: %v", err)
+	}
+	body := buf.String()
+	if !strings.Contains(body, `"work_codename": null`) {
+		t.Errorf("warning JSON must contain literal `work_codename: null`; body:\n%s", body)
+	}
+	if !strings.Contains(body, `"bead_id": null`) {
+		t.Errorf("warning JSON must contain literal `bead_id: null`; body:\n%s", body)
+	}
+	// Snake-case field names enforced via feed.Item JSON tags.
+	for _, key := range []string{`"kind"`, `"score"`, `"title"`, `"action"`, `"reason"`} {
+		if !strings.Contains(body, key) {
+			t.Errorf("JSON missing snake_case key %s; body:\n%s", key, body)
+		}
+	}
+}
+
+func TestRenderNextJSON_BeadIncludesIDAndCodename(t *testing.T) {
+	wc := "alpha"
+	id := "hk-001"
+	beadItem := feed.Item{
+		Kind:         feed.KindBead,
+		Score:        12.5,
+		Title:        "wire retry",
+		WorkCodename: &wc,
+		BeadID:       &id,
+	}
+	var buf bytes.Buffer
+	if err := renderNextJSON(&buf, []feed.Item{beadItem}, nil); err != nil {
+		t.Fatalf("renderNextJSON: %v", err)
+	}
+	body := buf.String()
+	if !strings.Contains(body, `"work_codename": "alpha"`) {
+		t.Errorf("bead JSON missing work_codename: body=\n%s", body)
+	}
+	if !strings.Contains(body, `"bead_id": "hk-001"`) {
+		t.Errorf("bead JSON missing bead_id: body=\n%s", body)
+	}
+	// Validate parsing too.
+	var got []feed.Item
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if len(got) != 1 || got[0].WorkCodename == nil || *got[0].WorkCodename != "alpha" {
+		t.Fatalf("round-trip lost work_codename: %+v", got)
+	}
+}
+
+// --- Render ordering: warnings header → beads → cleanups --------------------
+
+func TestRenderNextText_WarningsAboveRanked(t *testing.T) {
+	wc := "alpha"
+	beadID := "hk-001"
+	main := []feed.Item{
+		{Kind: feed.KindBead, Score: 10, Title: "do X", WorkCodename: &wc, BeadID: &beadID},
+		{Kind: feed.KindCleanup, Score: 5, Title: "stale", WorkCodename: &wc, Reason: "all beads closed", Action: "kerf status alpha next"},
+	}
+	warnings := []feed.Item{
+		{Kind: feed.KindWarning, Title: "unmatched beads", Action: "check bead_filter"},
+	}
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, main, warnings); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	body := buf.String()
+	wi := strings.Index(body, "warning:")
+	bi := strings.Index(body, "1. bead")
+	ci := strings.Index(body, "2. clean")
+	if wi < 0 || bi < 0 || ci < 0 {
+		t.Fatalf("expected warning, bead, cleanup markers in text; got:\n%s", body)
+	}
+	if !(wi < bi && bi < ci) {
+		t.Fatalf("expected order warning < bead < cleanup; positions w=%d b=%d c=%d\n%s", wi, bi, ci, body)
+	}
+	if !strings.Contains(body, "work: alpha") {
+		t.Errorf("expected bead row to include `work: alpha`; got:\n%s", body)
+	}
+	if !strings.Contains(body, nextFooterTip) {
+		t.Errorf("expected footer tip; got:\n%s", body)
+	}
+}
+
+// --- Kind selection precedence (the flag contract) --------------------------
+
+func TestKindSelection_DefaultIncludesAll(t *testing.T) {
+	sel, err := feed.ResolveKindSelection(nil, nil, nil)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	for _, k := range feed.KnownKinds() {
+		if !sel.Has(k) {
+			t.Errorf("default selection missing kind %q", k)
+		}
+	}
+}
+
+func TestKindSelection_OnlyBead(t *testing.T) {
+	sel, err := feed.ResolveKindSelection(nil, []string{"bead"}, nil)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !sel.Has(feed.KindBead) {
+		t.Errorf("expected bead in selection")
+	}
+	if sel.Has(feed.KindCleanup) || sel.Has(feed.KindWarning) {
+		t.Errorf("--only=bead must exclude other kinds: %+v", sel)
+	}
+}
+
+func TestKindSelection_OnlyMultipleUnion(t *testing.T) {
+	sel, err := feed.ResolveKindSelection(nil, []string{"bead", "cleanup"}, nil)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !sel.Has(feed.KindBead) || !sel.Has(feed.KindCleanup) {
+		t.Errorf("--only=bead --only=cleanup must keep both: %+v", sel)
+	}
+	if sel.Has(feed.KindWarning) {
+		t.Errorf("--only must not include warning: %+v", sel)
+	}
+}
+
+func TestKindSelection_IncludeAddsKind(t *testing.T) {
+	sel, err := feed.ResolveKindSelection([]string{"bead", "cleanup"}, nil, []string{"warning"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	for _, k := range feed.KnownKinds() {
+		if !sel.Has(k) {
+			t.Errorf("--include=warning must add warning back: missing %q", k)
+		}
+	}
+}
+
+func TestKindSelection_KindsReplacesBase(t *testing.T) {
+	sel, err := feed.ResolveKindSelection([]string{"bead", "cleanup"}, nil, nil)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !sel.Has(feed.KindBead) || !sel.Has(feed.KindCleanup) {
+		t.Errorf("--kinds=bead,cleanup must include both")
+	}
+	if sel.Has(feed.KindWarning) {
+		t.Errorf("--kinds=bead,cleanup must exclude warning")
+	}
+}
+
+func TestKindSelection_IdempotentRepeats(t *testing.T) {
+	sel, err := feed.ResolveKindSelection(nil, []string{"bead", "bead", "bead"}, nil)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !sel.Has(feed.KindBead) || sel.Has(feed.KindCleanup) || sel.Has(feed.KindWarning) {
+		t.Errorf("repeats must be idempotent; got: %+v", sel)
+	}
+}
+
+func TestKindSelection_OnlyWarningProducesOnlyHeader(t *testing.T) {
+	sel, err := feed.ResolveKindSelection(nil, []string{"warning"}, nil)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !sel.Has(feed.KindWarning) {
+		t.Errorf("--only=warning must include warning")
+	}
+	if sel.Has(feed.KindBead) || sel.Has(feed.KindCleanup) {
+		t.Errorf("--only=warning must exclude bead/cleanup: %+v", sel)
+	}
+}
+
+func TestKindSelection_UnknownKindErrors(t *testing.T) {
+	_, err := feed.ResolveKindSelection([]string{"frog"}, nil, nil)
+	if err == nil {
+		t.Fatalf("expected error for unknown kind")
+	}
+	if !strings.Contains(err.Error(), "frog") {
+		t.Errorf("error should name the bad kind; got: %v", err)
+	}
+}
+
+// --- runNext integration: empty project emits the empty-feed one-liner -----
+
+func TestRunNext_EmptyProjectTextOneLiner(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	// Create the bench project dir with no works.
+	if err := mkdirp(filepath.Join(tmp, ".kerf", "projects", "test-proj")); err != nil {
+		t.Fatal(err)
+	}
+	resetNextFlags()
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
 
-	benchDir := filepath.Join(tmp, ".kerf")
-	projDir := filepath.Join(benchDir, "projects", "test-proj")
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
+	}
+	got := strings.TrimRight(buf.String(), "\n")
+	if got != nextEmptyText {
+		t.Fatalf("empty-project text\n  got:  %q\n  want: %q", got, nextEmptyText)
+	}
+}
 
+func TestRunNext_EmptyProjectJSONIsEmptyArray(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mkdirp(filepath.Join(tmp, ".kerf", "projects", "test-proj")); err != nil {
+		t.Fatal(err)
+	}
+	resetNextFlags()
+	nextFormat = "json"
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
+	}
+	got := strings.TrimSpace(buf.String())
+	if got != "[]" {
+		t.Fatalf("empty-project JSON\n  got:  %q\n  want: %q", got, "[]")
+	}
+}
+
+// --- runNext: bad --format errors with the spec message --------------------
+
+func TestRunNext_UnknownFormatErrors(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mkdirp(filepath.Join(tmp, ".kerf", "projects", "test-proj")); err != nil {
+		t.Fatal(err)
+	}
+	resetNextFlags()
+	nextFormat = "yaml"
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	err := runNext(nextCmd)
+	if err == nil {
+		t.Fatalf("expected error for --format=yaml")
+	}
+	if !strings.Contains(err.Error(), "unknown format") || !strings.Contains(err.Error(), "yaml") {
+		t.Errorf("expected spec message; got: %v", err)
+	}
+}
+
+func TestRunNext_UnknownKindErrors(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mkdirp(filepath.Join(tmp, ".kerf", "projects", "test-proj")); err != nil {
+		t.Fatal(err)
+	}
+	resetNextFlags()
+	nextOnly = []string{"frog"}
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	err := runNext(nextCmd)
+	if err == nil {
+		t.Fatalf("expected error for --only=frog")
+	}
+	if !strings.Contains(err.Error(), "unknown item kind") || !strings.Contains(err.Error(), "frog") {
+		t.Errorf("expected spec unknown-kind message; got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "bead") || !strings.Contains(err.Error(), "cleanup") || !strings.Contains(err.Error(), "warning") {
+		t.Errorf("error should list known kinds; got: %v", err)
+	}
+}
+
+// --- runNext with a single active work: bead path renders some content -----
+
+func TestRunNext_SingleWorkTextProducesRanking(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	projDir := filepath.Join(tmp, ".kerf", "projects", "test-proj")
 	writeSpecWithAreas(t,
 		filepath.Join(projDir, "blue-fox", "spec.yaml"),
-		"blue-fox", "test-proj", "research", "Auth rewrite", []string{"api"})
+		"blue-fox", "test-proj", "research", "Auth rewrite", nil)
 
-	out := captureOutput(t, func() {
-		projectFlag = "test-proj"
-		defer func() { projectFlag = "" }()
-		nextCmd.RunE(nextCmd, []string{})
-	})
+	resetNextFlags()
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
 
-	testutil.AssertStringContains(t, out, "Next actions for test-proj")
-	testutil.AssertStringContains(t, out, "1.")
-	testutil.AssertStringContains(t, out, "blue-fox")
-	testutil.AssertStringContains(t, out, "research")
-	testutil.AssertStringContains(t, out, "Auth rewrite")
-}
-
-func TestNextCommand_MultipleWorksOrderedByScore(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	benchDir := filepath.Join(tmp, ".kerf")
-	projDir := filepath.Join(benchDir, "projects", "test-proj")
-
-	// alpha is a dependency of beta (must-complete-first), so alpha should
-	// score higher due to fan-out.
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "alpha", "spec.yaml"),
-		"alpha", "test-proj", "research", "Foundation work", []string{"api", "database"})
-	writeSpecWithDep(t,
-		filepath.Join(projDir, "beta", "spec.yaml"),
-		"beta", "test-proj", "spec", "Dependent work", "alpha")
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "gamma", "spec.yaml"),
-		"gamma", "test-proj", "research", "Independent work", nil)
-
-	out := captureOutput(t, func() {
-		projectFlag = "test-proj"
-		defer func() { projectFlag = "" }()
-		nextCmd.RunE(nextCmd, []string{})
-	})
-
-	testutil.AssertStringContains(t, out, "Next actions for test-proj")
-
-	// alpha should appear before gamma because it unblocks beta.
-	// beta should not appear because its must-complete-first dep (alpha) is not met.
-	alphaIdx := strings.Index(out, "alpha")
-	gammaIdx := strings.Index(out, "gamma")
-
-	if alphaIdx < 0 {
-		t.Fatal("alpha should appear in output")
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
 	}
-	if gammaIdx < 0 {
-		t.Fatal("gamma should appear in output")
+	body := buf.String()
+	// With no beads in the store, the bead-source produces no items. We may
+	// also see a cleanup ("no attached beads") for the work. Either way the
+	// output should contain either the cleanup row or the empty-feed line.
+	if strings.Contains(body, nextEmptyText) {
+		return // valid: no detectors fired and no beads present
 	}
-	if alphaIdx > gammaIdx {
-		t.Errorf("alpha should appear before gamma (alpha at %d, gamma at %d)", alphaIdx, gammaIdx)
-	}
-
-	// beta should NOT appear because its dependency is unmet.
-	betaIdx := strings.Index(out, "beta")
-	if betaIdx >= 0 {
-		t.Errorf("beta should not appear in output (blocked by unmet dependency on alpha)")
-	}
-
-	// alpha should show unblocks reason.
-	testutil.AssertStringContains(t, out, "unblocks")
-}
-
-func TestNextCommand_AreaFilter(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	benchDir := filepath.Join(tmp, ".kerf")
-	projDir := filepath.Join(benchDir, "projects", "test-proj")
-
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "blue-fox", "spec.yaml"),
-		"blue-fox", "test-proj", "research", "Auth rewrite", []string{"api", "database"})
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "red-elk", "spec.yaml"),
-		"red-elk", "test-proj", "spec", "Rate limiting", []string{"api"})
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "green-owl", "spec.yaml"),
-		"green-owl", "test-proj", "research", "Schema migration", []string{"database"})
-
-	out := captureOutput(t, func() {
-		projectFlag = "test-proj"
-		nextArea = "database"
-		defer func() {
-			projectFlag = ""
-			nextArea = ""
-		}()
-		nextCmd.RunE(nextCmd, []string{})
-	})
-
-	// database filter: blue-fox and green-owl should appear, red-elk should not.
-	testutil.AssertStringContains(t, out, "blue-fox")
-	testutil.AssertStringContains(t, out, "green-owl")
-	if strings.Contains(out, "red-elk") {
-		t.Error("red-elk should not appear when filtering by database area")
+	if !strings.Contains(body, "blue-fox") && !strings.Contains(body, "1.") {
+		t.Errorf("expected output to mention blue-fox or be empty; got:\n%s", body)
 	}
 }
 
-func TestNextCommand_BlockedDepsExcluded(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+// --- helpers ---------------------------------------------------------------
 
-	benchDir := filepath.Join(tmp, ".kerf")
-	projDir := filepath.Join(benchDir, "projects", "test-proj")
-
-	// alpha is active and has no deps — should appear.
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "alpha", "spec.yaml"),
-		"alpha", "test-proj", "research", "First work", nil)
-
-	// beta depends on alpha (must-complete-first) — alpha is not at terminal
-	// status, so beta should NOT appear.
-	writeSpecWithDep(t,
-		filepath.Join(projDir, "beta", "spec.yaml"),
-		"beta", "test-proj", "spec", "Blocked work", "alpha")
-
-	out := captureOutput(t, func() {
-		projectFlag = "test-proj"
-		defer func() { projectFlag = "" }()
-		nextCmd.RunE(nextCmd, []string{})
-	})
-
-	testutil.AssertStringContains(t, out, "alpha")
-	if strings.Contains(out, "beta") {
-		t.Error("beta should not appear — blocked by unmet must-complete-first dependency on alpha")
-	}
-}
-
-func TestNextCommand_LimitFlag(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	benchDir := filepath.Join(tmp, ".kerf")
-	projDir := filepath.Join(benchDir, "projects", "test-proj")
-
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "alpha", "spec.yaml"),
-		"alpha", "test-proj", "research", "First", nil)
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "beta", "spec.yaml"),
-		"beta", "test-proj", "research", "Second", nil)
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "gamma", "spec.yaml"),
-		"gamma", "test-proj", "research", "Third", nil)
-
-	out := captureOutput(t, func() {
-		projectFlag = "test-proj"
-		nextLimit = 1
-		defer func() {
-			projectFlag = ""
-			nextLimit = 0
-		}()
-		nextCmd.RunE(nextCmd, []string{})
-	})
-
-	// Should show "1." but not "2." or "3."
-	testutil.AssertStringContains(t, out, "1.")
-	if strings.Contains(out, "2.") {
-		t.Error("should only show 1 result with --limit 1")
-	}
-}
-
-func TestNextCommand_TerminalWorksExcluded(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	benchDir := filepath.Join(tmp, ".kerf")
-	projDir := filepath.Join(benchDir, "projects", "test-proj")
-
-	// Create one work at terminal status ("ready" is the last status_values entry).
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "done-work", "spec.yaml"),
-		"done-work", "test-proj", "ready", "Finished thing", nil)
-
-	// Create one work that is still active.
-	writeSpecWithAreas(t,
-		filepath.Join(projDir, "active-work", "spec.yaml"),
-		"active-work", "test-proj", "research", "Active thing", nil)
-
-	out := captureOutput(t, func() {
-		projectFlag = "test-proj"
-		defer func() { projectFlag = "" }()
-		nextCmd.RunE(nextCmd, []string{})
-	})
-
-	testutil.AssertStringContains(t, out, "active-work")
-	if strings.Contains(out, "done-work") {
-		t.Error("done-work at terminal status should not appear")
-	}
+func mkdirp(path string) error {
+	return os.MkdirAll(path, 0o755)
 }

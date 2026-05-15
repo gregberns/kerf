@@ -1,129 +1,197 @@
 package cmd
 
+// kerf next — ranked feed of bead/cleanup/warning items per Plan 006 / B6.
+//
+// Spec references:
+//   - specs/commands.md §"kerf next" — syntax, flags, behavior, output,
+//     six-element help-text contract, errors.
+//   - specs/coordination.md — cleanup tie-break, filter resolution.
+
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/config"
+	"github.com/gberns/kerf/internal/dep"
+	"github.com/gberns/kerf/internal/feed"
 	"github.com/gberns/kerf/internal/queue"
 	"github.com/gberns/kerf/internal/spec"
 )
 
+// Flag-backed variables. Slice flags are repeatable; --kinds is a comma list
+// that we split on read.
 var (
-	nextLimit int
-	nextArea  string
+	nextOnly    []string
+	nextInclude []string
+	nextKinds   string
+	nextFormat  string
 )
+
+// Empty-feed text per spec.
+const nextEmptyText = "No items. Run 'kerf new' to start a work, or check 'kerf list' for in-progress works."
+
+// Footer tip per spec sample output.
+const nextFooterTip = "run with --format=json for machine output, --help for filters"
+
+// Help-text contract — six elements in fixed order per specs/commands.md
+// §"kerf next" → "Help text". Tests assert ordering; changing this text
+// requires a spec change.
+const nextLongHelp = `Returns a ranked feed of things to act on right now.
+
+Item kinds:
+  bead     — a ready bead to work on next.
+  cleanup  — a work owes a follow-up: walk the jig, advance status, or shelve.
+  warning  — a project-level issue (typically a misconfiguration). Fix config, not code.
+
+Default action loop:
+  1. Run 'kerf next'.
+  2. Do the top item.
+  3. Re-run 'kerf next'.
+
+Filter flags:
+  --only=<kind>      Restrict the feed to one kind. Repeatable. e.g. --only=bead
+  --include=<kind>   Add a kind to the feed. Repeatable. e.g. --include=warning
+  --kinds=a,b        Replace the default kind set. e.g. --kinds=bead,cleanup
+
+Machine output:
+  --format=json      Emit one record per item for scripts. Default is text.
+
+Scoring:
+  Beads rank by dependency fan-out, momentum, rework, and creation order; cleanups
+  follow beads ordered by parent-work score; warnings render as a header block.
+  See specs/coordination.md §"Computed Priority" for the full algorithm.`
 
 var nextCmd = &cobra.Command{
 	Use:   "next",
-	Short: "Show suggested work ordering",
-	Long: `Computed ordering of actionable work items. Filters out blocked and shelved works.
-Orders by dependency depth and completion momentum.
-
-Examples:
-  kerf next                  Show next actions for current project
-  kerf next --limit 5        Show top 5 actions
-  kerf next --area api       Only works touching the api area
-  kerf next --project foo    Show next actions for a specific project`,
+	Short: "Ranked feed of beads, cleanup tasks, and warnings",
+	Long:  nextLongHelp,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runNext()
+		return runNext(cmd)
 	},
 }
 
 func init() {
-	nextCmd.Flags().IntVar(&nextLimit, "limit", 0, "Show only top N results (0 = show all)")
-	nextCmd.Flags().StringVar(&nextArea, "area", "", "Filter to works touching a specific area")
+	nextCmd.Flags().StringArrayVar(&nextOnly, "only", nil, "Restrict to items of this kind (repeatable)")
+	nextCmd.Flags().StringArrayVar(&nextInclude, "include", nil, "Add a kind to the feed (repeatable)")
+	nextCmd.Flags().StringVar(&nextKinds, "kinds", "", "Comma-separated list of kinds to show")
+	nextCmd.Flags().StringVar(&nextFormat, "format", "text", "Output format: text or json")
 	rootCmd.AddCommand(nextCmd)
 }
 
-func runNext() error {
+func runNext(cmd *cobra.Command) error {
+	// --- Validate --format -----------------------------------------------
+	format := strings.ToLower(strings.TrimSpace(nextFormat))
+	if format == "" {
+		format = "text"
+	}
+	if format != "text" && format != "json" {
+		return fmt.Errorf("unknown format '%s'. Supported: text, json", nextFormat)
+	}
+
+	// --- Resolve --kinds, --only, --include into a KindSelection ---------
+	var kindsList []string
+	if strings.TrimSpace(nextKinds) != "" {
+		for _, p := range strings.Split(nextKinds, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				kindsList = append(kindsList, p)
+			}
+		}
+	}
+	sel, err := feed.ResolveKindSelection(kindsList, nextOnly, nextInclude)
+	if err != nil {
+		// Spec error message: "unknown item kind '{value}'. Known kinds: ..."
+		bad := firstUnknownKind(kindsList, nextOnly, nextInclude)
+		return fmt.Errorf("unknown item kind '%s'. Known kinds: %s", bad, knownKindsList())
+	}
+
+	// --- Resolve project + storage ---------------------------------------
 	projectID, err := cmdutil.ResolveProject(projectFlag)
 	if err != nil {
 		return err
 	}
-
 	r, err := cmdutil.Resolver(projectID)
 	if err != nil {
 		return err
 	}
 
-	// Load all active works.
+	// --- Load works ------------------------------------------------------
 	codenames, err := r.ListWorks()
 	if err != nil {
 		return err
 	}
-
-	var works []*spec.SpecYAML
+	works := make([]*spec.SpecYAML, 0, len(codenames))
+	workCreated := make(map[string]time.Time, len(codenames))
+	archivedOrFinalized := make(map[string]bool)
 	for _, cn := range codenames {
-		dir := r.WorkDir(cn)
-		specPath := filepath.Join(dir, "spec.yaml")
-		s, err := spec.Read(specPath)
-		if err != nil {
+		s, rerr := spec.Read(filepath.Join(r.WorkDir(cn), "spec.yaml"))
+		if rerr != nil {
 			continue
 		}
 		works = append(works, s)
-	}
-
-	// Filter by area if requested.
-	if nextArea != "" {
-		var filtered []*spec.SpecYAML
-		for _, w := range works {
-			if workTouchesArea(w, nextArea) {
-				filtered = append(filtered, w)
-			}
+		workCreated[s.Codename] = s.Created
+		if s.Status == "finalized" {
+			archivedOrFinalized[s.Codename] = true
 		}
-		works = filtered
+	}
+	// Also walk archived works for the exclusion set.
+	if archived, _ := r.ListArchivedWorks(); len(archived) > 0 {
+		for _, cn := range archived {
+			archivedOrFinalized[cn] = true
+		}
 	}
 
-	// Load bead summaries per work.
-	beadsByWork := make(map[string]beads.EpicSummary)
+	// --- Load project config (project bead_filter + queue weights) -------
+	projCfg, _ := config.LoadProjectConfig(r.ProjectConfigPath())
+	var projectFilter *beads.Filter
+	if projCfg != nil {
+		projectFilter = projCfg.BeadFilter
+	}
+
+	// --- Load beads ------------------------------------------------------
+	var allBeads []beads.Bead
 	if beads.IsAvailable() {
-		allBeads, _ := beads.List()
-		if len(allBeads) > 0 {
-			for _, w := range works {
-				wb := beads.ForWork(allBeads, w.Codename)
-				if len(wb) > 0 {
-					done := 0
-					inProgress := 0
-					blocked := 0
-					for _, b := range wb {
-						if isBeadComplete(b.Status) {
-							done++
-						}
-						// We only need Complete and Total for queue scoring,
-						// but fill in what we can.
-						switch strings.ToLower(b.Status) {
-						case "blocked":
-							blocked++
-						case "in-progress", "in_progress", "active", "wip":
-							inProgress++
-						}
-					}
-					beadsByWork[w.Codename] = beads.EpicSummary{
-						Total:      len(wb),
-						Complete:   done,
-						InProgress: inProgress,
-						Blocked:    blocked,
-						Rework:     beads.ReworkCount(wb),
-					}
-				}
-			}
-		}
+		allBeads, _ = beads.List()
 	}
 
-	// Resolve queue weights: defaults overlaid with any project.yaml overrides.
+	// --- Build bead summaries per work (for queue scoring) ---------------
+	beadsByWork := make(map[string]beads.EpicSummary)
+	for _, w := range works {
+		resolvedFilter := beads.Resolve(w.BeadFilter, projectFilter)
+		wb := beads.ForWorkWithFilter(allBeads, w.Codename, resolvedFilter)
+		if len(wb) == 0 {
+			continue
+		}
+		summary := beads.EpicSummary{Total: len(wb)}
+		for _, b := range wb {
+			switch strings.ToLower(b.Status) {
+			case "closed", "complete", "completed", "done":
+				summary.Complete++
+			case "blocked":
+				summary.Blocked++
+			case "in-progress", "in_progress", "active", "wip":
+				summary.InProgress++
+			}
+		}
+		summary.Rework = beads.ReworkCount(wb)
+		beadsByWork[w.Codename] = summary
+	}
+
+	// --- Resolve queue weights and compute scores ------------------------
 	defaults := config.ResolvedQueueWeights{
 		FanOut:   queue.WeightFanOut,
 		Momentum: queue.WeightMomentum,
 		Creation: queue.WeightCreation,
 		Rework:   queue.WeightRework,
 	}
-	projCfg, _ := config.LoadProjectConfig(r.ProjectConfigPath())
 	resolved := projCfg.QueueWeights(defaults)
 	weights := queue.Weights{
 		FanOut:   resolved.FanOut,
@@ -131,125 +199,162 @@ func runNext() error {
 		Creation: resolved.Creation,
 		Rework:   resolved.Rework,
 	}
-
-	// Compute the queue ordering.
 	entries := queue.Compute(works, beadsByWork, weights)
 
-	if len(entries) == 0 {
-		fmt.Printf("No actionable works for project '%s'.\n", projectID)
-		return nil
-	}
-
-	// Apply limit.
-	if nextLimit > 0 && nextLimit < len(entries) {
-		entries = entries[:nextLimit]
-	}
-
-	fmt.Printf("Next actions for %s:\n", projectID)
-
-	// Column widths for alignment.
-	maxCN, maxType, maxStatus := 0, 0, 0
-	for _, e := range entries {
-		if len(e.Codename) > maxCN {
-			maxCN = len(e.Codename)
-		}
-		if len(e.Status) > maxStatus {
-			maxStatus = len(e.Status)
-		}
-	}
-	// Look up types from works for display.
-	typeByName := make(map[string]string)
+	// --- Compute BlockedWorks (must-complete-first not met) --------------
+	workByName := make(map[string]*spec.SpecYAML, len(works))
 	for _, w := range works {
-		typeByName[w.Codename] = w.Type
-		if len(w.Type) > maxType {
-			maxType = len(w.Type)
-		}
+		workByName[w.Codename] = w
 	}
-
-	for i, e := range entries {
-		areasStr := ""
-		if len(e.Areas) > 0 {
-			areasStr = fmt.Sprintf("  Areas: %s", strings.Join(e.Areas, ", "))
-		}
-
-		titleStr := ""
-		if e.Title != "" {
-			titleStr = fmt.Sprintf("  %q", e.Title)
-		}
-
-		wType := typeByName[e.Codename]
-
-		fmt.Println()
-		fmt.Printf("  %d. %-*s  %-*s  %-*s%s%s\n",
-			i+1,
-			maxCN, e.Codename,
-			maxType, wType,
-			maxStatus, e.Status,
-			areasStr,
-			titleStr,
-		)
-
-		// Print reasons as the suggested action line.
-		if len(e.Reasons) > 0 {
-			for _, r := range e.Reasons {
-				fmt.Printf("     %s\n", r)
+	blocked := make(map[string]bool)
+	for _, w := range works {
+		for _, d := range w.DependsOn {
+			if d.Relationship != "must-complete-first" {
+				continue
 			}
-		}
-	}
-
-	// Suggest a specific action for the top work.
-	suggestedAction := suggestAction(works, entries[0].Codename)
-	if suggestedAction != "" {
-		fmt.Println()
-		fmt.Printf("  Suggested: %s\n", suggestedAction)
-	}
-
-	fmt.Println()
-	fmt.Println("Commands:")
-	fmt.Println("  kerf resume <codename>    Resume working on a work")
-	fmt.Println("  kerf show <codename>      View work details")
-
-	return nil
-}
-
-// workTouchesArea returns true if the work has the given area in its Areas list.
-func workTouchesArea(w *spec.SpecYAML, area string) bool {
-	for _, a := range w.Areas {
-		if strings.EqualFold(a, area) {
-			return true
-		}
-	}
-	return false
-}
-
-// suggestAction returns a human-readable suggestion for what to do next
-// with the given work, based on its current status and jig passes.
-func suggestAction(works []*spec.SpecYAML, codename string) string {
-	for _, w := range works {
-		if w.Codename != codename {
-			continue
-		}
-
-		// Find where the status sits in status_values.
-		statusIdx := -1
-		for i, sv := range w.StatusValues {
-			if sv == w.Status {
-				statusIdx = i
+			dw, ok := workByName[d.Codename]
+			if !ok {
+				continue
+			}
+			if !dep.IsComplete(dw.Status, dw.StatusValues) {
+				blocked[w.Codename] = true
 				break
 			}
 		}
+	}
 
-		if statusIdx < 0 {
-			return ""
+	// --- Build feed.Input ------------------------------------------------
+	in := feed.Input{
+		Works:               works,
+		AllBeads:            allBeads,
+		QueueEntries:        entries,
+		ProjectID:           projectID,
+		ProjectFilter:       projectFilter,
+		WorkCreated:         workCreated,
+		BlockedWorks:        blocked,
+		ArchivedOrFinalized: archivedOrFinalized,
+	}
+
+	// --- Run sources + detectors -----------------------------------------
+	beadItems := feed.BeadSource(in)
+	var cleanupItems []feed.Item
+	for _, d := range feed.NewCleanupDetectors(projectFilter) {
+		cleanupItems = append(cleanupItems, d.Detect(in)...)
+	}
+	var warningItems []feed.Item
+	for _, d := range feed.NewWarningDetectors(projectFilter) {
+		warningItems = append(warningItems, d.Detect(in)...)
+	}
+
+	// --- Assemble + exclusion (beads-then-cleanups; warnings separate) ---
+	main, warnings := feed.AssembleWithWarnings(beadItems, cleanupItems, warningItems, in)
+
+	// --- Apply kind selection --------------------------------------------
+	main = feed.ApplyKindFilter(main, sel)
+	if !sel.Has(feed.KindWarning) {
+		warnings = nil
+	}
+
+	// --- Render ----------------------------------------------------------
+	out := cmd.OutOrStdout()
+	switch format {
+	case "json":
+		return renderNextJSON(out, main, warnings)
+	default:
+		return renderNextText(out, main, warnings)
+	}
+}
+
+// renderNextText renders the feed in compact human-readable form. Warnings
+// render first as a header block, followed by the ranked main feed.
+func renderNextText(out io.Writer, main, warnings []feed.Item) error {
+	if len(main) == 0 && len(warnings) == 0 {
+		fmt.Fprintln(out, nextEmptyText)
+		return nil
+	}
+
+	// Warning header block.
+	for _, w := range warnings {
+		fmt.Fprintf(out, "warning: %s — %s\n", w.Title, w.Action)
+		if w.Reason != "" {
+			fmt.Fprintf(out, "         %s\n", w.Reason)
 		}
+	}
+	if len(warnings) > 0 && len(main) > 0 {
+		fmt.Fprintln(out)
+	}
 
-		// If at the last status, suggest finalization.
-		if statusIdx == len(w.StatusValues)-1 {
-			return fmt.Sprintf("kerf finalize %s --branch <name>  (ready for finalization)", codename)
+	// Ranked items.
+	for i, it := range main {
+		switch it.Kind {
+		case feed.KindBead:
+			id := ""
+			if it.BeadID != nil {
+				id = *it.BeadID
+			}
+			wc := ""
+			if it.WorkCodename != nil {
+				wc = *it.WorkCodename
+			}
+			line := fmt.Sprintf("%d. bead   %s  %q", i+1, id, it.Title)
+			if wc != "" {
+				line += fmt.Sprintf("  work: %s", wc)
+			}
+			fmt.Fprintln(out, line)
+		case feed.KindCleanup:
+			wc := ""
+			if it.WorkCodename != nil {
+				wc = *it.WorkCodename
+			}
+			reason := it.Reason
+			if reason == "" {
+				reason = it.Title
+			}
+			fmt.Fprintf(out, "%d. clean  %s   %s\n", i+1, wc, reason)
+			if it.Action != "" {
+				fmt.Fprintf(out, "          %s\n", it.Action)
+			}
+		case feed.KindWarning:
+			// Defensive: warnings normally render in the header block.
+			fmt.Fprintf(out, "%d. warn   %s — %s\n", i+1, it.Title, it.Action)
 		}
+	}
 
-		// Otherwise suggest continuing or resuming.
-		return fmt.Sprintf("kerf resume %s  (continue %s pass)", codename, w.Status)
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, nextFooterTip)
+	return nil
+}
+
+// renderNextJSON renders the full item stream including warnings. Empty feed
+// emits `[]`. WorkCodename / BeadID emit literal null for non-bead items per
+// the spec (feed.Item enforces this via pointer types and no omitempty).
+func renderNextJSON(out io.Writer, main, warnings []feed.Item) error {
+	combined := make([]feed.Item, 0, len(main)+len(warnings))
+	combined = append(combined, warnings...)
+	combined = append(combined, main...)
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(combined)
+}
+
+// firstUnknownKind returns the first invalid kind token encountered while
+// walking the same order ResolveKindSelection does (kinds → only → include).
+// Used to produce the spec's unknown-kind error message.
+func firstUnknownKind(kinds, only, include []string) string {
+	for _, s := range append(append(append([]string{}, kinds...), only...), include...) {
+		if _, err := feed.ParseKind(s); err != nil {
+			return s
+		}
 	}
 	return ""
+}
+
+// knownKindsList returns "bead, cleanup, warning" — the lowercase list used
+// in the unknown-kind error message.
+func knownKindsList() string {
+	parts := make([]string, 0, len(feed.KnownKinds()))
+	for _, k := range feed.KnownKinds() {
+		parts = append(parts, string(k))
+	}
+	return strings.Join(parts, ", ")
 }
