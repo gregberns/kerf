@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gberns/kerf/internal/areas"
+	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/codename"
@@ -22,10 +23,11 @@ import (
 )
 
 var (
-	newTitle    string
-	newType     string
-	newJigFlag  string
-	newAreaFlag []string
+	newTitle      string
+	newType       string
+	newJigFlag    string
+	newAreaFlag   []string
+	newBeadFilter string
 )
 
 const onboardingMessage = `No default workflow configured.
@@ -68,10 +70,22 @@ func init() {
 	newCmd.Flags().StringVar(&newType, "type", "", "Work type (defaults to jig name)")
 	newCmd.Flags().StringVar(&newJigFlag, "jig", "", "Jig to use (default: from config)")
 	newCmd.Flags().StringSliceVar(&newAreaFlag, "area", nil, "Area names to associate with the work (repeatable)")
+	newCmd.Flags().StringVar(&newBeadFilter, "bead-filter", "", "Bead-filter clause (e.g. 'label=subsystem:bridge' or 'id_prefix=hk-cb-')")
 	rootCmd.AddCommand(newCmd)
 }
 
 func runNew(cn string) error {
+	// 0. Parse --bead-filter (if given) early so an invalid clause fails fast,
+	//    before any directories are created or identifiers written.
+	var beadFilter *beads.Filter
+	if newBeadFilter != "" {
+		f, err := beads.ParseFilterClause(newBeadFilter)
+		if err != nil {
+			return fmt.Errorf("--bead-filter expects 'label=<value>' or 'id_prefix=<value>', got %q", newBeadFilter)
+		}
+		beadFilter = f
+	}
+
 	// 1. Resolve project identity.
 	projectID, firstUse, err := resolveProjectForNew()
 	if err != nil {
@@ -172,6 +186,8 @@ func runNew(cn string) error {
 		Sessions:     []spec.Session{},
 		DependsOn:    []spec.Dependency{},
 		Areas:        workAreas,
+		PinnedBeads:  []string{},
+		BeadFilter:   beadFilter,
 		Implementation: spec.Implementation{
 			Commits: []string{},
 		},

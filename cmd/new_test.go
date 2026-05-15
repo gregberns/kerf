@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gberns/kerf/internal/config"
@@ -316,6 +317,148 @@ func TestNewCommand_CanonicalName_FeatureAlias(t *testing.T) {
 	if s.Type != "plan" {
 		t.Errorf("type = %q, want %q (canonical name, not alias)", s.Type, "plan")
 	}
+}
+
+func TestNewCommand_BeadFilter_Valid(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	captureOutput(t, func() {
+		projectFlag = "proj"
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		newBeadFilter = "label=subsystem:bridge"
+		defer func() { projectFlag = ""; newJigFlag = ""; newBeadFilter = "" }()
+		if err := newCmd.RunE(newCmd, []string{"bf-work"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	bp := filepath.Join(tmp, ".kerf")
+	specPath := filepath.Join(bp, "projects", "proj", "bf-work", "spec.yaml")
+	s, err := spec.Read(specPath)
+	if err != nil {
+		t.Fatalf("reading spec.yaml: %v", err)
+	}
+	if s.BeadFilter == nil {
+		t.Fatal("expected BeadFilter to be set, got nil")
+	}
+	if s.BeadFilter.Label != "subsystem:bridge" {
+		t.Errorf("BeadFilter.Label = %q, want %q", s.BeadFilter.Label, "subsystem:bridge")
+	}
+	if s.BeadFilter.IDPrefix != "" {
+		t.Errorf("BeadFilter.IDPrefix = %q, want empty", s.BeadFilter.IDPrefix)
+	}
+	if s.PinnedBeads == nil {
+		t.Error("expected PinnedBeads to be non-nil empty slice")
+	}
+	if len(s.PinnedBeads) != 0 {
+		t.Errorf("PinnedBeads length = %d, want 0", len(s.PinnedBeads))
+	}
+
+	// Verify raw YAML renders bead_filter and pinned_beads: [].
+	raw, err := os.ReadFile(specPath)
+	if err != nil {
+		t.Fatalf("reading raw spec.yaml: %v", err)
+	}
+	rawStr := string(raw)
+	testutil.AssertStringContains(t, rawStr, "bead_filter:")
+	testutil.AssertStringContains(t, rawStr, "subsystem:bridge")
+	testutil.AssertStringContains(t, rawStr, "pinned_beads: []")
+}
+
+func TestNewCommand_BeadFilter_IDPrefix(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	captureOutput(t, func() {
+		projectFlag = "proj"
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		newBeadFilter = "id_prefix=hk-cb-"
+		defer func() { projectFlag = ""; newJigFlag = ""; newBeadFilter = "" }()
+		if err := newCmd.RunE(newCmd, []string{"bf-id"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	bp := filepath.Join(tmp, ".kerf")
+	specPath := filepath.Join(bp, "projects", "proj", "bf-id", "spec.yaml")
+	s, err := spec.Read(specPath)
+	if err != nil {
+		t.Fatalf("reading spec.yaml: %v", err)
+	}
+	if s.BeadFilter == nil || s.BeadFilter.IDPrefix != "hk-cb-" {
+		t.Errorf("BeadFilter.IDPrefix = %v, want %q", s.BeadFilter, "hk-cb-")
+	}
+}
+
+func TestNewCommand_BeadFilter_Invalid(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	err := func() error {
+		projectFlag = "proj"
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		newBeadFilter = "not-a-clause"
+		defer func() { projectFlag = ""; newJigFlag = ""; newBeadFilter = "" }()
+		return newCmd.RunE(newCmd, []string{"bf-bad"})
+	}()
+
+	if err == nil {
+		t.Fatal("expected error for invalid --bead-filter value")
+	}
+	testutil.AssertStringContains(t, err.Error(), "--bead-filter")
+
+	// Ensure no work directory was created.
+	bp := filepath.Join(tmp, ".kerf")
+	specPath := filepath.Join(bp, "projects", "proj", "bf-bad", "spec.yaml")
+	if _, statErr := os.Stat(specPath); statErr == nil {
+		t.Errorf("spec.yaml should not have been created on invalid --bead-filter")
+	}
+}
+
+func TestNewCommand_BeadFilter_Absent(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	captureOutput(t, func() {
+		projectFlag = "proj"
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		newBeadFilter = ""
+		defer func() { projectFlag = ""; newJigFlag = "" }()
+		if err := newCmd.RunE(newCmd, []string{"bf-absent"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	bp := filepath.Join(tmp, ".kerf")
+	specPath := filepath.Join(bp, "projects", "proj", "bf-absent", "spec.yaml")
+	s, err := spec.Read(specPath)
+	if err != nil {
+		t.Fatalf("reading spec.yaml: %v", err)
+	}
+	if s.BeadFilter != nil {
+		t.Errorf("expected BeadFilter to be nil when --bead-filter absent, got %+v", s.BeadFilter)
+	}
+
+	// bead_filter key should be omitted (omitempty).
+	raw, err := os.ReadFile(specPath)
+	if err != nil {
+		t.Fatalf("reading raw spec.yaml: %v", err)
+	}
+	rawStr := string(raw)
+	if strings.Contains(rawStr, "bead_filter:") {
+		t.Errorf("expected bead_filter key to be omitted, got:\n%s", rawStr)
+	}
+	// pinned_beads: [] must always render.
+	testutil.AssertStringContains(t, rawStr, "pinned_beads: []")
 }
 
 func TestNewCommand_ConfigDefaultJig_NoFlag(t *testing.T) {
