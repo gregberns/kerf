@@ -105,7 +105,7 @@ func (h *LoopHooks) OnDispatch(agentID int, beadID string, tick int64) {
 	isRework := beads.IsRework(bead)
 	area := h.areaFor(st.WorkCode)
 
-	hadOlderRework := h.olderReworkEligible(beadID, st.ArrivedAt)
+	hadOlderRework := h.reworkEligibleAtDispatch(beadID, st.ArrivedAt)
 	unmet := h.unmetDeps(st.DependsOn)
 
 	info := DispatchInfo{
@@ -134,7 +134,7 @@ func (h *LoopHooks) OnDispatch(agentID int, beadID string, tick int64) {
 
 // unmetDeps returns the subset of deps whose corresponding bead is not
 // closed in the store. An unknown dep is treated as unmet — this mirrors
-// production queue semantics and matches what olderReworkEligible / the
+// production queue semantics and matches what reworkEligibleAtDispatch / the
 // kerf policy use to gate eligibility.
 func (h *LoopHooks) unmetDeps(deps []string) []string {
 	if len(deps) == 0 {
@@ -253,14 +253,23 @@ func (h *LoopHooks) workTerminallyClosed(workCode string) bool {
 	return any
 }
 
-// olderReworkEligible reports whether any rework bead other than `beadID`
-// is queue-eligible (open, all deps closed) with a strictly earlier
-// arrival tick than `arrived` — or an equal arrival tick but a smaller
-// bead ID (the spec's bead_id ascending tie-break).
+// reworkEligibleAtDispatch reports whether any rework bead other than
+// `beadID` is queue-eligible (open, all deps closed) at the moment of
+// dispatch.
 //
-// This drives priority_inversions: the metric counts dispatches of a
-// new-work bead while an older rework bead was still eligible.
-func (h *LoopHooks) olderReworkEligible(beadID string, arrived int64) bool {
+// This drives priority_inversions: per specs/simulator.md §Metric
+// Definitions, the metric counts dispatches of a new-work bead while
+// ANY rework bead was queue-eligible — no arrival-tick comparison is
+// applied. Earlier drafts required the rework bead to predate the
+// dispatched new-work bead, but that comparison was structurally
+// unreachable under the synthetic generator (initial new-work all
+// arrives at tick 0, rework only at tick >= 1) and produced a metric
+// stuck at zero. See plans/008_exploratory_testing/sim_scenarios/diagnosis.md
+// and plans/011 pillar E.
+//
+// The `arrived` parameter is retained on the signature for compatibility
+// with the previous semantics but is intentionally unused.
+func (h *LoopHooks) reworkEligibleAtDispatch(beadID string, _ int64) bool {
 	closed := make(map[string]bool)
 	all := make([]*store.BeadState, 0)
 	for _, b := range h.Store.Beads() {
@@ -287,12 +296,7 @@ func (h *LoopHooks) olderReworkEligible(beadID string, arrived int64) bool {
 		if !depsAllClosed(st.DependsOn, closed) {
 			continue
 		}
-		if st.ArrivedAt < arrived {
-			return true
-		}
-		if st.ArrivedAt == arrived && st.ID < beadID {
-			return true
-		}
+		return true
 	}
 	return false
 }

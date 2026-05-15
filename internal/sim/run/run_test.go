@@ -226,17 +226,23 @@ func TestRun_MutationIsolation(t *testing.T) {
 //      scenario (≤ 0.01 idle) does record real wait times, proving the
 //      metric pipeline is correct.
 //
-//   2. priority_inversions has a latent semantic issue independent of
-//      saturation: the spec defines "older" by arrival tick, but
+//   2. priority_inversions had a latent semantic issue independent of
+//      saturation: the original spec defined "older" by arrival tick, but
 //      generator-rework arrives strictly AFTER initial new-work beads
-//      (which all arrive at tick 0), so a rework bead can never be
-//      "older" than an initial new-work bead by this definition. This
-//      makes the metric structurally unreachable when initial beads
-//      dominate. Tracked as a follow-up bead (see diagnosis.md).
+//      (which all arrive at tick 0), so a rework bead could never be
+//      "older" than an initial new-work bead by that definition. The
+//      metric was structurally unreachable.
 //
-// This test asserts the wait pipeline (which is fully functional) on a
-// saturated shape. priority_inversions is intentionally NOT asserted —
-// the follow-up bead owns that question.
+//      Plan 011 / pillar E fixes this: per specs/simulator.md §Metric
+//      Definitions the metric now counts every new-work dispatch that
+//      occurs while ANY rework bead is queue-eligible — no arrival-tick
+//      comparison. Under a saturated random baseline, contention between
+//      new-work and rework is guaranteed, so priority_inversions must be
+//      strictly positive.
+//
+// This test asserts both:
+//   - the wait pipeline (rework_p{50,95}_wait > 0 under saturation), and
+//   - the priority_inversions metric is no longer structurally zero.
 func TestRun_BaselineRandom_ProducesInversions(t *testing.T) {
 	s := saturatedReworkScenario(t)
 	res, err := Run(s, queue.DefaultWeights(), 0)
@@ -257,6 +263,15 @@ func TestRun_BaselineRandom_ProducesInversions(t *testing.T) {
 	}
 	if res.Random.Full.ReworkP50Wait == 0 {
 		t.Errorf("random.rework_p50_wait = 0 on saturated scenario; majority of rework arrivals appear to never wait — metric pipeline regression")
+	}
+	// Plan 011 / pillar E regression: priority_inversions must be > 0 on
+	// the saturated scenario. Under random ordering with both rework and
+	// new-work concurrently eligible, the policy will frequently pick
+	// new-work while rework remains in the queue. A zero here would mean
+	// either the metric definition regressed back to the unreachable
+	// arrival-tick gate, or the eligibility lookup is broken.
+	if res.Random.Full.PriorityInversions == 0 {
+		t.Errorf("random.priority_inversions = 0 on saturated scenario; expected > 0 (Plan 011 / E — see specs/simulator.md §Metric Definitions and plans/008_exploratory_testing/sim_scenarios/diagnosis.md)")
 	}
 }
 
