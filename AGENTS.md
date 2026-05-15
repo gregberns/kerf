@@ -39,6 +39,7 @@ plans/              # Change proposals. Each is a folder.
 - Plans describe: what's changing, why, which specs are affected, and how
 - Plans may include source material in `source/`
 - Plan names are sequential: `001_init`, `002_add_foo`, etc.
+- **`plans/_backlog/` is dormant.** Do not read, surface, suggest, or reference anything under `plans/_backlog/` unless the user names it explicitly. Treat it as if it were not in the tree.
 
 ## Implementation Rules
 

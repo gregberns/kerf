@@ -1,0 +1,3 @@
+bead_id,total_seconds,sub_agent_id,description
+kerf-cdh,471.1,a3d07147bd26b07c7,Implement kerf-cdh (Plan 008 / B5)
+kerf-0kx,113.9,ac8ee5318d3fdddba,Implement kerf-0kx (Plan 008 / B10-spec)

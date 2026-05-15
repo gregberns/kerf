@@ -1,0 +1,63 @@
+corpus,session_id,pattern,start_ts_utc,end_ts_utc,duration_seconds,surrounding_bead_id_if_known,evidence_summary_paraphrased
+kerf,55603e31-930e-4b1f-a03a-e31483641041,2,2026-05-15T06:24:54.096000+00:00,2026-05-15T17:30:19.579000+00:00,39925,kerf-v20,merge/rebase produced CONFLICT marker in working tree
+kerf,55603e31-930e-4b1f-a03a-e31483641041,3,2026-05-14T23:28:07.800000+00:00,2026-05-15T17:30:19.579000+00:00,64931,,"long session (18.0h, 112 sub-agents) with conflict markers"
+kerf,675169db-ff5a-469a-9f50-83b72389b731,3,2026-05-08T19:24:06.224000+00:00,2026-05-14T18:18:07.005000+00:00,514440,,"long session (142.9h, 45 sub-agents)"
+harmonik,00eb9fc9-1dc2-4ccb-9bf8-a4502955f334,3,2026-04-23T17:49:12.157000+00:00,2026-04-23T21:47:15.043000+00:00,14282,,"long session (4.0h, 10 sub-agents)"
+harmonik,01514f42-535e-4cee-baad-c67771754390,2,2026-05-12T21:26:47.732000+00:00,2026-05-12T21:28:18.336000+00:00,90,,merge/rebase produced CONFLICT marker in working tree
+harmonik,01514f42-535e-4cee-baad-c67771754390,2,2026-05-12T21:36:51.398000+00:00,2026-05-12T21:37:58.888000+00:00,67,,merge/rebase produced CONFLICT marker in working tree
+harmonik,097e36c2-942b-4ab6-9cce-8018d7822833,2,2026-05-10T05:19:54.410000+00:00,2026-05-10T05:26:31.308000+00:00,396,,merge/rebase produced CONFLICT marker in working tree
+harmonik,097e36c2-942b-4ab6-9cce-8018d7822833,1,2026-05-10T05:26:16.471000+00:00,2026-05-10T05:26:31.308000+00:00,14,,git push rejected (non-fast-forward / updates rejected)
+harmonik,097e36c2-942b-4ab6-9cce-8018d7822833,1,2026-05-10T05:26:37.187000+00:00,2026-05-10T05:27:18.880000+00:00,41,,git push rejected (non-fast-forward / updates rejected)
+harmonik,12688a9a-00b5-4bd6-b7a2-8fa84c0d6da2,3,2026-05-13T05:04:31.738000+00:00,2026-05-13T15:58:15.528000+00:00,39223,,"long session (10.9h, 28 sub-agents)"
+harmonik,13493c8d-9ec9-43dd-ad72-f7badc36c8fa,3,2026-04-13T16:39:23.503000+00:00,2026-04-19T05:15:33.292000+00:00,477369,,"long session (132.6h, 17 sub-agents)"
+harmonik,14c78c5f-11eb-43eb-9956-963abdecc7db,2,2026-05-10T17:57:21.886000+00:00,2026-05-10T17:57:32.570000+00:00,10,,merge/rebase produced CONFLICT marker in working tree
+harmonik,14c78c5f-11eb-43eb-9956-963abdecc7db,2,2026-05-10T17:57:32.570000+00:00,2026-05-10T17:57:37.904000+00:00,5,,merge/rebase produced CONFLICT marker in working tree
+harmonik,14c78c5f-11eb-43eb-9956-963abdecc7db,2,2026-05-10T17:57:37.904000+00:00,2026-05-10T17:57:41.047000+00:00,3,,merge/rebase produced CONFLICT marker in working tree
+harmonik,14c78c5f-11eb-43eb-9956-963abdecc7db,2,2026-05-10T17:57:55.294000+00:00,2026-05-10T17:58:00.888000+00:00,5,,merge/rebase produced CONFLICT marker in working tree
+harmonik,14c78c5f-11eb-43eb-9956-963abdecc7db,2,2026-05-10T18:21:26.146000+00:00,2026-05-10T18:21:31.004000+00:00,4,,merge/rebase produced CONFLICT marker in working tree
+harmonik,14c78c5f-11eb-43eb-9956-963abdecc7db,3,2026-05-10T16:18:16.354000+00:00,2026-05-10T21:56:46.897000+00:00,20310,,"long session (5.6h, 25 sub-agents) with conflict markers"
+harmonik,1ad9d184-6678-4c43-9fa4-3638c7aa2527,3,2026-04-23T21:58:53.130000+00:00,2026-04-24T17:51:48.576000+00:00,71575,,"long session (19.9h, 21 sub-agents)"
+harmonik,1b5d05b4-2a92-4aad-9ee0-ef87919b4c45,2,2026-05-10T08:32:32.148000+00:00,2026-05-10T08:33:48.108000+00:00,75,,merge/rebase produced CONFLICT marker in working tree
+harmonik,2051200e-5274-4327-a503-dd323bcd0f34,2,2026-05-14T04:16:32.403000+00:00,2026-05-14T04:22:20.826000+00:00,348,,merge/rebase produced CONFLICT marker in working tree
+harmonik,2051200e-5274-4327-a503-dd323bcd0f34,2,2026-05-14T04:19:41.162000+00:00,2026-05-14T04:22:20.826000+00:00,159,,merge/rebase produced CONFLICT marker in working tree
+harmonik,2bbff62f-e9f8-4d17-b97b-b87811eac8d0,3,2026-05-14T21:38:23.474000+00:00,2026-05-15T06:31:33.697000+00:00,31990,,"long session (8.9h, 24 sub-agents)"
+harmonik,36cc270b-dc5d-4ad1-ba58-361bde70122e,3,2026-04-28T06:14:20.777000+00:00,2026-04-28T18:28:46.676000+00:00,44065,,"long session (12.2h, 14 sub-agents)"
+harmonik,3bf5774c-b8c7-495a-87d5-57a51223da80,3,2026-04-21T17:22:07.738000+00:00,2026-04-23T17:49:56.901000+00:00,174469,,"long session (48.5h, 8 sub-agents)"
+harmonik,4c89151e-f376-464a-9b96-b3a7f6522442,1,2026-04-26T04:42:27.723000+00:00,2026-04-27T16:09:18.056000+00:00,127610,,git push rejected (non-fast-forward / updates rejected)
+harmonik,4c89151e-f376-464a-9b96-b3a7f6522442,3,2026-04-26T04:29:08.356000+00:00,2026-04-27T16:09:18.056000+00:00,128409,,"long session (35.7h, 7 sub-agents) with conflict markers"
+harmonik,50c3f962-41cd-4453-aa0a-bfcc179e0fd2,3,2026-05-14T06:02:24.279000+00:00,2026-05-14T17:58:35.694000+00:00,42971,,"long session (11.9h, 19 sub-agents)"
+harmonik,5256af68-89a2-4b0c-af61-fffc50527a56,3,2026-05-08T23:42:22.666000+00:00,2026-05-09T02:44:37.581000+00:00,10934,,"long session (3.0h, 32 sub-agents)"
+harmonik,54770f6f-2a57-40eb-825e-6d6d956d414a,3,2026-04-28T05:06:23.908000+00:00,2026-04-28T18:15:10.661000+00:00,47326,,"long session (13.1h, 7 sub-agents)"
+harmonik,5efbfc30-8f58-4845-9e7c-87033cec99d9,1,2026-05-14T19:50:43.929000+00:00,2026-05-14T19:51:14.386000+00:00,30,,git push rejected (non-fast-forward / updates rejected)
+harmonik,5efbfc30-8f58-4845-9e7c-87033cec99d9,3,2026-05-14T18:00:28.728000+00:00,2026-05-14T20:40:25.410000+00:00,9596,,"long session (2.7h, 14 sub-agents) with conflict markers"
+harmonik,672b6e9a-6012-4a18-9e03-318ffcb862fb,3,2026-05-11T05:52:25.761000+00:00,2026-05-11T22:27:46.792000+00:00,59721,,"long session (16.6h, 17 sub-agents)"
+harmonik,6e3ce55e-a509-4a24-b2b7-a399e3e7682b,2,2026-05-13T16:31:49.986000+00:00,2026-05-13T16:32:17.082000+00:00,27,,merge/rebase produced CONFLICT marker in working tree
+harmonik,6e3ce55e-a509-4a24-b2b7-a399e3e7682b,3,2026-05-13T16:00:27.325000+00:00,2026-05-14T04:11:20.881000+00:00,43853,,"long session (12.2h, 12 sub-agents) with conflict markers"
+harmonik,7df84270-b32e-463e-8bb4-fad1a52aaded,2,2026-05-13T00:57:44.275000+00:00,2026-05-13T01:32:40.465000+00:00,2096,,merge/rebase produced CONFLICT marker in working tree
+harmonik,7df84270-b32e-463e-8bb4-fad1a52aaded,2,2026-05-13T00:59:24.312000+00:00,2026-05-13T01:32:40.465000+00:00,1996,,merge/rebase produced CONFLICT marker in working tree
+harmonik,7e362669-4eb9-4d24-9ff5-00004b6bb87a,1,2026-05-08T00:15:43.944000+00:00,2026-05-08T00:29:54.679000+00:00,850,,git push rejected (non-fast-forward / updates rejected)
+harmonik,810a7f2d-23d2-4a08-9e13-4c5d7469c767,3,2026-05-07T17:54:00.811000+00:00,2026-05-07T21:50:15.569000+00:00,14174,,"long session (3.9h, 6 sub-agents)"
+harmonik,8833578b-0276-431c-8c41-76e45dc0254e,2,2026-05-14T20:47:23.260000+00:00,2026-05-14T20:54:21.320000+00:00,418,,merge/rebase produced CONFLICT marker in working tree
+harmonik,98fb9db2-6556-4d72-ad8b-dd124e30299b,3,2026-05-01T04:21:22.691000+00:00,2026-05-05T17:33:29.257000+00:00,393126,,"long session (109.2h, 39 sub-agents)"
+harmonik,9bbc5633-31b3-41f8-a04b-432835871220,3,2026-04-24T17:50:01.241000+00:00,2026-04-24T22:47:25.324000+00:00,17844,,"long session (5.0h, 34 sub-agents)"
+harmonik,a121e7f1-520b-450b-b1e1-6aeb33e4849b,3,2026-04-27T18:27:54.109000+00:00,2026-04-28T04:48:59.685000+00:00,37265,,"long session (10.4h, 17 sub-agents)"
+harmonik,a1b6aa78-34bf-43da-925c-cb175d07fecb,4,2026-05-11T22:31:51.076000+00:00,2026-05-12T16:14:11.787000+00:00,63740,,sub-agent dispatched a second time with identical description
+harmonik,a1b6aa78-34bf-43da-925c-cb175d07fecb,3,2026-05-11T22:28:07.247000+00:00,2026-05-12T16:32:40.131000+00:00,65072,,"long session (18.1h, 17 sub-agents)"
+harmonik,a7cc0759-0353-4317-b014-164d4049bd92,3,2026-05-12T18:59:39.863000+00:00,2026-05-12T21:17:42.927000+00:00,8283,,"long session (2.3h, 15 sub-agents)"
+harmonik,b21c9319-82c5-48b1-ac5f-cf9d1bb28b8a,3,2026-05-06T04:29:05.816000+00:00,2026-05-06T14:20:57.752000+00:00,35511,,"long session (9.9h, 20 sub-agents)"
+harmonik,c20de6a2-3962-4bdb-b294-7f5a4e6180a3,2,2026-05-10T07:03:00.031000+00:00,2026-05-10T07:23:19.715000+00:00,1219,,merge/rebase produced CONFLICT marker in working tree
+harmonik,c5e133a9-2ec2-463c-a686-c78e4b89327c,3,2026-05-05T17:33:53.517000+00:00,2026-05-06T04:28:32.823000+00:00,39279,,"long session (10.9h, 13 sub-agents)"
+harmonik,d26d3203-e716-416b-9cfc-04233063f60c,2,2026-05-10T05:08:11.244000+00:00,2026-05-10T05:11:08.249000+00:00,177,,merge/rebase produced CONFLICT marker in working tree
+harmonik,db8d1c56-2c60-4b55-83fe-c29ab3ff3eea,3,2026-05-15T06:32:13.174000+00:00,2026-05-15T17:28:01.630000+00:00,39348,,"long session (10.9h, 49 sub-agents)"
+harmonik,de30293f-66f5-4c4a-b29c-98607b0c4cb2,1,2026-04-23T22:02:50.629000+00:00,2026-04-24T17:49:30.556000+00:00,71199,,git push rejected (non-fast-forward / updates rejected)
+harmonik,de30293f-66f5-4c4a-b29c-98607b0c4cb2,3,2026-04-23T17:57:43.210000+00:00,2026-04-24T17:49:30.556000+00:00,85907,,"long session (23.9h, 68 sub-agents) with conflict markers"
+harmonik,e3ab8a4d-07ad-45d7-a5b6-f67f1450cd88,2,2026-05-07T06:03:24.881000+00:00,2026-05-07T06:03:35.645000+00:00,10,,merge/rebase produced CONFLICT marker in working tree
+harmonik,e4002daf-0e47-4d02-a1a6-e2e9d9715b49,3,2026-05-06T14:21:12.316000+00:00,2026-05-07T04:58:01.986000+00:00,52609,,"long session (14.6h, 20 sub-agents)"
+harmonik,e96e6732-c052-4200-a942-88f49071b6a5,1,2026-05-08T03:15:11.436000+00:00,2026-05-08T03:38:56.644000+00:00,1425,,git push rejected (non-fast-forward / updates rejected)
+harmonik,f3bfaa91-f0fd-4232-963d-7f46abbbfc1c,2,2026-05-12T17:38:31.185000+00:00,2026-05-12T17:39:04.728000+00:00,33,,merge/rebase produced CONFLICT marker in working tree
+harmonik,f3bfaa91-f0fd-4232-963d-7f46abbbfc1c,2,2026-05-12T18:02:38.864000+00:00,2026-05-12T18:04:55.345000+00:00,136,,merge/rebase produced CONFLICT marker in working tree
+harmonik,f3bfaa91-f0fd-4232-963d-7f46abbbfc1c,2,2026-05-12T18:04:55.345000+00:00,2026-05-12T18:08:05.337000+00:00,189,,merge/rebase produced CONFLICT marker in working tree
+harmonik,f3bfaa91-f0fd-4232-963d-7f46abbbfc1c,2,2026-05-12T18:04:59.336000+00:00,2026-05-12T18:08:05.337000+00:00,186,,merge/rebase produced CONFLICT marker in working tree
+harmonik,f3bfaa91-f0fd-4232-963d-7f46abbbfc1c,2,2026-05-12T18:46:25.464000+00:00,2026-05-12T18:59:15.990000+00:00,770,,merge/rebase produced CONFLICT marker in working tree
+harmonik,f3bfaa91-f0fd-4232-963d-7f46abbbfc1c,3,2026-05-12T16:36:44.824000+00:00,2026-05-12T18:59:15.990000+00:00,8551,,"long session (2.4h, 33 sub-agents) with conflict markers"
+harmonik,f588ff0c-699f-460c-a9d8-d0909cb8937d,3,2026-04-20T04:31:36.594000+00:00,2026-04-21T17:15:17.840000+00:00,132221,,"long session (36.7h, 27 sub-agents)"

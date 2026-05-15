@@ -1,0 +1,73 @@
+spin_up:
+  family: gamma
+  params:
+    shape: 14.671240593433183
+    scale: 0.23515393793925052
+  ks_p: 0.5945405228484562
+  n: 202
+  source: kerf+harmonik
+  notes: dropped 0 rows with spin_up=0 for fit; treat as point mass if needed
+task_work:
+  family: lognormal
+  params:
+    mu: 5.561479154493786
+    sigma: 0.8769550813369303
+  ks_p: 0.4728265295173151
+  n: 202
+  source: kerf+harmonik
+  variants:
+    kerf_only:
+      family: lognormal
+      params:
+        mu: 5.331923273919191
+        sigma: 0.6264450092619491
+      ks_p: 0.9431219048228854
+      n: 52
+    harmonik_only:
+      family: lognormal
+      params:
+        mu: 5.6410585264263124
+        sigma: 0.9354196591180209
+      ks_p: 0.5228852979525511
+      n: 150
+merge:
+  family: mixture
+  components:
+  - weight: 0.95
+    family: point_mass
+    params:
+      value: 0.0
+  - weight: 0.050000000000000044
+    family: weibull
+    params:
+      shape: 1.423497796861323
+      scale: 202.94588238355294
+    tail_ks_p: 0.9492804114524701
+  n: 120
+  source: kerf+harmonik (negatives clamped to 0)
+  notes: 'bimodal: most merges sub-second (FF); tail is lock/hook cluster ~10-300s'
+reviewer:
+  family: lognormal
+  params:
+    mu: 4.546632191160885
+    sigma: 0.2680741416896196
+  ks_p: 0.7235738207062011
+  n: 24
+  notes: kerf only; harmonik recent sessions have no reviewer phase
+conflict_resolution:
+  family: mixture
+  components:
+  - weight: 0.905045954978699
+    family: lognormal
+    params:
+      mu: 4.526119659818047
+      sigma: 1.9774888852642694
+  - weight: 0.0949540450213011
+    family: lognormal
+    params:
+      mu: 11.18212653762173
+      sigma: 0.47302212166972346
+  ks_p: 0.9886946100162938
+  n: 31
+  source: conflict_incidents.csv patterns 1+2
+  notes: two-component lognormal via EM; fast re-push cluster vs slow rebase cluster
