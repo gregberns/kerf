@@ -41,13 +41,19 @@ func makeBead(id, workCode string, deps ...string) beads.Bead {
 	}
 }
 
-// twoWorkWorld returns a deterministic small world:
+// twoWorkFixture returns the canonical small-world inputs used across
+// baseline tests:
 //   - alpha (created t0), beta (created t0+1h)
 //   - a1, a2 in alpha; b1 in beta
-//   - all arrive at tick 0 (via From), so we can re-arrive selectively.
-func twoWorkWorld() *store.GeneratedWorld {
+//   - all arrive at tick 0 (via FromSpecs), so callers can re-arrive selectively.
+type twoWorkFixture struct {
+	Works        []*spec.SpecYAML
+	InitialBeads []beads.Bead
+}
+
+func twoWorkWorld() *twoWorkFixture {
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	return &store.GeneratedWorld{
+	return &twoWorkFixture{
 		Works: []*spec.SpecYAML{
 			makeWork("alpha", t0),
 			makeWork("beta", t0.Add(time.Hour)),
@@ -58,6 +64,11 @@ func twoWorkWorld() *store.GeneratedWorld {
 			makeBead("b1", "beta"),
 		},
 	}
+}
+
+// fromFixture is the tests' shortcut to store.FromSpecs.
+func fromFixture(f *twoWorkFixture) *store.Store {
+	return store.FromSpecs(f.Works, f.InitialBeads)
 }
 
 func TestFIFOBead_OrderingByArrivalThenID(t *testing.T) {
@@ -114,8 +125,8 @@ func TestFIFOWork_OrderingByWorkCreatedThenArrivalThenID(t *testing.T) {
 }
 
 func TestRandom_Deterministic_SameSeed(t *testing.T) {
-	s1 := store.From(twoWorkWorld())
-	s2 := store.From(twoWorkWorld())
+	s1 := fromFixture(twoWorkWorld())
+	s2 := fromFixture(twoWorkWorld())
 
 	seedA := seedBytes(42)
 	p1 := NewRandom(seedA)
@@ -133,11 +144,11 @@ func TestRandom_DifferentSeeds_MayDiffer(t *testing.T) {
 	// disagrees with seed 0 — extremely likely for any non-pathological
 	// derivation.
 	world := twoWorkWorld()
-	base := NewRandom(seedBytes(0)).Next(store.From(world))
+	base := NewRandom(seedBytes(0)).Next(fromFixture(world))
 
 	differed := false
 	for _, u := range []uint64{1, 2, 3, 17, 99} {
-		s := store.From(world)
+		s := fromFixture(world)
 		pick := NewRandom(seedBytes(u)).Next(s)
 		if pick != base {
 			differed = true

@@ -36,10 +36,29 @@ func makeBead(id, workCode string, labels ...string) beads.Bead {
 	}
 }
 
-// newWorld is a small GeneratedWorld used across tests.
-func newWorld() *GeneratedWorld {
+// worldFixture bundles a Works slice and initial beads to feed into
+// FromSpecs. Tests previously used a GeneratedWorld struct here; the
+// orchestrator (B10) now consumes generator.GeneratedWorld directly, so this
+// is a local test helper rather than an exported type.
+type worldFixture struct {
+	Works        []*spec.SpecYAML
+	InitialBeads []beads.Bead
+}
+
+// fromFixture builds a Store from a worldFixture using the spec-form
+// constructor. This is the path tests use; the production path is From
+// (which adapts a generator.GeneratedWorld).
+func fromFixture(w *worldFixture) *Store {
+	if w == nil {
+		return New()
+	}
+	return FromSpecs(w.Works, w.InitialBeads)
+}
+
+// newWorld is a small worldFixture used across tests.
+func newWorld() *worldFixture {
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	return &GeneratedWorld{
+	return &worldFixture{
 		Works: []*spec.SpecYAML{
 			makeWork("alpha", t0),
 			makeWork("beta", t0.Add(time.Hour)),
@@ -53,7 +72,7 @@ func newWorld() *GeneratedWorld {
 }
 
 func TestFrom_LoadsWorldShape(t *testing.T) {
-	s := From(newWorld())
+	s := fromFixture(newWorld())
 	if got, want := len(s.Works()), 2; got != want {
 		t.Fatalf("Works() len = %d, want %d", got, want)
 	}
@@ -87,8 +106,8 @@ func TestFrom_NilWorld(t *testing.T) {
 
 func TestFrom_Isolation(t *testing.T) {
 	world := newWorld()
-	a := From(world)
-	b := From(world)
+	a := fromFixture(world)
+	b := fromFixture(world)
 
 	a.Dispatch("a1", 7, 10)
 	a.Complete("a1", 25)
@@ -112,7 +131,7 @@ func TestFrom_Isolation(t *testing.T) {
 }
 
 func TestAdapter_FeedsQueueCompute(t *testing.T) {
-	s := From(newWorld())
+	s := fromFixture(newWorld())
 
 	// The whole point of the adapter is that the outputs feed queue.Compute
 	// directly with no transformation.
@@ -134,7 +153,7 @@ func TestAdapter_FeedsQueueCompute(t *testing.T) {
 }
 
 func TestDispatchComplete_Transitions(t *testing.T) {
-	s := From(newWorld())
+	s := fromFixture(newWorld())
 
 	s.Dispatch("a1", 1, 5)
 	if got := s.Lookup("a1").Status; got != StatusInProgress {
@@ -167,14 +186,14 @@ func TestDispatchComplete_Transitions(t *testing.T) {
 }
 
 func TestDispatchComplete_UnknownBead(t *testing.T) {
-	s := From(newWorld())
+	s := fromFixture(newWorld())
 	// Must not panic on unknown bead.
 	s.Dispatch("does-not-exist", 1, 5)
 	s.Complete("does-not-exist", 6)
 }
 
 func TestArrive_AddsAndIsVisibleInSummary(t *testing.T) {
-	s := From(newWorld())
+	s := fromFixture(newWorld())
 	before := s.SummaryByWork()["alpha"].Total
 
 	s.Arrive(makeBead("a3", "alpha"), 42)
@@ -200,7 +219,7 @@ func TestArrive_AddsAndIsVisibleInSummary(t *testing.T) {
 }
 
 func TestArrive_Idempotent(t *testing.T) {
-	s := From(newWorld())
+	s := fromFixture(newWorld())
 	s.Arrive(makeBead("a3", "alpha"), 10)
 	s.Arrive(makeBead("a3", "alpha"), 20) // duplicate — should be a no-op
 
@@ -213,7 +232,7 @@ func TestArrive_Idempotent(t *testing.T) {
 }
 
 func TestArrive_ReworkVisibleInSummary(t *testing.T) {
-	s := From(newWorld())
+	s := fromFixture(newWorld())
 	s.Arrive(makeBead("rwk", "alpha", "rework:true"), 5)
 
 	sum := s.SummaryByWork()["alpha"]
@@ -223,7 +242,7 @@ func TestArrive_ReworkVisibleInSummary(t *testing.T) {
 }
 
 func TestWorks_ReturnsCopy(t *testing.T) {
-	s := From(newWorld())
+	s := fromFixture(newWorld())
 	w := s.Works()
 	w[0] = nil // mutate caller's copy
 	if s.Works()[0] == nil {

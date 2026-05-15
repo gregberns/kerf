@@ -12,7 +12,10 @@
 package store
 
 import (
+	"time"
+
 	"github.com/gberns/kerf/internal/beads"
+	"github.com/gberns/kerf/internal/sim/generator"
 	"github.com/gberns/kerf/internal/spec"
 )
 
@@ -248,44 +251,104 @@ func (s *Store) AllClosed() bool {
 }
 
 
-// GeneratedWorld is the output of the scenario generator (B5). The simulator
-// runs multiple policies against the same world by handing each its own Store
-// via From; this struct is the minimal contract Store.From relies on.
+// From returns a fresh Store seeded from the given generator.GeneratedWorld.
+// Each call returns a mutually-independent store: mutating one store returned
+// from From(w) does not affect another store returned from From(w). This
+// isolation is load-bearing for the run orchestrator (B10), which runs four
+// policies against the same world.
 //
-// The full generator is implemented in internal/sim/generator; the fields
-// here are the subset Store needs to materialize itself.
-type GeneratedWorld struct {
-	// Works are the initial works that exist at tick 0. Canonical order is
-	// the slice order; Store preserves it.
-	Works []*spec.SpecYAML
-
-	// InitialBeads are the beads that exist at tick 0 (i.e. the bead
-	// population before any scripted/probabilistic arrival fires). Each
-	// bead's WorkCode is inferred from a `work:<codename>` label if not
-	// supplied separately.
-	InitialBeads []beads.Bead
-}
-
-// From returns a fresh Store seeded from the given GeneratedWorld. Each call
-// returns a mutually-independent store: mutating one store returned from
-// From(w) does not affect another store returned from From(w). This isolation
-// is load-bearing for B10, which runs four policies against the same world.
+// From synthesizes a *spec.SpecYAML for each GeneratedWork (the generator's
+// world carries the structural fields — codename, areas, deps, epic — but not
+// the spec scaffolding queue.Compute consumes). The synthesized specs share
+// a fixed Created baseline derived from the work's WorkCreatedTick so two
+// stores constructed from the same world have byte-identical work specs.
 //
-// From copies the world's slices but shares the *spec.SpecYAML pointers
-// (Works are read-only inputs to queue.Compute; per-policy mutation only
-// happens on beads, not on works).
-func From(world *GeneratedWorld) *Store {
+// Initial beads (those with ArrivalTick == 0 in the generated world) are
+// inserted at tick 0; future arrivals (ArrivalTick > 0) are NOT inserted —
+// the orchestrator drives them onto the loop's event heap. Durations for
+// every bead (initial AND future) are recorded so the loop can look them up
+// on dispatch regardless of arrival timing.
+func From(world *generator.GeneratedWorld) *Store {
 	s := New()
 	if world == nil {
 		return s
 	}
-	for _, w := range world.Works {
+	for _, gw := range world.Works {
+		s.AddWork(workToSpec(gw))
+	}
+	for _, gb := range world.Beads {
+		s.SetDuration(gb.BeadID, gb.Duration)
+		if gb.ArrivalTick != 0 {
+			continue
+		}
+		s.Arrive(generatedBeadToBead(gb), 0)
+	}
+	return s
+}
+
+// FromSpecs returns a fresh Store containing the given works and initial
+// beads. It is the lower-level constructor used by tests that need precise
+// control over spec fields (Created timestamps, status_values, etc.) without
+// going through the synthetic generator. Initial beads are inserted at the
+// supplied tick.
+func FromSpecs(works []*spec.SpecYAML, initial []beads.Bead) *Store {
+	s := New()
+	for _, w := range works {
 		s.AddWork(w)
 	}
-	for _, b := range world.InitialBeads {
+	for _, b := range initial {
 		s.Arrive(b, 0)
 	}
 	return s
+}
+
+// generatorEpoch is the canonical Created timestamp used as the baseline for
+// synthesized specs. It is fixed so two stores built from the same world have
+// byte-identical work timestamps.
+var generatorEpoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// workToSpec synthesizes a *spec.SpecYAML from a generator.GeneratedWork. The
+// fields populated here are exactly what queue.Compute, baseline policies,
+// and the metrics collector read off the spec: Codename, Type, Status,
+// StatusValues, Created, Updated, Areas.
+//
+// Dependencies on the spec are recorded as DependsOn entries with empty
+// status restriction (matching queue.Compute's must-complete-first
+// semantics: an empty restriction means "any non-terminal status").
+func workToSpec(w generator.GeneratedWork) *spec.SpecYAML {
+	created := generatorEpoch.Add(time.Duration(w.WorkCreatedTick) * time.Second)
+	deps := make([]spec.Dependency, 0, len(w.Deps))
+	for _, d := range w.Deps {
+		dep := d
+		deps = append(deps, spec.Dependency{
+			Codename:     dep,
+			Relationship: "must-complete-first",
+		})
+	}
+	return &spec.SpecYAML{
+		Codename:     w.Codename,
+		Type:         "feature",
+		Status:       "in-progress",
+		StatusValues: []string{"design", "in-progress", "review", "complete"},
+		Created:      created,
+		Updated:      created,
+		Areas:        append([]string(nil), w.Areas...),
+		DependsOn:    deps,
+	}
+}
+
+// generatedBeadToBead lifts a generator.GeneratedBead into the beads.Bead
+// form Arrive consumes. The bead is tagged with `work:<codename>` so the
+// store's WorkCode inference works without any caller bookkeeping.
+func generatedBeadToBead(gb generator.GeneratedBead) beads.Bead {
+	labels := append([]string{"work:" + gb.Work}, gb.Labels...)
+	return beads.Bead{
+		ID:     gb.BeadID,
+		Title:  gb.BeadID,
+		Status: "open",
+		Epic:   gb.Work,
+		Labels: labels,
+	}
 }
 
 // workCodeFromLabels returns the work codename encoded in a `work:<codename>`
