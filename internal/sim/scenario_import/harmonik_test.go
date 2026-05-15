@@ -50,8 +50,8 @@ func TestImportHarmonik_SinglePilotCP(t *testing.T) {
 	if w.Codename != "cp" {
 		t.Errorf("work codename: got %q want %q", w.Codename, "cp")
 	}
-	if len(w.Deps) != 0 {
-		t.Errorf("expected no deps for single-pilot import, got %v", w.Deps)
+	if d := w.DepsSlice(); len(d) != 0 {
+		t.Errorf("expected no deps for single-pilot import, got %v", d)
 	}
 	if len(w.Areas) == 0 {
 		t.Errorf("expected at least one area")
@@ -75,7 +75,7 @@ func TestImportHarmonik_DirectoryAllPilots(t *testing.T) {
 	// `ar-*`, `em-*`, etc.).
 	found := false
 	for _, w := range res.Scenario.Works {
-		if len(w.Deps) > 0 {
+		if len(w.DepsSlice()) > 0 {
 			found = true
 			break
 		}

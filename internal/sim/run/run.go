@@ -484,8 +484,8 @@ func fallbackScenarioBytes(s *scenario.Scenario) []byte {
 			sort.Strings(areas)
 			fmt.Fprintf(&b, "    areas: %v\n", areas)
 		}
-		if len(w.Deps) > 0 {
-			deps := append([]string(nil), w.Deps...)
+		if d := w.DepsSlice(); len(d) > 0 {
+			deps := append([]string(nil), d...)
 			sort.Strings(deps)
 			fmt.Fprintf(&b, "    deps: %v\n", deps)
 		}

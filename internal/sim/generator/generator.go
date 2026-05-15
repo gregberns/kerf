@@ -440,15 +440,22 @@ func drawDuration(r *rand.Rand, mu, sigma float64) int64 {
 	return n
 }
 
-// generateDeps returns the dependency list for work i. If the scenario
-// provided explicit deps for the work, they are used verbatim (sorted).
-// Otherwise the generator draws intra-epic edges at probability 0.6 and
-// inter-epic edges at probability 0.05 against every older sibling
-// (specs/simulator.md §Generator Parameters). Construction is acyclic by
-// induction: edges only point to lower-indexed works.
-func generateDeps(r *rand.Rand, i int, works []GeneratedWork, explicit []string) []string {
-	if len(explicit) > 0 {
-		out := append([]string(nil), explicit...)
+// generateDeps returns the dependency list for work i. The `explicit`
+// pointer encodes the scenario's intent:
+//
+//   - nil pointer — the `deps:` key was absent from the YAML. The
+//     generator is free to synthesize older-sibling edges.
+//   - non-nil pointer to a (possibly empty) slice — the scenario
+//     declared an explicit deps list. It is used verbatim (sorted) with
+//     no random draws, even when the slice is empty.
+//
+// When synthesizing, the generator draws intra-epic edges at probability
+// 0.6 and inter-epic edges at probability 0.05 against every older
+// sibling (specs/simulator.md §Generator Parameters). Construction is
+// acyclic by induction: edges only point to lower-indexed works.
+func generateDeps(r *rand.Rand, i int, works []GeneratedWork, explicit *[]string) []string {
+	if explicit != nil {
+		out := append([]string(nil), (*explicit)...)
 		sort.Strings(out)
 		return out
 	}

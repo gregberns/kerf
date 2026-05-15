@@ -36,12 +36,34 @@ type Scenario struct {
 }
 
 // Work is an initial work item.
+//
+// Deps is a pointer to a slice so that the scenario loader can distinguish
+// "the deps key was omitted" (nil pointer — generator may synthesize
+// older-sibling edges) from "the deps key was present and empty"
+// (non-nil pointer to a zero-length slice — generator must respect it
+// verbatim). See specs/simulator.md §Scenario File and the generator's
+// generateDeps for the consumer side of this contract.
 type Work struct {
-	Codename  string   `yaml:"codename"`
-	Areas     []string `yaml:"areas"`
-	Deps      []string `yaml:"deps"`
-	BeadCount int      `yaml:"bead_count"`
+	Codename  string    `yaml:"codename"`
+	Areas     []string  `yaml:"areas"`
+	Deps      *[]string `yaml:"deps,omitempty"`
+	BeadCount int       `yaml:"bead_count"`
 }
+
+// DepsSlice returns the work's declared deps as a plain slice. A nil
+// pointer (deps key absent) and a non-nil empty slice (deps: []) both
+// return an empty slice from this accessor; callers that need to
+// distinguish the two cases should inspect w.Deps directly.
+func (w Work) DepsSlice() []string {
+	if w.Deps == nil {
+		return nil
+	}
+	return *w.Deps
+}
+
+// DepsPtr is a small helper for tests and programmatic scenario
+// construction that need to set an explicit (possibly empty) deps slice.
+func DepsPtr(deps []string) *[]string { return &deps }
 
 // BeadArrivals controls the post-start bead arrival schedule. Exactly one of
 // Generator or Explicit must be set.

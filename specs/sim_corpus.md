@@ -109,13 +109,5 @@ written to. The command validates the result through
 
 ## Known limitations (Phase 1)
 
-- **Generator dep collisions.** The kerfsim generator currently draws
-  random "older sibling" edges for any work with an empty `deps:`
-  list (other than the index-0 work). When a corpus contains multiple
-  dep-less works, those random draws can collide with explicit deps
-  on other works and produce a cycle. Single-pilot imports are
-  unaffected. The directory case may fail `kerfsim run` with
-  `generate: generator: dag: cycle detected` until the generator
-  treats explicit `deps: []` as authoritative; tracked separately.
 - **Kerf plan ingestion** is stubbed and returns an error.
 - **`bd` export JSON** ingestion is not yet implemented.

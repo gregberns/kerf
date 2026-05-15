@@ -248,7 +248,7 @@ func TestGenerate_RespectsExplicitDepsAndBeadCounts(t *testing.T) {
 		Agents: 3,
 		Works: []scenario.Work{
 			{Codename: "a", Areas: []string{"cli"}, BeadCount: 4},
-			{Codename: "b", Areas: []string{"cli"}, Deps: []string{"a"}, BeadCount: 2},
+			{Codename: "b", Areas: []string{"cli"}, Deps: scenario.DepsPtr([]string{"a"}), BeadCount: 2},
 		},
 		BeadArrivals: scenario.BeadArrivals{
 			Generator: &scenario.Generator{ReworkRatePerTick: 0, TargetWorks: []string{"a"}},
@@ -276,6 +276,75 @@ func TestGenerate_RespectsExplicitDepsAndBeadCounts(t *testing.T) {
 	// 4 + 2 initial beads, all at tick 0.
 	if len(w.Beads) != 6 {
 		t.Fatalf("expected 6 beads, got %d", len(w.Beads))
+	}
+}
+
+// TestGenerate_RespectsExplicitEmptyDeps is the regression for the bug
+// where the generator drew random older-sibling deps for any work whose
+// explicit deps slice was empty. With the scenario.Work.Deps pointer
+// field a non-nil pointer to an empty slice now disables the synthesis
+// path. Multi-pilot harmonik imports rely on this to keep cycle-broken
+// works dep-less after import.
+func TestGenerate_RespectsExplicitEmptyDeps(t *testing.T) {
+	med := 30.0
+	empty := []string{}
+	works := []scenario.Work{
+		{Codename: "a", Areas: []string{"cli"}, Deps: &empty, BeadCount: 1},
+	}
+	// Add 19 more works each with explicit empty deps. Under the old
+	// (buggy) generator, intra-epic edges at p=0.6 would virtually
+	// guarantee a dep on at least one of these works. With the fix,
+	// every Deps slice must remain empty.
+	for i := 1; i < 20; i++ {
+		e := []string{}
+		works = append(works, scenario.Work{
+			Codename:  letterCode(i),
+			Areas:     []string{"cli"},
+			Deps:      &e,
+			BeadCount: 1,
+		})
+	}
+	s := &scenario.Scenario{
+		Seed:   42,
+		Ticks:  1000,
+		Agents: 3,
+		Works:  works,
+		BeadArrivals: scenario.BeadArrivals{
+			Generator: &scenario.Generator{ReworkRatePerTick: 0, TargetWorks: []string{"a"}},
+		},
+		AgentModel: scenario.AgentModel{
+			Duration: scenario.Duration{Kind: scenario.DurationKindLogNormal, MedianTicks: &med, Sigma: 0.8},
+		},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	w, err := Generate(s)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, ww := range w.Works {
+		if len(ww.Deps) != 0 {
+			t.Errorf("work %s: explicit empty deps got synthesized into %v", ww.Codename, ww.Deps)
+		}
+	}
+}
+
+// TestGenerate_AbsentDepsAllowsSynthesis confirms the converse: when
+// the scenario omits the deps key (nil pointer) the generator still
+// draws older-sibling edges. This guards against an over-correction
+// that would block synthetic-scenario use cases.
+func TestGenerate_AbsentDepsAllowsSynthesis(t *testing.T) {
+	w, err := Generate(makeSyntheticScenario(t, 42, 20, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	any := 0
+	for _, ww := range w.Works {
+		any += len(ww.Deps)
+	}
+	if any == 0 {
+		t.Fatalf("expected at least one synthesized dep across 20 works with absent deps")
 	}
 }
 

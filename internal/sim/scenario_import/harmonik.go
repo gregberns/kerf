@@ -164,10 +164,17 @@ func ImportHarmonik(source string) (*ImportResult, error) {
 		}
 		deps := setToSorted(depSet)
 
+		// Always emit an explicit deps pointer (possibly to an empty
+		// slice). The harmonik importer is authoritative about the
+		// dep graph it just computed, so the kerfsim generator must
+		// not later inject random older-sibling edges into dep-less
+		// works (which would re-introduce cycles after breakCycles
+		// runs below).
+		depPtr := append([]string(nil), deps...)
 		works = append(works, scenario.Work{
 			Codename:  mnem,
 			Areas:     areas,
-			Deps:      deps,
+			Deps:      &depPtr,
 			BeadCount: beadCount,
 		})
 
@@ -194,8 +201,9 @@ func ImportHarmonik(source string) (*ImportResult, error) {
 		codes[w.Codename] = struct{}{}
 	}
 	for i := range works {
-		filtered := works[i].Deps[:0]
-		for _, d := range works[i].Deps {
+		cur := works[i].DepsSlice()
+		filtered := cur[:0]
+		for _, d := range cur {
 			if d == works[i].Codename {
 				continue
 			}
@@ -204,7 +212,7 @@ func ImportHarmonik(source string) (*ImportResult, error) {
 			}
 			filtered = append(filtered, d)
 		}
-		works[i].Deps = filtered
+		works[i].Deps = &filtered
 	}
 
 	// Harmonik pilots routinely declare bidirectional inter-spec citations
@@ -325,13 +333,16 @@ func pathFor(paths []string, mnem string, docs map[string]*harmonikDoc) string {
 func breakCycles(works []scenario.Work) int {
 	type edge struct{ from, to string }
 
-	// Snapshot the original edge list, then reset Deps to be re-filled.
+	// Snapshot the original edge list, then reset Deps to an explicit
+	// empty slice on every work so the kerfsim generator treats this
+	// importer as authoritative (no random older-sibling injection).
 	var edges []edge
 	for i := range works {
-		for _, d := range works[i].Deps {
+		for _, d := range works[i].DepsSlice() {
 			edges = append(edges, edge{from: works[i].Codename, to: d})
 		}
-		works[i].Deps = nil
+		empty := []string{}
+		works[i].Deps = &empty
 	}
 	// Edges already arrive in deterministic order because `works` is
 	// sorted and each Deps slice was sorted at construction time.
@@ -373,7 +384,7 @@ func breakCycles(works []scenario.Work) int {
 			deps = append(deps, to)
 		}
 		sort.Strings(deps)
-		works[i].Deps = deps
+		works[i].Deps = &deps
 	}
 	return dropped
 }

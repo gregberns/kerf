@@ -72,7 +72,7 @@ func TestLoadBytes_GeneratorRoundTrip(t *testing.T) {
 	if s.Works[0].Codename != "amber-fox" || s.Works[0].BeadCount != 8 {
 		t.Fatalf("works[0] wrong: %+v", s.Works[0])
 	}
-	if s.Works[1].Deps[0] != "amber-fox" {
+	if d := s.Works[1].DepsSlice(); len(d) == 0 || d[0] != "amber-fox" {
 		t.Fatalf("works[1].deps wrong: %+v", s.Works[1])
 	}
 	if s.BeadArrivals.Generator == nil {
@@ -92,6 +92,70 @@ func TestLoadBytes_GeneratorRoundTrip(t *testing.T) {
 	}
 	if s.SHA256() == "" {
 		t.Fatalf("expected non-empty SHA256")
+	}
+}
+
+// TestLoadBytes_DepsPresenceDistinction asserts that the scenario loader
+// preserves the distinction between an absent `deps:` key and an
+// explicit empty `deps: []`. This is load-bearing for the kerfsim
+// generator: absent deps allow synthesis of older-sibling edges; an
+// explicit empty list must be respected verbatim. Regression for a bug
+// where multi-pilot harmonik imports produced dep-less works that the
+// generator then re-injected random deps into, re-introducing cycles.
+func TestLoadBytes_DepsPresenceDistinction(t *testing.T) {
+	yamlAbsent := `
+seed: 1
+ticks: 100
+agents: 1
+works:
+  - codename: w0
+    areas: [cli]
+    bead_count: 1
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0
+    target_works: [w0]
+agent_model:
+  duration:
+    kind: lognormal
+    median_ticks: 10
+    sigma: 0.5
+`
+	yamlExplicitEmpty := `
+seed: 1
+ticks: 100
+agents: 1
+works:
+  - codename: w0
+    areas: [cli]
+    deps: []
+    bead_count: 1
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0
+    target_works: [w0]
+agent_model:
+  duration:
+    kind: lognormal
+    median_ticks: 10
+    sigma: 0.5
+`
+	sAbsent, err := LoadBytes([]byte(yamlAbsent))
+	if err != nil {
+		t.Fatalf("absent: %v", err)
+	}
+	if sAbsent.Works[0].Deps != nil {
+		t.Fatalf("absent deps: pointer should be nil, got %v", sAbsent.Works[0].Deps)
+	}
+	sExplicit, err := LoadBytes([]byte(yamlExplicitEmpty))
+	if err != nil {
+		t.Fatalf("explicit empty: %v", err)
+	}
+	if sExplicit.Works[0].Deps == nil {
+		t.Fatalf("explicit empty deps: pointer should be non-nil")
+	}
+	if got := *sExplicit.Works[0].Deps; len(got) != 0 {
+		t.Fatalf("explicit empty deps: slice should be empty, got %v", got)
 	}
 }
 

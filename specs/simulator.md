@@ -118,7 +118,7 @@ agent_model:
 | `seed` | Top-level seed. Drives all randomness via sub-seeds. |
 | `ticks` | Simulation clock cap. Run stops at or before this tick. |
 | `agents` | Number of concurrent agents. |
-| `works` | Initial work items, each with codename, areas, deps, and bead count. |
+| `works` | Initial work items, each with codename, areas, deps, and bead count. The `deps:` key is meaningful by presence: when omitted the generator may synthesize older-sibling edges (intra-epic p=0.6, inter-epic p=0.05); when present (including the explicit empty list `deps: []`) the declared deps are used verbatim with no synthesis. |
 | `bead_arrivals` | How and when beads arrive after the start. Generator or explicit list. |
 | `agent_model.duration` | Distribution used to pre-roll bead durations. |
 
