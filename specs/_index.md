@@ -72,7 +72,7 @@ These hold across the entire system:
 2. The filesystem is the database. Files are the source of truth.
 3. kerf never launches or manages agent sessions. It reads/writes data and emits context.
 4. Codenames are immutable once created.
-5. Status is an open string. Jigs recommend values; the CLI warns on unrecognized values but does not enforce.
+5. Status is an open string. Jigs recommend values; the CLI warns on unrecognized values but does not enforce. This invariant governs CLI validation only — it is independent of how status interacts with dependency satisfaction. Dependency completeness is determined by position in the depended-on work's `status_values` list: a status equal to the terminal value, or not present in the list at all (e.g., `finalized`, `implementing` past a spec-writing jig's terminal `ready`), is treated as **at or past terminal** for the purposes of `must-complete-first` gating. See [dependencies.md](dependencies.md) §"Determine completeness" and [verification.md](verification.md) for the canonical rule, and `internal/dep.IsComplete` for the implementation.
 6. Jigs are guidance, not gates. Passes can be skipped.
 7. CLI output is agent-first. Every state-changing command emits next steps.
 8. Snapshots happen on command invocation, not via filesystem watchers.

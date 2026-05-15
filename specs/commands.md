@@ -71,7 +71,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 | `--type` | No | Matches jig name | Work type (e.g., `feature`, `bug`). |
 | `--jig` | No | `default_jig` from config.yaml (required if `default_jig` unset) | Jig to use for this work. Resolved via jig resolution order (see [jig-system.md](jig-system.md)). |
 | `--area` | No | `[]` | One or more area names to associate with the work. May be repeated (e.g., `--area auth --area api`). Each name must exist in `areas.yaml`. |
-| `--bead-filter` | No | — | A single bead-filter clause to write into the new work's `spec.yaml` as its per-work `bead_filter`. Accepts either `label=<value>` or `id_prefix=<value>` (e.g., `--bead-filter 'label=subsystem:bridge'`). Repeating the flag composes a union (`any:`) of the supplied clauses. See [coordination.md](coordination.md#bead-attachment). |
+| `--bead-filter` | No | — | A single bead-filter clause to write into the new work's `spec.yaml` as its per-work `bead_filter`. Accepts either `label=<value>` or `id_prefix=<value>` (e.g., `--bead-filter 'label=subsystem:bridge'`). One-shot: not repeatable on `kerf new` — to compose a multi-clause `any:` union, create the work with one clause and then add additional clauses via `kerf work edit --bead-filter-add` (which is repeatable). See [coordination.md](coordination.md#bead-attachment). |
 | `--project` | No | Inferred from `.kerf/project-identifier` | Project to create the work under. |
 
 ### Behavior
@@ -85,7 +85,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 3. **Resolve codename.** If no codename argument is provided, auto-generate an `adjective-noun` slug (e.g., `blue-bear`, `swift-maple`). Validate the codename format. Error if a work with this codename already exists in the project.
 4. **Resolve jig.** Look up the jig via the resolution order (see [jig-system.md](jig-system.md)). Error if the jig is not found.
 5. **Create the work directory** at the location dictated by the project's storage mode: `~/.kerf/projects/{project-id}/{codename}/` in bench mode, or `{repo}/.kerf/works/{codename}/` in local mode. If local mode is active and the bench symlink at `~/.kerf/projects/{project-id}` does not yet exist, kerf creates it pointing at `{repo}/.kerf/works/`. See [architecture.md](architecture.md#storage-modes).
-6. **Initialize `spec.yaml`** with: codename, title, type, project ID, jig name, jig version, initial status (first value in the jig's `status_values`), `created` and `updated` timestamps, empty `sessions` list, empty `depends_on` list, empty `related_to` list, null `implementation` fields, the jig's `status_values` list, the `areas` list from `--area` flags (empty if none provided), an empty `pinned_beads` list, and — when `--bead-filter` is given — a `bead_filter` value built from the supplied clause(s). A single `--bead-filter` clause is written as a direct clause; multiple `--bead-filter` flags are written as an `any:` union (see [coordination.md](coordination.md#bead-attachment)). Drift baseline is not advanced (see [coordination.md](coordination.md#baseline-advancement)).
+6. **Initialize `spec.yaml`** with: codename, title, type, project ID, jig name, jig version, initial status (first value in the jig's `status_values`), `created` and `updated` timestamps, empty `sessions` list, empty `depends_on` list, empty `related_to` list, null `implementation` fields, the jig's `status_values` list, the `areas` list from `--area` flags (empty if none provided), an empty `pinned_beads` list, and — when `--bead-filter` is given — a `bead_filter` value built from the supplied clause. The clause is written as a direct (non-union) clause; multi-clause `any:` unions are composed post-creation via `kerf work edit --bead-filter-add` (see [coordination.md](coordination.md#bead-attachment)). Drift baseline is not advanced (see [coordination.md](coordination.md#baseline-advancement)).
 7. **Check area overlap.** If `--area` flags were provided, scan other active (non-archived) works in the project for overlapping areas. If any other work shares an area, emit an overlap warning in the output (see Output below). This is informational — it does not block creation.
 8. **Record session.** Append a session entry to `sessions` with the current timestamp and `ended: null`. Set `active_session`.
 9. **Take a snapshot** of the initial state (see [snapshots.md](snapshots.md)).
@@ -1497,9 +1497,8 @@ Every item carries a `kind` and a `target`:
 
      The two detectors are mutually exclusive by construction (the attached-count guard on `work_beads_done_status_open` ensures a zero-bead work is reported only by `work_no_attached_beads`).
    - **Warning detectors** — project-level state checks. v1 detectors:
-     - Unmatched beads: any beads in the store that match no work's filter. Surfaced once as a single warning item.
+     - `untriaged_beads`: count of beads in the store that are (a) open status (not blocked, in progress, or closed — same readiness filter applied to candidate beads above), (b) match no work's resolved `bead_filter`, and (c) not pinned. Surfaced once as a single warning item. When a drift baseline is recorded, the count is rendered as the `untriaged` segment of the drift summary line below rather than as a separate warning block.
      - Filter literal yields zero matches: when the project-wide `bead_filter`'s literal prefix matches nothing in the bead store, surface a warning suggesting a case-mismatch check (e.g., `Subsystem:` vs `subsystem:`). Matching is case sensitive — see [coordination.md](coordination.md#bead-attachment).
-     - `untriaged_beads`: count of beads matching no work's filter and not pinned. Equivalent to the unmatched-beads count; rendered as part of the drift summary line below rather than as a separate warning block when a baseline exists.
      - `multi_matched`: count of beads matching more than one work's filter and not resolved by a pin. See [coordination.md](coordination.md#drift-categories).
      - `external_drift`: aggregated count of beads classified as `external_close`, `external_reopen`, `external_delete`, or `external_new` since the last drift baseline. See [coordination.md](coordination.md#drift-detection).
 4. **Exclude** items per kind:
@@ -1547,7 +1546,7 @@ When drift counters are non-zero, the feed prepends a one-line drift summary abo
 
 Each segment is omitted when its count is zero; the whole line is omitted when all three counts are zero. The segments correspond to the `untriaged_beads`, `multi_matched`, and `external_drift` detectors above. The summary line is the agent's pull signal that `kerf triage` has new work to surface — it appears whether or not the agent is invoking `kerf triage` directly.
 
-When unmatched beads are present and the drift-summary line is rendered, the older "warning: N beads match no work" line is omitted from the same invocation (the drift-summary `untriaged` segment covers it). When no baseline has been recorded and the drift-summary line is suppressed, the legacy warning is still emitted:
+When untriaged beads are present and the drift-summary line is rendered, the older "warning: N beads match no work" line is omitted from the same invocation (the drift-summary `untriaged` segment covers it). When no baseline has been recorded and the drift-summary line is suppressed, the legacy warning is still emitted:
 
 ```
 warning: 12 beads match no work — check bead_filter in project.yaml
@@ -1573,7 +1572,23 @@ If no items exist, the output says so.
 
 The set of valid `kind` values comes from the current build (v1: `bead`, `cleanup`, `warning`). Future kinds (e.g., `pr`) are additive. Consumers should treat unknown kinds as informational rather than erroring.
 
-Filter flags apply to JSON output identically.
+Top-level output shape depends on whether a drift baseline is recorded for the project (see [coordination.md](coordination.md#baseline-advancement)):
+
+- **No baseline recorded** — output is a bare JSON array of items in rank order. An empty feed emits `[]`.
+- **Baseline recorded** — output is a JSON object with two top-level fields:
+  ```
+  {
+    "drift_summary": {
+      "untriaged":      <number>,
+      "multi_matched":  <number>,
+      "external_drift": <number>
+    },
+    "items": [ <item>, ... ]
+  }
+  ```
+  The `drift_summary` field is always present (and always an object with these three integer counters) when a baseline exists, even when all three counters are zero. The `items` array uses the same item shape and ordering as the bare-array form. Counter semantics match the text headline segments documented above.
+
+Filter flags apply to JSON output identically and do not change the top-level shape.
 
 ### Help text
 
