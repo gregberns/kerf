@@ -319,14 +319,27 @@ A missing or empty `.kerf/sync-cache.json` is treated as an empty baseline: ever
 
 #### Hash scope
 
-The per-bead `hash` covers the kerf-consumed fields only:
+The per-bead `hash` is the sha256 of a deterministic byte encoding of the kerf-consumed fields. The encoding is a UTF-8 string formed by concatenating the following components, each terminated by a single `\n` (line feed, `0x0A`):
 
-1. The bead's status (e.g., `open`, `closed`, `in-progress`).
-2. The bead's labels, sorted lexicographically.
-3. The bead's title.
-4. The bead's dependency list (other bead IDs it depends on), sorted lexicographically.
+1. `id=<bead_id>` — the bead's own ID. Included so that two beads with otherwise identical fields produce distinct hashes, and so that an ID rename surfaces as drift.
+2. `status=<status>` — the bead's status string, lowercased (e.g., `open`, `closed`, `in-progress`).
+3. `title=<title>` — the bead's title, verbatim. Titles are taken as a single line; embedded line feeds in titles are not permitted by the beads system and are not specially escaped here.
+4. `labels=<l1>,<l2>,...,<ln>` — the bead's labels, lowercased, deduplicated, sorted lexicographically (Go `sort.Strings` on the lowercased slice), then joined with a single `,` (comma). Empty label list encodes as `labels=`.
+5. `deps=<d1>,<d2>,...,<dn>` — the bead's dependency IDs (the IDs of beads this bead depends on), sorted lexicographically, joined with a single `,`. Empty dependency list encodes as `deps=`.
 
-Other fields the beads system may carry (assignees, custom metadata, timestamps not visible to kerf) are not part of the hash. This keeps the hash stable across changes kerf does not act on, and avoids a forced re-triage every time the bead system adds a field.
+The sha256 is computed over the resulting byte sequence and rendered as lowercase hex. Other fields the beads system may carry (assignees, custom metadata, timestamps not visible to kerf, body text, priority) are **not** part of the hash. This keeps the hash stable across changes kerf does not act on, and avoids a forced re-triage every time the bead system adds a field.
+
+Worked example. A bead with `id=kerf-2sl`, `status=Open`, `title=Relabel drift hash scope`, `labels=["plan-008", "Phase-1", "plan-008"]`, `deps=["kerf-n4h", "kerf-0kx"]` encodes as the literal byte sequence:
+
+```
+id=kerf-2sl
+status=open
+title=Relabel drift hash scope
+labels=phase-1,plan-008
+deps=kerf-0kx,kerf-n4h
+```
+
+(five lines, each terminated by `\n`, including the final line). The per-bead `hash` is `sha256` of those bytes, hex-encoded. Note that `Phase-1` was lowercased and the duplicate `plan-008` was collapsed before sorting; status `Open` was lowercased; dependency IDs were sorted lexicographically.
 
 #### Drift categories
 
