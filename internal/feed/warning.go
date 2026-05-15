@@ -1,14 +1,17 @@
 package feed
 
-// Warning detectors per Plan 006 / B5.
+// Warning detectors. Originally introduced by Plan 006 / B5; extended by
+// Plan 008 (corrupt_spec, no_project_yaml, relabel_drift) and Plan 009 /
+// B4 (untriaged_beads — renamed from the plan-006 untriaged surface,
+// multi_matched, external_drift, pin_conflict factory).
 //
 // Spec references:
-//   - specs/commands.md §"kerf next" — Behavior step 3, Warning detectors:
-//     "Unmatched beads" and "Filter literal yields zero matches".
-//   - specs/coordination.md §"Unmatched beads" and §"Matching is case
-//     sensitive" — surface a project-level warning when the project filter's
-//     literal prefix matches nothing case-sensitively but would match
-//     case-insensitively.
+//   - specs/commands.md §"kerf next" — Behavior step 3, Warning detectors.
+//   - specs/commands.md §"Warning kinds" — canonical kind catalog.
+//   - specs/coordination.md §"Composition with other detectors" — defines
+//     untriaged_beads / multi_matched / external_drift / pin_conflict.
+//   - specs/coordination.md §"Matching is case sensitive" — case-mismatch
+//     surface for the project bead_filter.
 //
 // These detectors are pure over Input. They produce KindWarning items with
 // no WorkCodename / BeadID (project-level) and Score == 0 (warnings are not
@@ -22,17 +25,36 @@ import (
 	"github.com/gberns/kerf/internal/beads"
 )
 
-// Thresholds for the unmatched_beads detector. The warning fires when the
-// unmatched count is at least UnmatchedAbsThreshold OR at least
-// UnmatchedFracThreshold of the total bead population.
+// Warning-kind title constants. These are the rendered Title strings on
+// emitted Items; they double as the spec-defined "kind" tokens documented
+// in specs/commands.md §"Warning kinds" and specs/coordination.md
+// §"Composition with other detectors".
+//
+// `pin_conflict` is owned by this file (Plan 009 / Bead 4) per the
+// kerf-nn8 coordination note: B5 documented the contract on feed.Input
+// but the kind constant + factory live with the other warning kinds.
+// Callers construct conflict warnings via PinConflictWarning when they
+// detect a bead pinned to two works while building PinAssignments.
 const (
-	UnmatchedAbsThreshold  = 10
-	UnmatchedFracThreshold = 0.05
+	WarningKindUntriagedBeads    = "untriaged_beads"
+	WarningKindMultiMatchedBead  = "multi_matched"
+	WarningKindExternalDrift     = "external_drift"
+	WarningKindPinConflict       = "pin_conflict"
+	WarningKindFilterCaseMismatch = "bead_filter case-mismatch"
 )
 
 // NewWarningDetectors returns the v1 warning detectors:
-//   - unmatched_beads: surfaces beads that match no work via any resolved
-//     filter, once a heuristic threshold is exceeded.
+//   - untriaged_beads: surfaces beads matching no work's resolved filter
+//     AND not pinned to any work (Plan 009 / Bead 4; renamed from the
+//     plan-006 unmatched-beads detector). Emits a single project-level
+//     warning with the count; remediation is `kerf triage`.
+//   - multi_matched: emits one warning per bead matching ≥2 works'
+//     resolved filters and not pinned (Plan 009 / Bead 4). Pin overrides
+//     multi-match per specs/coordination.md §"Pin layer".
+//   - external_drift: emits one warning per non-empty drift category in
+//     Input.DriftResult (New, Deleted, ClosedExternally, ReopenedExternally).
+//     Plan 009 / Bead 4. The `Changed` category is surfaced by the
+//     pre-existing relabel_drift detector (Plan 008 / B11-code).
 //   - filter_case_mismatch: project-wide check — when the project filter's
 //     literal prefix has zero case-sensitive matches but a case-insensitive
 //     variant would match, suggests a case-mismatch.
@@ -46,18 +68,38 @@ const (
 //     changed between the cached baseline and the current store, i.e. any
 //     bead listed in Input.DriftResult.Changed (Plan 008 / B11-code; hash
 //     scope per specs/coordination.md §"Hash scope"). Hash-only: when the
-//     caller passes a zero-value DriftResult (no in-memory last-seen yet —
-//     plan 009 wires the persisted cache), the detector emits nothing.
+//     caller passes a zero-value DriftResult (no in-memory last-seen yet),
+//     the detector emits nothing.
 //
 // All detectors are project-level: WorkCodename and BeadID are nil and
 // Score is 0. Warnings are never excluded by work state.
 func NewWarningDetectors(projectFilter *beads.Filter) []Detector {
 	return []Detector{
-		DetectorFunc(unmatchedBeadsDetector),
+		DetectorFunc(untriagedBeadsDetector),
+		DetectorFunc(multiMatchedBeadDetector),
+		DetectorFunc(externalDriftDetector),
 		DetectorFunc(filterCaseMismatchDetector(projectFilter)),
 		DetectorFunc(corruptSpecDetector),
 		DetectorFunc(noProjectYAMLDetector),
 		DetectorFunc(relabelDriftDetector),
+	}
+}
+
+// PinConflictWarning constructs a project-level pin_conflict warning Item
+// for callers that detect a bead pinned to two works while collapsing the
+// per-work PinnedBeads lists into the PinAssignments map (single-owner
+// invariant violation; specs/coordination.md §"Pin layer"). The kind
+// constant lives here (Plan 009 / Bead 4); B9's `kerf pin` is the
+// primary enforcement, this is defense-in-depth against manual edits.
+func PinConflictWarning(beadID, winner, loser string) Item {
+	return Item{
+		Kind:         KindWarning,
+		Score:        0,
+		Title:        fmt.Sprintf("%s: %s", WarningKindPinConflict, beadID),
+		Action:       fmt.Sprintf("kerf pin %s %s", winner, beadID),
+		Reason:       fmt.Sprintf("Bead '%s' is pinned to both '%s' and '%s'; using '%s' (lexicographically earliest). Re-pin to disambiguate.", beadID, winner, loser, winner),
+		WorkCodename: nil,
+		BeadID:       nil,
 	}
 }
 
@@ -138,24 +180,33 @@ func noProjectYAMLDetector(in Input) []Item {
 	}}
 }
 
-// unmatchedBeadsDetector emits a single warning when a meaningful fraction
-// of the bead store matches no work via any resolved filter. It surfaces
-// the most common label-prefix (everything up to and including the first
-// ':') among unmatched beads, to point the user at the misconfiguration.
+// untriagedBeadsDetector emits a single project-level warning summarizing
+// beads that match no work's resolved filter AND are not pinned to any
+// work via PinAssignments. A bead in either set is "triaged"; only the
+// intersection of "matches nothing" and "pinned nowhere" is untriaged
+// (specs/coordination.md §"Drift categories" → `untriaged`).
 //
-// The detector counts unmatched beads from the post-open-filter set — that
-// is, only beads that would appear in the ranked feed (isReady true).
-// Closed / done / blocked / in-progress beads are excluded from the count
-// so the rendered header agrees with the listed items. See Plan 008 /
-// Bead 6 (kerf-ohp).
-func unmatchedBeadsDetector(in Input) []Item {
+// Counts are taken over the open / ready bead set — the same set the
+// bead feed renders — so the rendered count agrees with the listed items
+// (Plan 008 / Bead 6 invariant). Closed / done / blocked beads are
+// excluded from the count.
+//
+// Surfaces the most common label-prefix among untriaged beads as the
+// suggested-action hint, pointing the user at the misconfiguration.
+//
+// Plan 009 / Bead 4 — renamed from the plan-006 detector; the kind
+// string and behavior now match specs/commands.md §"Warning kinds" →
+// `untriaged`. The plan-006 heuristic abs/frac thresholds are gone:
+// the spec emits the warning whenever the count is non-zero and lets
+// the drift-summary line in `kerf next` do the rate-limiting.
+func untriagedBeadsDetector(in Input) []Item {
 	if len(in.AllBeads) == 0 {
 		return nil
 	}
 
 	// Restrict to the open / ready bead set — the same set the bead feed
-	// renders. This makes the unmatched count consistent with what the
-	// agent sees listed below the header.
+	// renders. This makes the untriaged count consistent with the listed
+	// items.
 	openBeads := make([]beads.Bead, 0, len(in.AllBeads))
 	for _, b := range in.AllBeads {
 		if isReady(b) {
@@ -180,11 +231,15 @@ func unmatchedBeadsDetector(in Input) []Item {
 		resolved = append(resolved, wf{codename: w.Codename, filter: f})
 	}
 
-	// Walk every open bead; count those that match no work.
-	unmatchedCount := 0
+	// Walk every open bead; count those that match no work AND are not
+	// pinned. A pinned bead is triaged-by-pin even if its labels match no
+	// filter (specs/coordination.md §"Pin layer").
+	untriagedCount := 0
 	prefixCounts := map[string]int{}
-	total := len(openBeads)
 	for _, b := range openBeads {
+		if _, pinned := in.PinAssignments[b.ID]; pinned {
+			continue
+		}
 		matched := false
 		for _, wf := range resolved {
 			if wf.filter != nil && wf.filter.Match(b, wf.codename) {
@@ -195,7 +250,7 @@ func unmatchedBeadsDetector(in Input) []Item {
 		if matched {
 			continue
 		}
-		unmatchedCount++
+		untriagedCount++
 		for _, lbl := range b.Labels {
 			if p, ok := labelPrefix(lbl); ok {
 				prefixCounts[p]++
@@ -203,32 +258,149 @@ func unmatchedBeadsDetector(in Input) []Item {
 		}
 	}
 
-	if unmatchedCount == 0 {
-		return nil
-	}
-
-	// Threshold: >= 10 OR >= 5% of total.
-	frac := float64(unmatchedCount) / float64(total)
-	if unmatchedCount < UnmatchedAbsThreshold && frac < UnmatchedFracThreshold {
+	if untriagedCount == 0 {
 		return nil
 	}
 
 	topPrefix := mostCommonPrefix(prefixCounts)
 
-	action := "check project bead_filter"
+	action := "kerf triage"
 	if topPrefix != "" {
-		action = fmt.Sprintf("check project bead_filter — top unmatched prefix: '%s'", topPrefix)
+		action = fmt.Sprintf("kerf triage — top untriaged prefix: '%s'", topPrefix)
 	}
 
 	return []Item{{
 		Kind:         KindWarning,
 		Score:        0,
-		Title:        "unmatched beads",
+		Title:        WarningKindUntriagedBeads,
 		Action:       action,
-		Reason:       fmt.Sprintf("%d beads match no work via current filter", unmatchedCount),
+		Reason:       fmt.Sprintf("%d beads match no work via current filter and are not pinned", untriagedCount),
 		WorkCodename: nil,
 		BeadID:       nil,
 	}}
+}
+
+// multiMatchedBeadDetector emits one warning per bead that matches ≥2
+// works' resolved filters AND is not pinned to any work via
+// PinAssignments (specs/coordination.md §"Drift categories" →
+// `multi_matched`; §"Pin layer" — pin overrides multi-match).
+//
+// Counts are taken over the open / ready bead set (same invariant as
+// untriagedBeadsDetector). Output is sorted by bead ID for deterministic
+// rendering.
+func multiMatchedBeadDetector(in Input) []Item {
+	if len(in.AllBeads) == 0 || len(in.Works) < 2 {
+		return nil
+	}
+
+	type wf struct {
+		codename string
+		filter   *beads.Filter
+	}
+	resolved := make([]wf, 0, len(in.Works))
+	for _, w := range in.Works {
+		if w == nil {
+			continue
+		}
+		f := beads.Resolve(w.BeadFilter, in.ProjectFilter)
+		resolved = append(resolved, wf{codename: w.Codename, filter: f})
+	}
+
+	type hit struct {
+		id    string
+		works []string
+	}
+	hits := make([]hit, 0)
+	for _, b := range in.AllBeads {
+		if !isReady(b) {
+			continue
+		}
+		if _, pinned := in.PinAssignments[b.ID]; pinned {
+			continue
+		}
+		matched := make([]string, 0, 2)
+		for _, wf := range resolved {
+			if wf.filter != nil && wf.filter.Match(b, wf.codename) {
+				matched = append(matched, wf.codename)
+			}
+		}
+		if len(matched) >= 2 {
+			sort.Strings(matched)
+			hits = append(hits, hit{id: b.ID, works: matched})
+		}
+	}
+	if len(hits) == 0 {
+		return nil
+	}
+	sort.Slice(hits, func(i, j int) bool { return hits[i].id < hits[j].id })
+
+	out := make([]Item, 0, len(hits))
+	for _, h := range hits {
+		// Suggested action: pin to the lexicographically-earliest match
+		// (specs/commands.md §`kerf triage` — multi_matched suggestion).
+		winner := h.works[0]
+		out = append(out, Item{
+			Kind:         KindWarning,
+			Score:        0,
+			Title:        fmt.Sprintf("%s: %s", WarningKindMultiMatchedBead, h.id),
+			Action:       fmt.Sprintf("kerf pin %s %s", winner, h.id),
+			Reason:       fmt.Sprintf("Bead '%s' matches %d works (%s); pin to disambiguate.", h.id, len(h.works), strings.Join(h.works, ", ")),
+			WorkCodename: nil,
+			BeadID:       nil,
+		})
+	}
+	return out
+}
+
+// externalDriftDetector emits one warning per non-empty external-drift
+// category in Input.DriftResult. The four `external_*` sub-kinds
+// (specs/commands.md §"Warning kinds" → `external_drift`) are:
+//
+//   - external_new:    Input.DriftResult.New
+//   - external_close:  Input.DriftResult.ClosedExternally
+//   - external_reopen: Input.DriftResult.ReopenedExternally
+//   - external_delete: Input.DriftResult.Deleted
+//
+// The `Changed` category is surfaced by the pre-existing
+// relabelDriftDetector (Plan 008 / B11-code) and is intentionally not
+// duplicated here.
+//
+// When DriftResult is the zero value (cache absent or read failed —
+// caller responsibility), all category slices are empty and the
+// detector is silent: the empty baseline is interpreted as "no drift
+// known yet", not "everything is new", to avoid spamming a first-run
+// inventory through the warning channel (the drift-summary line and
+// `kerf triage` are the right surfaces for that).
+//
+// Output is ordered close → reopen → delete → new for deterministic
+// rendering.
+func externalDriftDetector(in Input) []Item {
+	type cat struct {
+		subKind string
+		ids     []string
+	}
+	cats := []cat{
+		{"external_close", in.DriftResult.ClosedExternally},
+		{"external_reopen", in.DriftResult.ReopenedExternally},
+		{"external_delete", in.DriftResult.Deleted},
+		{"external_new", in.DriftResult.New},
+	}
+	out := make([]Item, 0, len(cats))
+	for _, c := range cats {
+		if len(c.ids) == 0 {
+			continue
+		}
+		out = append(out, Item{
+			Kind:         KindWarning,
+			Score:        0,
+			Title:        fmt.Sprintf("%s/%s", WarningKindExternalDrift, c.subKind),
+			Action:       "kerf triage",
+			Reason:       fmt.Sprintf("%d bead(s) %s since the last acknowledged baseline.", len(c.ids), c.subKind),
+			WorkCodename: nil,
+			BeadID:       nil,
+		})
+	}
+	return out
 }
 
 // filterCaseMismatchDetector returns a detector closure bound to the
@@ -289,7 +461,7 @@ func filterCaseMismatchDetector(projectFilter *beads.Filter) func(Input) []Item 
 }
 
 // labelPrefix returns the substring up to and including the first ':' in s.
-// Returns ("", false) when no ':' is present. Used to group unmatched beads
+// Returns ("", false) when no ':' is present. Used to group untriaged beads
 // by convention prefix (e.g., "subsystem:", "work:").
 func labelPrefix(s string) (string, bool) {
 	i := strings.IndexByte(s, ':')

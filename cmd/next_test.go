@@ -115,7 +115,7 @@ func TestRenderNextJSON_EmptyFeed(t *testing.T) {
 func TestRenderNextJSON_NonBeadEmitsNullFields(t *testing.T) {
 	warn := feed.Item{
 		Kind:   feed.KindWarning,
-		Title:  "unmatched beads",
+		Title:  "untriaged_beads",
 		Action: "check bead_filter",
 		Reason: "3 beads match no work",
 	}
@@ -179,7 +179,7 @@ func TestRenderNextText_WarningsAboveRanked(t *testing.T) {
 		{Kind: feed.KindCleanup, Score: 5, Title: "stale", WorkCodename: &wc, Reason: "all beads closed", Action: "kerf status alpha next"},
 	}
 	warnings := []feed.Item{
-		{Kind: feed.KindWarning, Title: "unmatched beads", Action: "check bead_filter"},
+		{Kind: feed.KindWarning, Title: "untriaged_beads", Action: "check bead_filter"},
 	}
 	var buf bytes.Buffer
 	if err := renderNextText(&buf, main, warnings); err != nil {

@@ -1,6 +1,11 @@
 package feed
 
 import (
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -31,16 +36,19 @@ func workSpec(codename string, perWork *beads.Filter) *spec.SpecYAML {
 	return &spec.SpecYAML{Codename: codename, BeadFilter: perWork}
 }
 
-// --- unmatched_beads detector ---------------------------------------------
+// --- untriaged_beads detector (Plan 009 / Bead 4 — renamed from
+// unmatched_beads; pin-aware; threshold-free) -----------------------------
 
-func TestUnmatchedBeads_FiresWhenAbsThresholdMet(t *testing.T) {
-	// 10 unmatched (subsystem:foo) — equal to abs threshold.
-	bds := makeBeads("subsystem:foo", 10)
+// TestUntriagedBeads_FiresOnNonZeroCount — the renamed detector emits a
+// single project-level warning whenever the open / unpinned untriaged
+// count is > 0. The plan-006 heuristic threshold is gone.
+func TestUntriagedBeads_FiresOnNonZeroCount(t *testing.T) {
+	bds := makeBeads("subsystem:foo", 3)
 	in := Input{
 		Works:    []*spec.SpecYAML{workSpec("alpha", nil)},
 		AllBeads: bds,
 	}
-	got := unmatchedBeadsDetector(in)
+	got := untriagedBeadsDetector(in)
 	if len(got) != 1 {
 		t.Fatalf("want 1 warning, got %d", len(got))
 	}
@@ -48,13 +56,19 @@ func TestUnmatchedBeads_FiresWhenAbsThresholdMet(t *testing.T) {
 	if w.Kind != KindWarning {
 		t.Errorf("kind = %s, want warning", w.Kind)
 	}
-	if w.Title != "unmatched beads" {
-		t.Errorf("title = %q", w.Title)
+	if w.Title != WarningKindUntriagedBeads {
+		t.Errorf("title = %q, want %q", w.Title, WarningKindUntriagedBeads)
+	}
+	if w.Title != "untriaged_beads" {
+		t.Errorf("title = %q, want literal %q", w.Title, "untriaged_beads")
 	}
 	if !strings.Contains(w.Action, "subsystem:") {
 		t.Errorf("action should surface top prefix 'subsystem:', got %q", w.Action)
 	}
-	if !strings.Contains(w.Reason, "10 beads match no work") {
+	if !strings.Contains(w.Action, "kerf triage") {
+		t.Errorf("action should remediate via `kerf triage`, got %q", w.Action)
+	}
+	if !strings.Contains(w.Reason, "3 beads match no work") {
 		t.Errorf("reason = %q", w.Reason)
 	}
 	if w.WorkCodename != nil || w.BeadID != nil {
@@ -65,164 +79,210 @@ func TestUnmatchedBeads_FiresWhenAbsThresholdMet(t *testing.T) {
 	}
 }
 
-func TestUnmatchedBeads_FiresWhenFracThresholdMet(t *testing.T) {
-	// 5 unmatched out of 100 = 5% — equals fractional threshold.
-	all := append(makeBeads("work:alpha", 95), makeBeads("orphan:x", 5)...)
+func TestUntriagedBeads_PinnedBeadIsTriaged(t *testing.T) {
+	// One bead matches no work's filter, but it is pinned to "alpha" →
+	// untriaged count is 0, no warning.
+	in := Input{
+		Works:          []*spec.SpecYAML{workSpec("alpha", &beads.Filter{Label: "work:{codename}"})},
+		AllBeads:       []beads.Bead{{ID: "leg-1", Status: "open", Labels: []string{"legacy:x"}}},
+		PinAssignments: map[string]string{"leg-1": "alpha"},
+	}
+	if got := untriagedBeadsDetector(in); len(got) != 0 {
+		t.Fatalf("pinned bead must not count as untriaged; got %d warnings", len(got))
+	}
+	// And when the pin is removed, the warning fires again.
+	in.PinAssignments = nil
+	if got := untriagedBeadsDetector(in); len(got) != 1 {
+		t.Fatalf("unpinned + unmatched bead must surface as untriaged; got %d", len(got))
+	}
+}
+
+func TestUntriagedBeads_QuietWhenAllMatchOrPinned(t *testing.T) {
 	in := Input{
 		Works:    []*spec.SpecYAML{workSpec("alpha", nil)},
-		AllBeads: all,
+		AllBeads: []beads.Bead{labeled("x", "work:alpha"), labeled("y", "work:alpha")},
 	}
-	got := unmatchedBeadsDetector(in)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 warning at exactly 5%%, got %d", len(got))
-	}
-	if !strings.Contains(got[0].Action, "orphan:") {
-		t.Errorf("action should mention 'orphan:' prefix, got %q", got[0].Action)
+	if got := untriagedBeadsDetector(in); len(got) != 0 {
+		t.Errorf("all-matched store must be quiet; got %d", len(got))
 	}
 }
 
-func TestUnmatchedBeads_QuietBelowThresholds(t *testing.T) {
-	// 4 unmatched out of 100 = 4% — below both thresholds.
-	all := append(makeBeads("work:alpha", 96), makeBeads("orphan:x", 4)...)
-	in := Input{
-		Works:    []*spec.SpecYAML{workSpec("alpha", nil)},
-		AllBeads: all,
-	}
-	got := unmatchedBeadsDetector(in)
-	if len(got) != 0 {
-		t.Fatalf("expected no warning below thresholds, got %d", len(got))
-	}
-}
-
-func TestUnmatchedBeads_TopPrefixIsMostCommon(t *testing.T) {
-	all := []beads.Bead{
-		labeled("a", "subsystem:foo"),
-		labeled("b", "subsystem:foo"),
-		labeled("c", "subsystem:bar"),
-		labeled("d", "work:other"),
-		labeled("e", "work:other"),
-		labeled("f", "subsystem:baz"),
-		labeled("g", "subsystem:baz"),
-		labeled("h", "subsystem:baz"),
-		labeled("i", "subsystem:baz"),
-		labeled("j", "subsystem:baz"),
-	}
-	// No works → every bead is unmatched.
-	in := Input{AllBeads: all}
-	got := unmatchedBeadsDetector(in)
-	if len(got) != 1 {
-		t.Fatalf("want 1 warning, got %d", len(got))
-	}
-	// subsystem: appears 8 times, work: 2 — subsystem: must win.
-	if !strings.Contains(got[0].Action, "subsystem:") {
-		t.Errorf("expected top prefix 'subsystem:', action=%q", got[0].Action)
-	}
-}
-
-func TestUnmatchedBeads_QuietWhenAllMatch(t *testing.T) {
-	// 20 beads, all match the default filter for work "alpha".
-	bds := make([]beads.Bead, 20)
-	for i := range bds {
-		bds[i] = labeled("id", "work:alpha")
-	}
-	in := Input{
-		Works:    []*spec.SpecYAML{workSpec("alpha", nil)},
-		AllBeads: bds,
-	}
-	got := unmatchedBeadsDetector(in)
-	if len(got) != 0 {
-		t.Fatalf("expected no warning, got %d", len(got))
-	}
-}
-
-func TestUnmatchedBeads_EmptyStoreIsQuiet(t *testing.T) {
+func TestUntriagedBeads_EmptyStoreIsQuiet(t *testing.T) {
 	in := Input{Works: []*spec.SpecYAML{workSpec("alpha", nil)}}
-	if got := unmatchedBeadsDetector(in); len(got) != 0 {
+	if got := untriagedBeadsDetector(in); len(got) != 0 {
 		t.Errorf("expected no warning on empty store, got %d", len(got))
 	}
 }
 
-func TestUnmatchedBeads_NineIsBelowAbsAndFrac(t *testing.T) {
-	// 9 unmatched, total 9 → frac 100% so fires via frac path.
-	// Construct 9 unmatched + 91 matched → 9% > 5%, fires.
-	all := append(makeBeads("work:alpha", 91), makeBeads("orphan:x", 9)...)
+func TestUntriagedBeads_OnlyOpenBeadsCount(t *testing.T) {
+	// Closed beads are not in the post-open-filter set; they must not
+	// inflate the untriaged count.
+	bds := []beads.Bead{
+		{ID: "a", Status: "open", Labels: []string{"orphan:x"}},
+		{ID: "b", Status: "closed", Labels: []string{"orphan:x"}},
+	}
 	in := Input{
-		Works:    []*spec.SpecYAML{workSpec("alpha", nil)},
-		AllBeads: all,
-	}
-	if got := unmatchedBeadsDetector(in); len(got) != 1 {
-		t.Errorf("want 1 warning at 9%%, got %d", len(got))
-	}
-	// Now drop to 9 unmatched out of 200 → 4.5% and abs<10: should NOT fire.
-	all2 := append(makeBeads("work:alpha", 191), makeBeads("orphan:x", 9)...)
-	in2 := Input{
-		Works:    []*spec.SpecYAML{workSpec("alpha", nil)},
-		AllBeads: all2,
-	}
-	if got := unmatchedBeadsDetector(in2); len(got) != 0 {
-		t.Errorf("want no warning at 4.5%% and abs=9, got %d", len(got))
-	}
-}
-
-// TestNext_UnmatchedHeader_MatchesListed — Plan 008 / Bead 6 (kerf-ohp).
-// After closing one previously-unmatched bead, the header count must drop
-// to reflect only open beads, matching what the ranked list shows. The
-// detector recomputes against the post-open-filter bead set, so closed
-// beads cannot inflate the count above the rendered list.
-func TestNext_UnmatchedHeader_MatchesListed(t *testing.T) {
-	// 10 unmatched beads with prefix "orphan:" — meets abs threshold.
-	mk := func() []beads.Bead {
-		out := make([]beads.Bead, 10)
-		for i := 0; i < 10; i++ {
-			out[i] = beads.Bead{
-				ID:     "id-" + string(rune('a'+i)),
-				Status: "open",
-				Labels: []string{"orphan:x"},
-			}
-		}
-		return out
-	}
-
-	// Baseline: all 10 unmatched + open → header reports 10.
-	in := Input{
-		Works:    []*spec.SpecYAML{workSpec("alpha", nil)},
-		AllBeads: mk(),
-	}
-	got := unmatchedBeadsDetector(in)
-	if len(got) != 1 {
-		t.Fatalf("baseline: want 1 warning, got %d", len(got))
-	}
-	if !strings.Contains(got[0].Reason, "10 beads match no work") {
-		t.Fatalf("baseline reason should report 10, got %q", got[0].Reason)
-	}
-
-	// Now simulate `bd close` on one previously-unmatched bead.
-	bds := mk()
-	bds[0].Status = "closed"
-	in2 := Input{
 		Works:    []*spec.SpecYAML{workSpec("alpha", nil)},
 		AllBeads: bds,
 	}
-	got2 := unmatchedBeadsDetector(in2)
-	// 9 unmatched open beads, total open = 9 → frac 100% fires.
-	if len(got2) != 1 {
-		t.Fatalf("after close: want 1 warning, got %d", len(got2))
+	got := untriagedBeadsDetector(in)
+	if len(got) != 1 {
+		t.Fatalf("want 1 warning, got %d", len(got))
 	}
-	if !strings.Contains(got2[0].Reason, "9 beads match no work") {
-		t.Errorf("after closing one unmatched bead, header count must drop to 9; got reason %q", got2[0].Reason)
+	if !strings.Contains(got[0].Reason, "1 beads match no work") {
+		t.Errorf("only the open bead must count; reason = %q", got[0].Reason)
 	}
-	// And cross-check against the listed set: BeadSource emits only beads
-	// that pass isReady AND match a work. Unmatched beads never list, so
-	// the rendered list of unmatched beads is implicitly empty — the
-	// header count is the only signal, and it must reflect open beads.
-	openUnmatched := 0
-	for _, b := range bds {
-		if isReady(b) {
-			openUnmatched++ // all open beads here are unmatched
+}
+
+// --- multi_matched detector (Plan 009 / Bead 4) --------------------------
+
+func TestMultiMatched_FiresPerBeadMatchingTwoWorks(t *testing.T) {
+	// Two works, both with a filter that matches the same bead.
+	bds := []beads.Bead{{ID: "shared", Status: "open", Labels: []string{"work:alpha", "work:beta"}}}
+	in := Input{
+		Works: []*spec.SpecYAML{
+			workSpec("alpha", &beads.Filter{Label: "work:alpha"}),
+			workSpec("beta", &beads.Filter{Label: "work:beta"}),
+		},
+		AllBeads: bds,
+	}
+	got := multiMatchedBeadDetector(in)
+	if len(got) != 1 {
+		t.Fatalf("want 1 warning, got %d", len(got))
+	}
+	w := got[0]
+	if !strings.Contains(w.Title, "multi_matched") || !strings.Contains(w.Title, "shared") {
+		t.Errorf("title should name kind + bead, got %q", w.Title)
+	}
+	if !strings.Contains(w.Reason, "alpha") || !strings.Contains(w.Reason, "beta") {
+		t.Errorf("reason should list both matching works, got %q", w.Reason)
+	}
+	if !strings.HasPrefix(w.Action, "kerf pin alpha shared") {
+		t.Errorf("action should pin to lex-earliest codename, got %q", w.Action)
+	}
+}
+
+func TestMultiMatched_PinSuppresses(t *testing.T) {
+	bds := []beads.Bead{{ID: "shared", Status: "open", Labels: []string{"work:alpha", "work:beta"}}}
+	in := Input{
+		Works: []*spec.SpecYAML{
+			workSpec("alpha", &beads.Filter{Label: "work:alpha"}),
+			workSpec("beta", &beads.Filter{Label: "work:beta"}),
+		},
+		AllBeads:       bds,
+		PinAssignments: map[string]string{"shared": "alpha"},
+	}
+	if got := multiMatchedBeadDetector(in); len(got) != 0 {
+		t.Errorf("pinned bead must not surface as multi_matched; got %d", len(got))
+	}
+}
+
+func TestMultiMatched_QuietOnSingleWork(t *testing.T) {
+	in := Input{
+		Works:    []*spec.SpecYAML{workSpec("alpha", &beads.Filter{Label: "work:alpha"})},
+		AllBeads: []beads.Bead{labeled("x", "work:alpha")},
+	}
+	if got := multiMatchedBeadDetector(in); len(got) != 0 {
+		t.Errorf("single-work project cannot have multi-match; got %d", len(got))
+	}
+}
+
+func TestMultiMatched_DeterministicOrder(t *testing.T) {
+	bds := []beads.Bead{
+		{ID: "z-bead", Status: "open", Labels: []string{"work:alpha", "work:beta"}},
+		{ID: "a-bead", Status: "open", Labels: []string{"work:alpha", "work:beta"}},
+	}
+	in := Input{
+		Works: []*spec.SpecYAML{
+			workSpec("alpha", &beads.Filter{Label: "work:alpha"}),
+			workSpec("beta", &beads.Filter{Label: "work:beta"}),
+		},
+		AllBeads: bds,
+	}
+	got := multiMatchedBeadDetector(in)
+	if len(got) != 2 {
+		t.Fatalf("want 2 warnings, got %d", len(got))
+	}
+	if !strings.Contains(got[0].Title, "a-bead") || !strings.Contains(got[1].Title, "z-bead") {
+		t.Errorf("multi-match warnings must be ordered by bead ID; got titles %q, %q",
+			got[0].Title, got[1].Title)
+	}
+}
+
+// --- external_drift detector (Plan 009 / Bead 4) --------------------------
+
+func TestExternalDrift_FiresPerNonEmptyCategory(t *testing.T) {
+	in := Input{
+		DriftResult: drift.Diff{
+			New:                []string{"a", "b"},
+			Deleted:            []string{"c"},
+			ClosedExternally:   []string{"d", "e", "f"},
+			ReopenedExternally: []string{"g"},
+		},
+	}
+	got := externalDriftDetector(in)
+	if len(got) != 4 {
+		t.Fatalf("want 4 warnings (one per category), got %d", len(got))
+	}
+	// Spec-ordered: close → reopen → delete → new.
+	wantSubKinds := []string{"external_close", "external_reopen", "external_delete", "external_new"}
+	for i, sk := range wantSubKinds {
+		if !strings.Contains(got[i].Title, sk) {
+			t.Errorf("warning[%d] title = %q, want sub-kind %q", i, got[i].Title, sk)
+		}
+		if !strings.HasPrefix(got[i].Title, WarningKindExternalDrift+"/") {
+			t.Errorf("warning[%d] title should start with %q/, got %q",
+				i, WarningKindExternalDrift, got[i].Title)
+		}
+		if got[i].Action != "kerf triage" {
+			t.Errorf("warning[%d] action = %q", i, got[i].Action)
+		}
+		if got[i].WorkCodename != nil || got[i].BeadID != nil {
+			t.Errorf("warning[%d] should be project-level", i)
 		}
 	}
-	if openUnmatched != 9 {
-		t.Fatalf("test setup invariant: openUnmatched=%d, want 9", openUnmatched)
+	if !strings.Contains(got[0].Reason, "3 bead(s)") {
+		t.Errorf("close-count reason should say `3 bead(s)`, got %q", got[0].Reason)
+	}
+}
+
+func TestExternalDrift_QuietOnZeroDiff(t *testing.T) {
+	// Zero-value DriftResult — cache absent or first run.
+	if got := externalDriftDetector(Input{}); len(got) != 0 {
+		t.Errorf("zero DriftResult must be silent; got %d warnings", len(got))
+	}
+	// Only Changed populated → no external_* warning (Changed belongs to
+	// relabelDriftDetector, intentionally not duplicated here).
+	in := Input{DriftResult: drift.Diff{Changed: []string{"kerf-a"}}}
+	if got := externalDriftDetector(in); len(got) != 0 {
+		t.Errorf("Changed-only drift must be silent; got %d", len(got))
+	}
+}
+
+// --- pin_conflict warning factory (Plan 009 / Bead 4) ---------------------
+
+func TestPinConflictWarning_Shape(t *testing.T) {
+	w := PinConflictWarning("kerf-xyz", "alpha", "beta")
+	if w.Kind != KindWarning {
+		t.Errorf("kind = %s, want warning", w.Kind)
+	}
+	if !strings.HasPrefix(w.Title, WarningKindPinConflict) {
+		t.Errorf("title should start with %q, got %q", WarningKindPinConflict, w.Title)
+	}
+	if !strings.Contains(w.Title, "kerf-xyz") {
+		t.Errorf("title should name the bead, got %q", w.Title)
+	}
+	if !strings.Contains(w.Reason, "alpha") || !strings.Contains(w.Reason, "beta") {
+		t.Errorf("reason should name both works, got %q", w.Reason)
+	}
+	if w.Action != "kerf pin alpha kerf-xyz" {
+		t.Errorf("action should pin to winner, got %q", w.Action)
+	}
+	if w.WorkCodename != nil || w.BeadID != nil {
+		t.Errorf("pin_conflict is project-level")
+	}
+	if w.Score != 0 {
+		t.Errorf("score = %v, want 0", w.Score)
 	}
 }
 
@@ -315,12 +375,15 @@ func TestFilterCaseMismatch_HandlesAnyUnion(t *testing.T) {
 // --- constructor ----------------------------------------------------------
 
 func TestNewWarningDetectors_ReturnsAll(t *testing.T) {
-	// v1 detectors (Plan 006/B5): unmatched_beads, filter_case_mismatch.
+	// v1 detectors (Plan 006/B5): unmatched_beads (renamed to
+	// untriaged_beads in Plan 009/B4), filter_case_mismatch.
 	// Plan 008/B10-code adds corrupt_spec and no_project_yaml.
 	// Plan 008/B11-code adds relabel_drift.
+	// Plan 009/B4 adds multi_matched and external_drift; renames
+	// unmatched_beads → untriaged_beads. Total = 7.
 	ds := NewWarningDetectors(&beads.Filter{Label: "work:{codename}"})
-	if len(ds) != 5 {
-		t.Fatalf("want 5 detectors, got %d", len(ds))
+	if len(ds) != 7 {
+		t.Fatalf("want 7 detectors, got %d", len(ds))
 	}
 }
 
@@ -501,5 +564,90 @@ func TestWarning_RelabelDrift_QuietOnEmptyDrift(t *testing.T) {
 	in := Input{} // zero-value DriftResult, Changed is nil
 	if got := relabelDriftDetector(in); len(got) != 0 {
 		t.Errorf("want 0 warnings on empty DriftResult, got %d", len(got))
+	}
+}
+
+// --- rename audit (Plan 009 / Bead 4) ------------------------------------
+
+// TestRenameAudit_NoUnmatchedBeadsLiteral asserts the plan-006 kind string
+// "unmatched_beads" / "unmatched beads" and symbol "unmatchedBeadsDetector"
+// no longer appear anywhere in the kerf module tree (Go sources). The
+// rename is part of B4's deliverable; this test is the regression gate.
+//
+// The audit is scoped to the working module checkout (rooted via
+// runtime.Caller); .claude/worktrees/ scratch trees and external $GOPATH
+// caches are excluded by walking from the repo root and skipping
+// directories whose basename starts with "." (which includes
+// .claude/worktrees as well as .git).
+func TestRenameAudit_NoUnmatchedBeadsLiteral(t *testing.T) {
+	// Self-permitted strings: this test file mentions them in commentary
+	// and in the needle slice below. We allow ONE file (this one) to
+	// contain the literal — every other Go file must be clean.
+	const selfBase = "warning_test.go"
+
+	// Walk up from this file to find the module root (look for go.mod).
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Dir(thisFile)
+	for {
+		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+			break
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			t.Fatal("could not find go.mod walking up from " + thisFile)
+		}
+		root = parent
+	}
+
+	needles := []string{
+		"unmatched_beads",
+		"unmatchedBeadsDetector",
+		"UnmatchedBeads",
+		"unmatched beads",
+		"UnmatchedAbsThreshold",
+		"UnmatchedFracThreshold",
+	}
+
+	var offenders []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			base := d.Name()
+			// Skip hidden dirs (.git, .claude/worktrees, etc.).
+			if base != "." && strings.HasPrefix(base, ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".go") {
+			return nil
+		}
+		if d.Name() == selfBase {
+			return nil // self-permitted
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		body := string(data)
+		for _, n := range needles {
+			if strings.Contains(body, n) {
+				rel, _ := filepath.Rel(root, path)
+				offenders = append(offenders, fmt.Sprintf("%s contains %q", rel, n))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("rename audit failed — plan-006 kind/symbol still present in:\n  %s",
+			strings.Join(offenders, "\n  "))
 	}
 }

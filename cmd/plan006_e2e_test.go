@@ -200,12 +200,13 @@ func TestE2E_Plan006_CleanupAllBeadsClosedStatusOpen(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
-// Scenario 3 — warning detector `unmatched_beads` fires when many beads in
-// the store match no work via the configured filter. The warning renders as
-// a header block above the ranked feed.
+// Scenario 3 — warning detector `untriaged_beads` fires when beads in the
+// store match no work via the configured filter and are not pinned. The
+// warning renders as a header block above the ranked feed. (Renamed from
+// the old `unmatched-beads` warning by Plan 009 / Bead 4.)
 // ----------------------------------------------------------------------------
 
-func TestE2E_Plan006_WarningUnmatchedBeads(t *testing.T) {
+func TestE2E_Plan006_WarningUntriagedBeads(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	projectID := "warn-proj"
@@ -215,19 +216,19 @@ func TestE2E_Plan006_WarningUnmatchedBeads(t *testing.T) {
 		"alpha", projectID, "research")
 
 	// Seed 12 beads with a prefix `legacy:*` that no work's filter matches.
-	// Threshold for the warning is >= 10 OR >= 5% of total. 12 beads, all
-	// unmatched → 100% unmatched, well over threshold.
+	// Plan 009 / Bead 4: the renamed `untriaged_beads` detector fires on
+	// any non-zero count (the plan-006 abs/frac thresholds are gone).
 	var sb strings.Builder
 	sb.WriteString("[")
 	for i := 0; i < 12; i++ {
 		if i > 0 {
 			sb.WriteString(",")
 		}
-		// Status "open" — Plan 008 / Bead 6 (kerf-ohp): the unmatched
-		// detector counts the post-open-filter set, so unmatched beads
-		// must be open to register in the warning header. These beads
-		// have no matching work, so BeadSource does not list them; the
-		// header is the only signal.
+		// Status "open" — Plan 008 / Bead 6 (kerf-ohp): the detector
+		// counts the post-open-filter set, so untriaged beads must be
+		// open to register in the warning header. These beads have no
+		// matching work, so BeadSource does not list them; the header
+		// is the only signal.
 		sb.WriteString(`{"id":"leg-`)
 		sb.WriteByte(byte('a' + i))
 		sb.WriteString(`","title":"x","status":"open","epic":"","labels":["legacy:thing"]}`)
@@ -237,10 +238,10 @@ func TestE2E_Plan006_WarningUnmatchedBeads(t *testing.T) {
 
 	out := runNextCapture(t, projectID, nil)
 	if !strings.Contains(out, "warning:") {
-		t.Fatalf("expected warning header for unmatched beads; got:\n%s", out)
+		t.Fatalf("expected warning header for untriaged beads; got:\n%s", out)
 	}
-	if !strings.Contains(out, "unmatched beads") {
-		t.Errorf("expected warning title `unmatched beads`; got:\n%s", out)
+	if !strings.Contains(out, "untriaged_beads") {
+		t.Errorf("expected warning title `untriaged_beads`; got:\n%s", out)
 	}
 	// Warning header must come before any ranked item. There may be no
 	// ranked items at all — that's fine, the header should still be present.
