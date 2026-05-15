@@ -5,16 +5,22 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/gberns/kerf/internal/beads"
 	"gopkg.in/yaml.v3"
 )
 
 // ProjectConfig represents per-project jig configuration stored in
 // ~/.kerf/projects/{project-id}/project.yaml
 type ProjectConfig struct {
-	Jigs   []string            `yaml:"jigs,omitempty"`
-	Passes map[string][]string `yaml:"passes,omitempty"`
-	Tools  map[string]string   `yaml:"tools,omitempty"`
-	Queue  *QueueConfig        `yaml:"queue,omitempty"`
+	Jigs       []string            `yaml:"jigs,omitempty"`
+	Passes     map[string][]string `yaml:"passes,omitempty"`
+	Tools      map[string]string   `yaml:"tools,omitempty"`
+	Queue      *QueueConfig        `yaml:"queue,omitempty"`
+	// BeadFilter, when set, is the project-wide bead_filter used to attach
+	// beads to works. Per-work filters override this; if both are nil the
+	// built-in default ("work:{codename}") is used. See coordination spec
+	// §"Resolution order".
+	BeadFilter *beads.Filter `yaml:"bead_filter,omitempty"`
 }
 
 // QueueConfig holds project overrides for queue scoring weights.
@@ -71,6 +77,12 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parsing project config: %w", err)
+	}
+
+	if cfg.BeadFilter != nil {
+		if err := cfg.BeadFilter.Validate(); err != nil {
+			return nil, fmt.Errorf("project config: invalid bead_filter: %w", err)
+		}
 	}
 
 	return cfg, nil

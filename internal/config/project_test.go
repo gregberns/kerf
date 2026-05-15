@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/gberns/kerf/internal/beads"
 )
 
 func TestLoadProjectConfigMissing(t *testing.T) {
@@ -251,6 +254,135 @@ func TestQueueWeightsDefaultsWhenMissing(t *testing.T) {
 	cfg = &ProjectConfig{Queue: &QueueConfig{}}
 	if got := cfg.QueueWeights(defaults); got != defaults {
 		t.Errorf("empty queue: got %+v, want %+v", got, defaults)
+	}
+}
+
+func TestLoadProjectConfigNoBeadFilter(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "project.yaml")
+	content := `jigs:
+  - plan
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadProjectConfig(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.BeadFilter != nil {
+		t.Errorf("BeadFilter = %+v, want nil", cfg.BeadFilter)
+	}
+}
+
+func TestLoadProjectConfigBeadFilterLabel(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "project.yaml")
+	content := `bead_filter:
+  label: "subsystem:{codename}"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadProjectConfig(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.BeadFilter == nil {
+		t.Fatal("BeadFilter is nil")
+	}
+	if cfg.BeadFilter.Label != "subsystem:{codename}" {
+		t.Errorf("Label = %q, want subsystem:{codename}", cfg.BeadFilter.Label)
+	}
+	if err := cfg.BeadFilter.Validate(); err != nil {
+		t.Errorf("validation failed: %v", err)
+	}
+}
+
+func TestLoadProjectConfigBeadFilterAny(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "project.yaml")
+	content := `bead_filter:
+  any:
+    - label: "subsystem:{codename}"
+    - id_prefix: "gw-"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadProjectConfig(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.BeadFilter == nil {
+		t.Fatal("BeadFilter is nil")
+	}
+	if len(cfg.BeadFilter.Any) != 2 {
+		t.Fatalf("Any has %d entries, want 2", len(cfg.BeadFilter.Any))
+	}
+	if cfg.BeadFilter.Any[0].Label != "subsystem:{codename}" {
+		t.Errorf("Any[0].Label = %q", cfg.BeadFilter.Any[0].Label)
+	}
+	if cfg.BeadFilter.Any[1].IDPrefix != "gw-" {
+		t.Errorf("Any[1].IDPrefix = %q", cfg.BeadFilter.Any[1].IDPrefix)
+	}
+}
+
+func TestLoadProjectConfigBeadFilterInvalidEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "project.yaml")
+	content := `bead_filter: {}
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadProjectConfig(path)
+	if err == nil {
+		t.Fatal("expected error for empty bead_filter, got nil")
+	}
+	if !strings.Contains(err.Error(), "bead_filter") {
+		t.Errorf("error %q should mention bead_filter", err)
+	}
+}
+
+func TestLoadProjectConfigBeadFilterInvalidMixed(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "project.yaml")
+	content := `bead_filter:
+  label: "subsystem:{codename}"
+  any:
+    - id_prefix: "gw-"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadProjectConfig(path)
+	if err == nil {
+		t.Fatal("expected error for mixed direct+any bead_filter, got nil")
+	}
+}
+
+func TestSaveLoadProjectConfigBeadFilterRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "project.yaml")
+
+	cfg := &ProjectConfig{
+		BeadFilter: &beads.Filter{
+			Any: []beads.Filter{
+				{Label: "subsystem:{codename}"},
+				{IDPrefix: "gw-"},
+			},
+		},
+	}
+	if err := SaveProjectConfig(path, cfg); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+	got, err := LoadProjectConfig(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if !reflect.DeepEqual(got.BeadFilter, cfg.BeadFilter) {
+		t.Errorf("BeadFilter round-trip mismatch:\n got %+v\nwant %+v", got.BeadFilter, cfg.BeadFilter)
 	}
 }
 
