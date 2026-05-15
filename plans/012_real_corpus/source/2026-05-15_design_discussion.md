@@ -108,6 +108,18 @@ The actual abandonment rate is likely much lower (back-of-envelope ~5–10×) th
 
 The data files on disk are still accurate (they record what was found); only the **interpretation** of `wasted_effort.csv` row count was off.
 
+## Reviewer-phase wider sample (later same day)
+
+A follow-up extraction agent walked harmonik's *oldest-first* sessions (2026-04-19 → 2026-05-08) to capture the reviewer phase that's missing from recent sessions.
+
+- **34 beads with full reviewer data** captured in `data/harmonik_reviewer_beads.csv`.
+- Reviewer durations: min 68.6s, median 125.5s, p95 247.9s, max 799.5s.
+- Two outliers (~9–13 min) look like full re-test rounds rather than approve-flow.
+- **Per-session pattern is all-or-nothing**: 6 of 33 sessions emit reviewers for *every* bead; the other 27 emit none. Confirms the user's intuition that this is a workflow-procedural setting, not a per-bead choice.
+- Most worktree commits live as dangling objects (not reachable from main), so `git show -s` fallback was needed for merge timestamps — relevant for Plan 013 D1's commit-reachability logic.
+
+This is exactly the signal Plan 013 D2 (workflow phase regression) should detect: "reviewer phase rate was 100% in window X, dropped to 0% in window Y." With this data, the simulator can model "review enabled" vs "review disabled" runs as different operating regimes.
+
 ## How this connects to the user's goal
 
 The user said: *"I want to figure out distributions on each part of the process so we can model it and so our ordering algo can be improved. So there's the spin up time, how long the tasks take, merge time, merge time changing when there are conflicts, etc."*

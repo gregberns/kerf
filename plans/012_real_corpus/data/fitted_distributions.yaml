@@ -57,17 +57,20 @@ reviewer:
 conflict_resolution:
   family: mixture
   components:
-  - weight: 0.905045954978699
+  - weight: 0.1876423633184452
     family: lognormal
     params:
-      mu: 4.526119659818047
-      sigma: 1.9774888852642694
-  - weight: 0.0949540450213011
+      mu: 1.7182431466995538
+      sigma: 0.4784064750163057
+  - weight: 0.8123576366815549
     family: lognormal
     params:
-      mu: 11.18212653762173
-      sigma: 0.47302212166972346
-  ks_p: 0.9886946100162938
-  n: 31
+      mu: 5.159137625109673
+      sigma: 1.5654902805258923
+  ks_p: 0.9936671087240778
+  n: 28
   source: conflict_incidents.csv patterns 1+2
-  notes: two-component lognormal via EM; fast re-push cluster vs slow rebase cluster
+  notes: two-component lognormal via EM; fast re-push cluster vs slow rebase cluster.
+    Dropped 3 session-spanning outliers (duration > 7200s) -- those are upper-bound
+    estimates from long-session-with-conflict-markers detection, not true resolution
+    times.

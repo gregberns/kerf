@@ -307,7 +307,12 @@ def main():
         "ks_p": cm["ks_p"],
         "n": cm["n"],
         "source": "conflict_incidents.csv patterns 1+2",
-        "notes": "two-component lognormal via EM; fast re-push cluster vs slow rebase cluster",
+        "notes": (
+            f"two-component lognormal via EM; fast re-push cluster vs slow rebase cluster. "
+            f"Dropped {cm['dropped_session_spanning']} session-spanning outliers "
+            f"(duration > {int(cm['cap_seconds'])}s) -- those are upper-bound estimates "
+            f"from long-session-with-conflict-markers detection, not true resolution times."
+        ),
     }
 
     with open(DATA_DIR / "fitted_distributions.yaml", "w") as f:
@@ -396,9 +401,14 @@ def main():
     fast_med = math.exp(cm["mus"][0])
     slow_med = math.exp(cm["mus"][1])
     lines.append(
-        f"- **conflict_resolution is clearly bimodal.** Fast component median ~{fast_med:.0f}s "
-        f"(weight {cm['weights'][0]:.2f}); slow component median ~{slow_med:.0f}s "
-        f"(weight {cm['weights'][1]:.2f}). Matches expected fast re-push vs rebase split."
+        f"- **conflict_resolution is bimodal but not as expected.** Small trivial-resolution "
+        f"cluster median ~{fast_med:.0f}s (weight {cm['weights'][0]:.2f}); larger main "
+        f"cluster median ~{slow_med:.0f}s (weight {cm['weights'][1]:.2f}, broad: sigma="
+        f"{cm['sigmas'][1]:.2f}). The expected fast-re-push (~3min) vs rebase (~20min) split "
+        f"is *within* the main cluster rather than between components -- the main cluster "
+        f"spans tens of seconds to ~30min. Dropped {cm['dropped_session_spanning']} session-"
+        f"spanning outliers (>7200s) that were upper-bound estimates from long-session "
+        f"detection rather than true resolution times."
     )
     lines.append(
         f"- **merge** is dominated by a sub-second point mass ({mg['point_mass_weight']*100:.0f}% of merges < 1s); "

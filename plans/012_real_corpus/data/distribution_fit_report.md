@@ -22,7 +22,7 @@
 | task_work (harmonik) | lognormal | mu=5.641, sigma=0.935 | 0.523 |
 | merge tail (weight=0.05) | weibull | shape=1.423, scale=202.946 | 0.949 |
 | reviewer (kerf) | lognormal | mu=4.547, sigma=0.268 | 0.724 |
-| conflict_resolution (mixture) | 2-lognormal | w1=0.91,mu1=4.53,s1=1.98; w2=0.09,mu2=11.18,s2=0.47 | 0.989 |
+| conflict_resolution (mixture) | 2-lognormal | w1=0.19,mu1=1.72,s1=0.48; w2=0.81,mu2=5.16,s2=1.57 | 0.994 |
 
 ## Merge mixture
 
@@ -32,7 +32,7 @@
 ## Observations
 
 - **task_work is workflow-dependent.** kerf median = 217s vs harmonik median = 261s (1.2x). Combined fit smooths this; use the variants when modelling a specific workflow.
-- **conflict_resolution is clearly bimodal.** Fast component median ~92s (weight 0.91); slow component median ~71835s (weight 0.09). Matches expected fast re-push vs rebase split.
+- **conflict_resolution is bimodal but not as expected.** Small trivial-resolution cluster median ~6s (weight 0.19); larger main cluster median ~174s (weight 0.81, broad: sigma=1.57). The expected fast-re-push (~3min) vs rebase (~20min) split is *within* the main cluster rather than between components -- the main cluster spans tens of seconds to ~30min. Dropped 3 session-spanning outliers (>7200s) that were upper-bound estimates from long-session detection rather than true resolution times.
 - **merge** is dominated by a sub-second point mass (95% of merges < 1s); the tail captures lock contention / hook latency.
 - **reviewer** sample is tiny (n=24, kerf only); fitted lognormal but treat as low-confidence. Harmonik recent sessions skip reviewer entirely.
 - **spin_up** is tight and lognormal-ish (median 3.4s, p95 5.0s); dropped 0 rows with spin_up=0 for the fit.

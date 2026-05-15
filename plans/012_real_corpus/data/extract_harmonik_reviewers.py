@@ -80,12 +80,15 @@ def first_bead_id(s):
 
 
 def collect_git_log():
+    """Return (bead_index, sha_index). bead_index: bid -> [(sha,epoch,subj,aiso)].
+    sha_index: full-sha -> (epoch, aiso, subj). Also each short-prefix variant of length 7-12."""
     res = subprocess.run(
         ['git', '-C', REPO, 'log', '--all', '--format=%H%x09%aI%x09%s'],
         capture_output=True, text=True)
     bead_index = defaultdict(list)
+    sha_index = {}
     if res.returncode != 0:
-        return bead_index
+        return bead_index, sha_index
     for line in res.stdout.strip().split('\n'):
         if not line:
             continue
@@ -94,10 +97,41 @@ def collect_git_log():
         except ValueError:
             continue
         epoch = parse_ts(aiso)
+        sha_index[sha] = (epoch, aiso, subject)
         bid = first_bead_id(subject)
         if bid:
             bead_index[bid].append((sha, epoch, subject, aiso))
-    return bead_index
+    return bead_index, sha_index
+
+
+_sha_show_cache = {}
+
+def lookup_by_sha(sha_index, short_sha):
+    if not short_sha:
+        return None
+    if short_sha in sha_index:
+        return sha_index[short_sha]
+    for full, val in sha_index.items():
+        if full.startswith(short_sha):
+            return val
+    # Fallback: try `git show -s` (covers dangling worktree commits).
+    if short_sha in _sha_show_cache:
+        return _sha_show_cache[short_sha]
+    try:
+        res = subprocess.run(
+            ['git', '-C', REPO, 'show', '-s', '--format=%H%x09%aI%x09%s', short_sha],
+            capture_output=True, text=True, timeout=5)
+        if res.returncode == 0 and res.stdout.strip():
+            parts = res.stdout.strip().split('\n')[0].split('\t', 2)
+            if len(parts) >= 2:
+                _full, aiso, subj = parts[0], parts[1], parts[2] if len(parts) > 2 else ''
+                val = (parse_ts(aiso), aiso, subj)
+                _sha_show_cache[short_sha] = val
+                return val
+    except Exception:
+        pass
+    _sha_show_cache[short_sha] = None
+    return None
 
 
 def session_sort_key(p):
@@ -229,8 +263,8 @@ def fmt_ts(epoch_or_str):
 
 
 def main():
-    git_bead_index = collect_git_log()
-    print(f'git: {len(git_bead_index)} bead-tagged commits', file=sys.stderr)
+    git_bead_index, git_sha_index = collect_git_log()
+    print(f'git: {len(git_bead_index)} bead-tagged, {len(git_sha_index)} total commits', file=sys.stderr)
 
     all_sessions = sorted(glob.glob(ROOT + '/*.jsonl'), key=session_sort_key)  # oldest first
     print(f'sessions available: {len(all_sessions)}', file=sys.stderr)
@@ -311,11 +345,9 @@ def main():
                 commit_author_epoch = None
                 git_rows = git_bead_index.get(bead_id, [])
                 if commit_sha:
-                    for sha, ep, _subj, aiso in git_rows:
-                        if sha.startswith(commit_sha) or commit_sha.startswith(sha):
-                            commit_author_ts = aiso
-                            commit_author_epoch = ep
-                            break
+                    hit = lookup_by_sha(git_sha_index, commit_sha)
+                    if hit:
+                        commit_author_epoch, commit_author_ts, _subj = hit
                 if not commit_author_ts and git_rows and commit_call_epoch:
                     after = [c for c in git_rows if c[1] and c[1] >= commit_call_epoch - 5]
                     pick = None
