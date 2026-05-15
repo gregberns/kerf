@@ -1,0 +1,74 @@
+# rework-heavy — stresses the rework-bump scoring path.
+#
+# A moderate number of works (10) with an elevated rework arrival rate, so a
+# steady stream of rework beads lands on already-active works while
+# new-work beads are also competing. target_works names every active work,
+# so rework can hit any of them. Use this scenario to compare how policies
+# trade off rework freshness against new-work progress, and to detect
+# priority inversions where stale rework starves behind newer beads.
+seed: 1003
+ticks: 15000
+agents: 3
+
+works:
+  - codename: amber-fox
+    areas: [cli, queue]
+    deps: []
+    bead_count: 10
+  - codename: bright-mole
+    areas: [storage]
+    deps: []
+    bead_count: 9
+  - codename: copper-newt
+    areas: [queue]
+    deps: [amber-fox]
+    bead_count: 11
+  - codename: dusty-owl
+    areas: [storage, queue]
+    deps: [bright-mole]
+    bead_count: 8
+  - codename: ember-pike
+    areas: [cli]
+    deps: [amber-fox]
+    bead_count: 9
+  - codename: frost-quail
+    areas: [docs]
+    deps: [copper-newt]
+    bead_count: 7
+  - codename: glade-raven
+    areas: [storage, docs]
+    deps: [dusty-owl]
+    bead_count: 10
+  - codename: hazel-shrew
+    areas: [queue, release]
+    deps: [ember-pike, frost-quail]
+    bead_count: 9
+  - codename: ivory-toad
+    areas: [release]
+    deps: [glade-raven]
+    bead_count: 8
+  - codename: jasper-vole
+    areas: [cli, release]
+    deps: [hazel-shrew, ivory-toad]
+    bead_count: 7
+
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.02
+    target_works:
+      - amber-fox
+      - bright-mole
+      - copper-newt
+      - dusty-owl
+      - ember-pike
+      - frost-quail
+      - glade-raven
+      - hazel-shrew
+      - ivory-toad
+      - jasper-vole
+
+agent_model:
+  duration:
+    kind: lognormal
+    median_ticks: 35
+    sigma: 1.0

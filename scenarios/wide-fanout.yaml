@@ -1,0 +1,104 @@
+# wide-fanout — exercises fan-out scoring.
+#
+# Many works, each with at most one or two dependencies, so the runnable
+# frontier is consistently wide. Areas overlap across works to surface
+# area-collision behavior. Bead counts are moderate so the queue sees lots
+# of small choices, which is where fan-out and area weights have the most
+# leverage. Use this to compare policies under a workload that punishes a
+# greedy pick-the-deepest-thing strategy.
+seed: 1002
+ticks: 20000
+agents: 4
+
+works:
+  - codename: amber-fox
+    areas: [cli]
+    deps: []
+    bead_count: 7
+  - codename: bright-mole
+    areas: [storage]
+    deps: []
+    bead_count: 6
+  - codename: copper-newt
+    areas: [queue]
+    deps: []
+    bead_count: 8
+  - codename: dusty-owl
+    areas: [docs]
+    deps: []
+    bead_count: 5
+  - codename: ember-pike
+    areas: [cli, queue]
+    deps: [amber-fox]
+    bead_count: 6
+  - codename: frost-quail
+    areas: [storage, queue]
+    deps: [bright-mole]
+    bead_count: 7
+  - codename: glade-raven
+    areas: [cli, docs]
+    deps: [amber-fox, dusty-owl]
+    bead_count: 6
+  - codename: hazel-shrew
+    areas: [storage, docs]
+    deps: [bright-mole]
+    bead_count: 5
+  - codename: ivory-toad
+    areas: [queue, release]
+    deps: [copper-newt]
+    bead_count: 7
+  - codename: jasper-vole
+    areas: [release]
+    deps: [copper-newt]
+    bead_count: 4
+  - codename: kelp-wren
+    areas: [cli, storage]
+    deps: [ember-pike]
+    bead_count: 6
+  - codename: linen-yak
+    areas: [docs, release]
+    deps: [dusty-owl]
+    bead_count: 5
+  - codename: maple-zorse
+    areas: [queue, cli]
+    deps: [frost-quail]
+    bead_count: 6
+  - codename: nutmeg-auk
+    areas: [storage, docs]
+    deps: [hazel-shrew]
+    bead_count: 5
+  - codename: ochre-bison
+    areas: [release, queue]
+    deps: [ivory-toad, jasper-vole]
+    bead_count: 7
+  - codename: peach-crane
+    areas: [cli, release]
+    deps: [glade-raven]
+    bead_count: 6
+  - codename: quartz-doe
+    areas: [storage, release]
+    deps: [hazel-shrew, jasper-vole]
+    bead_count: 6
+  - codename: russet-elk
+    areas: [docs, cli]
+    deps: [linen-yak]
+    bead_count: 5
+
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.001
+    target_works:
+      - amber-fox
+      - bright-mole
+      - copper-newt
+      - dusty-owl
+      - ember-pike
+      - frost-quail
+      - glade-raven
+      - hazel-shrew
+
+agent_model:
+  duration:
+    kind: lognormal
+    median_ticks: 25
+    sigma: 0.9

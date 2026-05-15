@@ -1,0 +1,47 @@
+# small-linear — sanity-baseline scenario.
+#
+# Exercises the simplest shape kerfsim can handle: a short, mostly-linear
+# chain of works with narrow fan-out. Modest bead counts per work and a low
+# rework rate keep the queue short and the trace easy to read. Use this
+# scenario to confirm a change does not break the obvious case before
+# comparing against wider/heavier workloads.
+seed: 1001
+ticks: 10000
+agents: 3
+
+works:
+  - codename: amber-fox
+    areas: [cli]
+    deps: []
+    bead_count: 6
+  - codename: bright-mole
+    areas: [storage]
+    deps: [amber-fox]
+    bead_count: 7
+  - codename: copper-newt
+    areas: [queue]
+    deps: [bright-mole]
+    bead_count: 5
+  - codename: dusty-owl
+    areas: [queue, cli]
+    deps: [copper-newt]
+    bead_count: 8
+  - codename: ember-pike
+    areas: [docs]
+    deps: [dusty-owl]
+    bead_count: 6
+  - codename: frost-quail
+    areas: [release]
+    deps: [ember-pike]
+    bead_count: 5
+
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.0008
+    target_works: [amber-fox, bright-mole, copper-newt]
+
+agent_model:
+  duration:
+    kind: lognormal
+    median_ticks: 30
+    sigma: 0.7
