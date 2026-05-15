@@ -421,3 +421,81 @@ func TestParseBeadOutput_Empty(t *testing.T) {
 		t.Errorf("expected all zeros, got total=%d closed=%d open=%d", total, closed, open)
 	}
 }
+
+// TestSquare_BeadCounts_NonZero verifies that kerf square populates non-zero
+// bead counts via internal/beads (the configured task tool), rather than
+// silently producing zeros as it did with the legacy `exec.Command("bd", ...)`
+// shell-out (Plan 008 / B2; B1 made the same fix in cmd/show.go).
+//
+// We install a stub `br` on PATH that emits a JSON list with a mix of
+// open/closed beads. Square is run against an in-progress implementation work,
+// and the rendered output is checked for the bead counts line.
+func TestSquare_BeadCounts_NonZero(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// Stub br with a 3-total / 1-closed / 2-open mix.
+	stubBr(t, `[
+  {"id":"b-1","title":"First","status":"closed","labels":["work:bead-counts"]},
+  {"id":"b-2","title":"Second","status":"open","labels":["work:bead-counts"]},
+  {"id":"b-3","title":"Third","status":"in-progress","labels":["work:bead-counts"]}
+]`)
+
+	bp := filepath.Join(tmp, ".kerf")
+	proj := "beadcount-proj"
+	codename := "bead-counts"
+
+	workDir := filepath.Join(bp, "projects", proj, codename)
+	os.MkdirAll(workDir, 0o755)
+
+	workSpec := `codename: ` + codename + `
+type: implementation
+project:
+  id: ` + proj + `
+jig: implementation
+jig_version: 1
+status: implementing
+status_values: [breakdown, dispatch, implementing, verify, complete]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+depends_on: []
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	os.WriteFile(filepath.Join(workDir, "spec.yaml"), []byte(workSpec), 0o644)
+	os.WriteFile(filepath.Join(workDir, "SESSION.md"), []byte("# Session"), 0o644)
+	os.WriteFile(filepath.Join(workDir, "01-breakdown.md"), []byte("breakdown"), 0o644)
+	os.WriteFile(filepath.Join(workDir, "02-dispatch.md"), []byte("dispatch"), 0o644)
+
+	// Direct check on the result struct.
+	result, err := checkSquare(proj, codename)
+	if err != nil {
+		t.Fatalf("checkSquare error: %v", err)
+	}
+	if !result.HasBeadInfo {
+		t.Fatal("expected HasBeadInfo=true after migrating cmd/square.go to internal/beads.ListNamed")
+	}
+	if result.BeadTotal != 3 {
+		t.Errorf("BeadTotal = %d, want 3", result.BeadTotal)
+	}
+	if result.BeadClosed != 1 {
+		t.Errorf("BeadClosed = %d, want 1", result.BeadClosed)
+	}
+	if result.BeadOpen != 2 {
+		t.Errorf("BeadOpen = %d, want 2", result.BeadOpen)
+	}
+
+	// And confirm the rendered output surfaces the counts.
+	out := captureOutput(t, func() {
+		projectFlag = proj
+		defer func() { projectFlag = "" }()
+		squareCmd.RunE(squareCmd, []string{codename})
+	})
+	testutil.AssertStringContains(t, out, "Beads:")
+	testutil.AssertStringContains(t, out, "3 total")
+	testutil.AssertStringContains(t, out, "1 closed")
+	testutil.AssertStringContains(t, out, "2 open")
+}
