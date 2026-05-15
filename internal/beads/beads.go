@@ -132,6 +132,21 @@ func ReworkCount(beads []Bead) int {
 }
 
 // ForWork filters beads whose labels contain "work:<codename>".
+//
+// This is the back-compat entry point preserved from before Plan 006. It is
+// intentionally case-insensitive to keep existing callers (cmd/next.go,
+// cmd/show.go, cmd/square.go, cmd/map.go, internal/queue test helpers) and
+// the historical TestForWork_CaseInsensitive contract behaving identically.
+//
+// Conceptually this is equivalent to applying Resolve(nil, nil) — the
+// default filter "work:{codename}" — except that Filter.Match is
+// case-sensitive per spec. Callers that need spec-conformant case-sensitive
+// matching or a configured filter should use ForWorkWithFilter with an
+// explicitly resolved *Filter.
+//
+// TODO(reviewer): confirm the case-sensitivity divergence between
+// Filter.Match (case-sensitive per spec) and this wrapper (case-insensitive
+// for back-compat) is acceptable until callers are migrated in later beads.
 func ForWork(beads []Bead, workCodename string) []Bead {
 	target := "work:" + workCodename
 	var result []Bead
