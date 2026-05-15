@@ -163,6 +163,15 @@ areas:                                  # list of strings, optional (empty list 
   - auth                                # references area names from areas.yaml
   - api-gateway
 
+# Bead attachment — see coordination.md
+# Optional. When set, overrides the project-wide bead_filter for this work.
+# When omitted, the project filter (or built-in default) applies.
+bead_filter:                            # object, optional
+  any:
+    - label: "subsystem:bridge"
+    - label: "codename:claude-hook-bridge"
+    - id_prefix: "hk-cb"
+
 # Dependencies — see dependencies.md for full details
 depends_on:                             # list of dependency objects, optional (empty list default)
   - codename: database-migration        # string, required — codename of dependency
@@ -200,6 +209,7 @@ implementation:                         # object, optional
 | `areas` | list\<string\> | no | `[]` | yes | Area names from `areas.yaml`. See [coordination](coordination.md). |
 | `depends_on` | list\<dependency\> | no | `[]` | yes | Work dependencies. See [dependencies](dependencies.md). |
 | `related_to` | list\<relationship\> | no | `[]` | yes | Cross-work relationships beyond dependencies (e.g., co-design). See [coordination](coordination.md). |
+| `bead_filter` | object | no | — | yes | Per-work override for which beads attach to this work. See [coordination](coordination.md#bead-attachment). |
 | `implementation` | object | no | `{branch: null, pr: null, commits: []}` | yes | Populated at [finalization](finalization.md). |
 
 ### Immutability Rules

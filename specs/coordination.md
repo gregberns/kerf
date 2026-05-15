@@ -154,6 +154,8 @@ Priority is computed from graph structure, not assigned as static labels. The fa
 
 These factors compose into a ranking that `kerf next` computes fresh on each invocation. No stored priority field. The ranking reflects the current state of the graph.
 
+The scoring above applies to `bead` items. `cleanup` items are not mixed into the bead ranking: they sort after all beads, ordered by their parent work's would-be bead score (descending). Cleanup items with equal parent-work scores are ordered by the work's `created` timestamp ascending. `warning` items are not ranked at all — they render as a header block in `kerf next` output. See [commands.md](commands.md#kerf-next).
+
 ### The Ordering Algorithm
 
 The ordering algorithm lives in one place in the codebase — the `kerf next` computation. The weights and parameters are expected to be configurable over time as real-world usage reveals optimal patterns. Some factors may initially be hardcoded; when they are, they should be obvious and localized so they can be extracted into configuration later.
@@ -192,6 +194,62 @@ kerf generates bead definitions during task breakdown (the TASK activity). The b
 - Completion momentum requires knowing how close an epic is to done.
 
 kerf reads bead status but does not own it. The beads system is the source of truth for bead lifecycle. kerf is the source of truth for work items, specs, areas, and the relationships between them.
+
+### Bead Attachment
+
+A bead attaches to a work when it matches that work's **bead filter**. The filter is configurable so that real projects with their own labeling and ID conventions can drive bead attachment without renaming anything in the bead store.
+
+#### Filter shape
+
+A bead filter is an object with one of two forms:
+
+```yaml
+# Direct clause
+bead_filter:
+  label: "subsystem:{codename}"
+```
+
+```yaml
+# Union of clauses
+bead_filter:
+  any:
+    - label: "subsystem:bridge"
+    - label: "codename:claude-hook-bridge"
+    - id_prefix: "hk-cb"
+```
+
+Clause types:
+
+- `label: <string>` — matches when the bead carries the named label.
+- `id_prefix: <string>` — matches when the bead's ID starts with the given string.
+
+The `any:` form is a union: a bead matches the filter if it matches any clause. There is no `all:` form in v1.
+
+#### Template variables
+
+One template variable is supported in clause values: `{codename}`. It is substituted at match time with the codename of the work whose filter is being evaluated. This keeps filters language-neutral and lets a single project-wide filter cover every work without per-work duplication.
+
+Matching is case sensitive. When the project-wide filter's literal prefix yields zero matches anywhere in the bead store, kerf surfaces a `warning` item in `kerf next` suggesting the user check for a case-mismatch (e.g., `Subsystem:` vs `subsystem:`). See [commands.md](commands.md#kerf-next).
+
+#### Resolution order
+
+When attaching beads for a given work, kerf resolves the filter in this order — first hit wins, filters do not merge:
+
+1. The per-work `bead_filter` from the work's `spec.yaml` (see [works.md](works.md)).
+2. The project-wide `bead_filter` from `project.yaml` (see [architecture.md](architecture.md#project-configuration)).
+3. The built-in default: `label: "work:{codename}"`.
+
+"First hit" means "first filter defined at that level," not "first filter that produces a match." If a work has no per-work `bead_filter`, kerf uses the project-wide filter; if that project-wide filter exists but matches zero beads for the work, kerf does not fall through to the built-in default. The zero-match outcome is real signal — it surfaces as a `work_no_attached_beads` cleanup item (see [commands.md](commands.md#kerf-next)), prompting the user to fix the filter or accept that the work has no beads yet.
+
+A filter resolution is per-call; no caching.
+
+#### Multiple matches
+
+A bead may match the filters of more than one work. In that case it counts for each — bead attachment is a many-to-many relation, and downstream computations (queue scoring, bead progress in `kerf map`) see the bead under every work it matches.
+
+#### Unmatched beads
+
+A bead that matches no work's filter is **unmatched**. Unmatched beads are not an error — they may belong to other tooling, may be in flight, or may indicate a misconfigured filter. kerf surfaces them as a project-level warning item in `kerf next` (see [commands.md](commands.md#kerf-next)) so the user can decide whether to adjust the filter or ignore them.
 
 ### Information Flow
 
