@@ -44,6 +44,14 @@ Use these IDs with `bd show <id>`, `bd update <id>`, etc. The `implement-beads` 
 
 **L0 ready to dispatch first:** `kerf-7ll` (B1), `kerf-jpk` (B2), `kerf-een` (B3). These three can run in parallel.
 
+## Plan 008 — Exploratory Testing (follow-ups)
+
+| Plan / Bead | Title | bd ID | Layer / Phase | Blocked by |
+|---|---|---|---|---|
+| 008 / B14-followup | Redefine `priority_inversions` semantics + spec update (spec-only) | `kerf-uo1` | spec / phase-1 | — (READY) |
+
+Root causes captured in the bead: (1) under-saturation, (2) structural unreachability of rework inversions because rework `ArrivedAt >= 1` while initial new-work `ArrivedAt = 0`. Proposed redefinitions land in `plans/008_exploratory_testing/sim_scenarios/diagnosis.md`.
+
 ## Quick commands
 
 ```
