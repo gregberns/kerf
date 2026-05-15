@@ -1,0 +1,2 @@
+# Events logs are large; we keep only summary.json per the brief.
+runs/**/events.jsonl
