@@ -1,0 +1,49 @@
+seed: 43
+ticks: 20000
+agents: 4
+works:
+  - codename: amber-fox
+    areas: [cli queue]
+    bead_count: 8
+  - codename: bright-mole
+    areas: [cli storage]
+    bead_count: 8
+  - codename: copper-newt
+    areas: [queue storage]
+    bead_count: 8
+  - codename: dusty-owl
+    areas: [cli queue storage]
+    bead_count: 8
+  - codename: ember-pike
+    areas: [cli]
+    bead_count: 8
+  - codename: frost-quail
+    areas: [queue]
+    bead_count: 8
+  - codename: glade-raven
+    areas: [storage]
+    bead_count: 8
+  - codename: hazel-shrew
+    areas: [cli queue]
+    bead_count: 8
+  - codename: ivory-toad
+    areas: [cli storage]
+    bead_count: 8
+  - codename: jasper-vole
+    areas: [queue storage]
+    bead_count: 8
+  - codename: kelp-wren
+    areas: [cli queue storage]
+    bead_count: 8
+  - codename: linen-yak
+    areas: [queue]
+    bead_count: 8
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.002
+    target_works: [amber-fox bright-mole copper-newt dusty-owl]
+agent_model:
+  duration:
+    kind: lognormal
+    sigma: 0.8
+    median_ticks: 25

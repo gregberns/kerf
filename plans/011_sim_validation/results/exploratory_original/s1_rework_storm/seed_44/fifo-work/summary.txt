@@ -1,0 +1,36 @@
+stop_reason          idle-threshold
+agents               4
+wall_ticks           19997
+warmup_skipped       false
+scenario_sha256      bf4a204230b8fe36de3438d1f8aa777a3ede5ec75fa316a89865835f12127f95
+weights_sha256       235c20e975c343d9e5daf109a4c303de489e481222fcdfc1a85955fc9b4bac88
+
+[full]
+work_completed       218
+work_total           8
+wall_ticks           19997
+agent_idle_pct       0.891309
+agent_ticks_total    8694
+rework_p50_wait      0
+rework_p95_wait      0
+top_of_queue_churn   0.321035
+goal_completion_1d   30
+goal_completion_3d   98
+goal_completion_7d   218
+priority_inversions  13
+area_collisions      126
+
+[warmup]
+work_completed       198
+work_total           8
+wall_ticks           17998
+agent_idle_pct       0.895933
+agent_ticks_total    7492
+rework_p50_wait      0
+rework_p95_wait      0
+top_of_queue_churn   0.318769
+goal_completion_1d   30
+goal_completion_3d   98
+goal_completion_7d   218
+priority_inversions  0
+area_collisions      72

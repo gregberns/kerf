@@ -1,0 +1,92 @@
+seed: 43
+ticks: 30000
+agents: 4
+works:
+  - codename: w01-fox
+    areas: [a01]
+    bead_count: 8
+  - codename: w02-mole
+    areas: [a02]
+    deps: [w01-fox]
+    bead_count: 8
+  - codename: w03-newt
+    areas: [a03]
+    deps: [w02-mole]
+    bead_count: 8
+  - codename: w04-owl
+    areas: [a04]
+    deps: [w03-newt]
+    bead_count: 8
+  - codename: w05-pike
+    areas: [a05]
+    deps: [w04-owl]
+    bead_count: 8
+  - codename: w06-quail
+    areas: [a06]
+    deps: [w05-pike]
+    bead_count: 8
+  - codename: w07-raven
+    areas: [a07]
+    deps: [w06-quail]
+    bead_count: 8
+  - codename: w08-shrew
+    areas: [a08]
+    deps: [w07-raven]
+    bead_count: 8
+  - codename: w09-toad
+    areas: [a09]
+    deps: [w08-shrew]
+    bead_count: 8
+  - codename: w10-vole
+    areas: [a10]
+    deps: [w09-toad]
+    bead_count: 8
+  - codename: w11-wren
+    areas: [a11]
+    deps: [w10-vole]
+    bead_count: 8
+  - codename: w12-yak
+    areas: [a12]
+    deps: [w11-wren]
+    bead_count: 8
+  - codename: w13-zorse
+    areas: [a13]
+    deps: [w12-yak]
+    bead_count: 8
+  - codename: w14-auk
+    areas: [a14]
+    deps: [w13-zorse]
+    bead_count: 8
+  - codename: w15-bison
+    areas: [a15]
+    deps: [w14-auk]
+    bead_count: 8
+  - codename: w16-crane
+    areas: [a16]
+    deps: [w15-bison]
+    bead_count: 8
+  - codename: w17-doe
+    areas: [a17]
+    deps: [w16-crane]
+    bead_count: 8
+  - codename: w18-elk
+    areas: [a18]
+    deps: [w17-doe]
+    bead_count: 8
+  - codename: w19-fox2
+    areas: [a19]
+    deps: [w18-elk]
+    bead_count: 8
+  - codename: w20-gull
+    areas: [a20]
+    deps: [w19-fox2]
+    bead_count: 8
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.0005
+    target_works: [w01-fox w02-mole w03-newt]
+agent_model:
+  duration:
+    kind: lognormal
+    sigma: 0.6
+    median_ticks: 25

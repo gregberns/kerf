@@ -1,0 +1,53 @@
+seed: 43
+ticks: 30000
+agents: 1
+works:
+  - codename: huge-fox
+    areas: [core]
+    bead_count: 60
+  - codename: huge-mole
+    areas: [storage]
+    bead_count: 60
+  - codename: tiny-newt
+    areas: [a01]
+    bead_count: 3
+  - codename: tiny-owl
+    areas: [a02]
+    bead_count: 3
+  - codename: tiny-pike
+    areas: [a03]
+    bead_count: 3
+  - codename: tiny-quail
+    areas: [a04]
+    bead_count: 3
+  - codename: tiny-raven
+    areas: [a05]
+    bead_count: 3
+  - codename: tiny-shrew
+    areas: [a06]
+    bead_count: 3
+  - codename: med-toad
+    areas: [a07 core]
+    deps: [huge-fox]
+    bead_count: 15
+  - codename: med-vole
+    areas: [storage]
+    deps: [huge-mole]
+    bead_count: 15
+  - codename: tiny-wren
+    areas: [a08]
+    deps: [tiny-newt]
+    bead_count: 3
+  - codename: tiny-yak
+    areas: [a09]
+    deps: [tiny-owl]
+    bead_count: 3
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.003
+    target_works: [huge-fox huge-mole tiny-newt tiny-owl]
+agent_model:
+  duration:
+    kind: lognormal
+    sigma: 0.9
+    median_ticks: 25

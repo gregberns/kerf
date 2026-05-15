@@ -1,0 +1,19 @@
+# s1_rework_storm — extreme rework arrival rate, tests rework weight dominance.
+seed: 2001
+ticks: 20000
+agents: 4
+works:
+  - {codename: amber-fox,   areas: [cli],     deps: [],            bead_count: 12}
+  - {codename: bright-mole, areas: [storage], deps: [],            bead_count: 12}
+  - {codename: copper-newt, areas: [queue],   deps: [],            bead_count: 12}
+  - {codename: dusty-owl,   areas: [docs],    deps: [],            bead_count: 12}
+  - {codename: ember-pike,  areas: [cli],     deps: [amber-fox],   bead_count: 10}
+  - {codename: frost-quail, areas: [storage], deps: [bright-mole], bead_count: 10}
+  - {codename: glade-raven, areas: [queue],   deps: [copper-newt], bead_count: 10}
+  - {codename: hazel-shrew, areas: [docs],    deps: [dusty-owl],   bead_count: 10}
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.06
+    target_works: [amber-fox, bright-mole, copper-newt, dusty-owl, ember-pike, frost-quail, glade-raven, hazel-shrew]
+agent_model:
+  duration: {kind: lognormal, median_ticks: 20, sigma: 0.8}

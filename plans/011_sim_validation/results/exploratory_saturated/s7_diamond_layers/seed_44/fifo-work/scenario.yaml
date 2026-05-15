@@ -1,0 +1,60 @@
+seed: 44
+ticks: 25000
+agents: 2
+works:
+  - codename: r-fox
+    areas: [core]
+    bead_count: 10
+  - codename: a-mole
+    areas: [cli]
+    deps: [r-fox]
+    bead_count: 8
+  - codename: a-newt
+    areas: [storage]
+    deps: [r-fox]
+    bead_count: 8
+  - codename: a-owl
+    areas: [queue]
+    deps: [r-fox]
+    bead_count: 8
+  - codename: a-pike
+    areas: [docs]
+    deps: [r-fox]
+    bead_count: 8
+  - codename: b-quail
+    areas: [cli queue]
+    deps: [a-mole a-owl]
+    bead_count: 8
+  - codename: b-raven
+    areas: [docs storage]
+    deps: [a-newt a-pike]
+    bead_count: 8
+  - codename: b-shrew
+    areas: [cli storage]
+    deps: [a-mole a-newt]
+    bead_count: 8
+  - codename: b-toad
+    areas: [docs queue]
+    deps: [a-owl a-pike]
+    bead_count: 8
+  - codename: c-vole
+    areas: [release]
+    deps: [b-quail b-raven]
+    bead_count: 10
+  - codename: c-wren
+    areas: [release]
+    deps: [b-shrew b-toad]
+    bead_count: 10
+  - codename: f-yak
+    areas: [core release]
+    deps: [c-vole c-wren]
+    bead_count: 12
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.004
+    target_works: [a-mole a-newt b-quail b-raven r-fox]
+agent_model:
+  duration:
+    kind: lognormal
+    sigma: 0.8
+    median_ticks: 25

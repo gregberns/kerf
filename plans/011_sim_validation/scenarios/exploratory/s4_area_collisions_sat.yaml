@@ -1,0 +1,24 @@
+# s4_area_collisions — heavy area overlap; tests collision avoidance.
+# 4 agents, 12 works that all touch overlapping areas {cli, queue}.
+seed: 2004
+ticks: 20000
+agents: 2  # saturated: halved from 4
+works:
+  - {codename: amber-fox,   areas: [cli, queue],          deps: [], bead_count: 8}
+  - {codename: bright-mole, areas: [cli, storage],        deps: [], bead_count: 8}
+  - {codename: copper-newt, areas: [queue, storage],      deps: [], bead_count: 8}
+  - {codename: dusty-owl,   areas: [cli, queue, storage], deps: [], bead_count: 8}
+  - {codename: ember-pike,  areas: [cli],                 deps: [], bead_count: 8}
+  - {codename: frost-quail, areas: [queue],               deps: [], bead_count: 8}
+  - {codename: glade-raven, areas: [storage],             deps: [], bead_count: 8}
+  - {codename: hazel-shrew, areas: [cli, queue],          deps: [], bead_count: 8}
+  - {codename: ivory-toad,  areas: [cli, storage],        deps: [], bead_count: 8}
+  - {codename: jasper-vole, areas: [queue, storage],      deps: [], bead_count: 8}
+  - {codename: kelp-wren,   areas: [cli, queue, storage], deps: [], bead_count: 8}
+  - {codename: linen-yak,   areas: [queue],               deps: [], bead_count: 8}
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.002
+    target_works: [amber-fox, bright-mole, copper-newt, dusty-owl]
+agent_model:
+  duration: {kind: lognormal, median_ticks: 25, sigma: 0.8}

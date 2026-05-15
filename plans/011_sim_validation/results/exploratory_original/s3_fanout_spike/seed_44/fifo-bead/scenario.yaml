@@ -1,0 +1,82 @@
+seed: 44
+ticks: 25000
+agents: 4
+works:
+  - codename: root-fox
+    areas: [core]
+    bead_count: 14
+  - codename: leaf01-mole
+    areas: [a01]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf02-newt
+    areas: [a02]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf03-owl
+    areas: [a03]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf04-pike
+    areas: [a04]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf05-quail
+    areas: [a05]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf06-raven
+    areas: [a06]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf07-shrew
+    areas: [a07]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf08-toad
+    areas: [a08]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf09-vole
+    areas: [a09]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf10-wren
+    areas: [a10]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf11-yak
+    areas: [a11]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf12-auk
+    areas: [a12]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf13-bison
+    areas: [a13]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf14-crane
+    areas: [a14]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: leaf15-doe
+    areas: [a15]
+    deps: [root-fox]
+    bead_count: 6
+  - codename: distractor1
+    areas: [d01]
+    bead_count: 20
+  - codename: distractor2
+    areas: [d02]
+    bead_count: 20
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.001
+    target_works: [distractor1 root-fox]
+agent_model:
+  duration:
+    kind: lognormal
+    sigma: 0.7
+    median_ticks: 30
