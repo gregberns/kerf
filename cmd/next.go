@@ -23,6 +23,7 @@ import (
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/dep"
+	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/feed"
 	"github.com/gberns/kerf/internal/queue"
 	"github.com/gberns/kerf/internal/spec"
@@ -221,6 +222,59 @@ func runNext(cmd *cobra.Command) error {
 		beadsByWork[w.Codename] = summary
 	}
 
+	// --- Build PinAssignments from each work's spec.yaml.PinnedBeads -----
+	// Single-owner invariant: a bead appears in at most one work's
+	// PinnedBeads list. A two-owner conflict is defense-in-depth handled
+	// by the pin_conflict warning (Plan 009 / B5); lexicographically-
+	// earliest codename wins as the recorded assignment so detectors
+	// converge to a stable picture (specs/coordination.md §"Pin layer").
+	pinAssignments := map[string]string{}
+	for _, w := range works {
+		for _, bid := range w.PinnedBeads {
+			if cur, ok := pinAssignments[bid]; ok {
+				if w.Codename < cur {
+					pinAssignments[bid] = w.Codename
+				}
+				continue
+			}
+			pinAssignments[bid] = w.Codename
+		}
+	}
+
+	// Apply the pin layer to BeadToWork BEFORE BeadSource emits items
+	// (specs/coordination.md §"Pin layer"; Plan 009 / Bead 5).
+	beadToWork = feed.ResolvePins(beadToWork, pinAssignments)
+
+	// --- Read drift baseline + compute drift -----------------------------
+	// Cache absence is non-fatal: a zero-value Diff treats the baseline as
+	// empty (first-run). The drift-summary headline is suppressed when no
+	// baseline is recorded; the legacy `untriaged_beads` warning remains
+	// the surface in that case (specs/commands.md §"kerf next" drift
+	// summary line; coordination.md §"Drift detection").
+	closedSet := map[string]bool{
+		"closed":    true,
+		"done":      true,
+		"complete":  true,
+		"completed": true,
+	}
+	repoRoot := ""
+	if r != nil {
+		repoRoot = r.RepoRoot
+	}
+	cachePath := drift.CachePath(repoRoot)
+	var (
+		driftDiff   drift.Diff
+		hasBaseline bool
+	)
+	if cachePath != "" {
+		baseline, ok, _ := drift.Read(cachePath)
+		if ok {
+			current := drift.Capture(allBeads, nil)
+			driftDiff = drift.Compute(baseline, current, closedSet)
+			hasBaseline = true
+		}
+	}
+
 	// --- Resolve queue weights and compute scores ------------------------
 	defaults := config.ResolvedQueueWeights{
 		FanOut:   queue.WeightFanOut,
@@ -272,6 +326,8 @@ func runNext(cmd *cobra.Command) error {
 		BeadToWork:          beadToWork,
 		CorruptSpecs:        corruptSpecs,
 		NoProjectYAML:       noProjectYAML,
+		DriftResult:         driftDiff,
+		PinAssignments:      pinAssignments,
 	}
 
 	// --- Run sources + detectors -----------------------------------------
@@ -285,8 +341,29 @@ func runNext(cmd *cobra.Command) error {
 		warningItems = append(warningItems, d.Detect(in)...)
 	}
 
+	// --- Compute drift-summary counters (Plan 009 / Bead 11b) ------------
+	// Per specs/commands.md §"kerf next" drift summary line:
+	//   ! N untriaged beads · ! M beads multi-matched · ! K bead(s) changed externally — run 'kerf triage'
+	// Each segment is omitted when its count is zero; the whole line is
+	// omitted when all three are zero or when no baseline is recorded.
+	// Counters are derived from the warning items already produced
+	// (untriaged_beads → single warning, multi_matched → one per bead) and
+	// from DriftResult directly (external_drift = sum of New + Deleted +
+	// ClosedExternally + ReopenedExternally).
+	driftSummary := computeDriftSummary(warningItems, driftDiff)
+
 	// --- Assemble + exclusion (beads-then-cleanups; warnings separate) ---
 	main, warnings := feed.AssembleWithWarnings(beadItems, cleanupItems, warningItems, in)
+
+	// When the drift-summary line will render, the legacy
+	// `untriaged_beads` warning is suppressed from the warning block: the
+	// headline `untriaged` segment covers it (specs/commands.md §"kerf
+	// next" — the older "warning: N beads match no work" line is omitted
+	// from the same invocation). The legacy warning still renders when no
+	// baseline is recorded and the headline is therefore suppressed.
+	if hasBaseline && driftSummary.renders() {
+		warnings = stripUntriagedWarning(warnings)
+	}
 
 	// --- Apply kind selection --------------------------------------------
 	main = feed.ApplyKindFilter(main, sel)
@@ -303,11 +380,11 @@ func runNext(cmd *cobra.Command) error {
 	if noProjectYAML {
 		main = nil
 		if format == "json" {
-			if jerr := renderNextJSON(out, main, warnings); jerr != nil {
+			if jerr := renderNextJSON(out, main, warnings, driftSummary, hasBaseline); jerr != nil {
 				return jerr
 			}
 		} else {
-			if rerr := renderNextText(out, main, warnings); rerr != nil {
+			if rerr := renderNextText(out, main, warnings, driftSummary, hasBaseline); rerr != nil {
 				return rerr
 			}
 		}
@@ -315,17 +392,139 @@ func runNext(cmd *cobra.Command) error {
 	}
 	switch format {
 	case "json":
-		return renderNextJSON(out, main, warnings)
+		return renderNextJSON(out, main, warnings, driftSummary, hasBaseline)
 	default:
-		return renderNextText(out, main, warnings)
+		return renderNextText(out, main, warnings, driftSummary, hasBaseline)
 	}
 }
 
+// driftSummaryCounts holds the three headline counters surfaced by `kerf
+// next`. JSON output marshals as `drift_summary`; text rendering composes
+// the headline string. See specs/commands.md §"kerf next" drift summary.
+type driftSummaryCounts struct {
+	Untriaged     int `json:"untriaged"`
+	MultiMatched  int `json:"multi_matched"`
+	ExternalDrift int `json:"external_drift"`
+}
+
+// renders reports whether the headline should appear: at least one
+// non-zero counter.
+func (d driftSummaryCounts) renders() bool {
+	return d.Untriaged > 0 || d.MultiMatched > 0 || d.ExternalDrift > 0
+}
+
+// headline renders the spec-formatted summary line. Segments are omitted
+// when their count is zero. Singular/plural forms match the spec example
+// (`1 bead changed externally`, `N beads multi-matched`).
+func (d driftSummaryCounts) headline() string {
+	var parts []string
+	if d.Untriaged > 0 {
+		noun := "beads"
+		if d.Untriaged == 1 {
+			noun = "bead"
+		}
+		parts = append(parts, fmt.Sprintf("! %d untriaged %s", d.Untriaged, noun))
+	}
+	if d.MultiMatched > 0 {
+		noun := "beads"
+		if d.MultiMatched == 1 {
+			noun = "bead"
+		}
+		parts = append(parts, fmt.Sprintf("! %d %s multi-matched", d.MultiMatched, noun))
+	}
+	if d.ExternalDrift > 0 {
+		noun := "beads"
+		if d.ExternalDrift == 1 {
+			noun = "bead"
+		}
+		parts = append(parts, fmt.Sprintf("! %d %s changed externally", d.ExternalDrift, noun))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " · ") + " — run 'kerf triage'"
+}
+
+// computeDriftSummary derives the three counters from the already-produced
+// warning items plus the raw DriftResult. Untriaged is taken from the
+// single `untriaged_beads` warning's Reason field count (parsed back as a
+// safety against re-implementing the detector's open-bead filter).
+// Multi-matched is the number of warning items titled `multi_matched: ...`.
+// External-drift sums the four `external_*` categories from drift.Diff —
+// `Changed` is intentionally excluded (it surfaces via the relabel-drift
+// detector and is not part of the headline per spec).
+func computeDriftSummary(warningItems []feed.Item, d drift.Diff) driftSummaryCounts {
+	var summary driftSummaryCounts
+	for _, it := range warningItems {
+		if it.Kind != feed.KindWarning {
+			continue
+		}
+		switch {
+		case it.Title == feed.WarningKindUntriagedBeads:
+			summary.Untriaged = parseLeadingInt(it.Reason)
+		case strings.HasPrefix(it.Title, feed.WarningKindMultiMatchedBead+":"):
+			summary.MultiMatched++
+		}
+	}
+	summary.ExternalDrift = len(d.New) + len(d.Deleted) +
+		len(d.ClosedExternally) + len(d.ReopenedExternally)
+	return summary
+}
+
+// parseLeadingInt returns the first integer found at the start of s, or 0
+// when the string does not begin with digits. Used to recover the
+// untriaged count from the detector's Reason field ("N beads match no
+// work …").
+func parseLeadingInt(s string) int {
+	n := 0
+	seen := false
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			break
+		}
+		n = n*10 + int(r-'0')
+		seen = true
+	}
+	if !seen {
+		return 0
+	}
+	return n
+}
+
+// stripUntriagedWarning removes the single `untriaged_beads` warning item
+// from ws. Used when the drift-summary headline is rendered: the headline
+// covers the untriaged count and the legacy warning would be redundant
+// (specs/commands.md §"kerf next" drift summary).
+func stripUntriagedWarning(ws []feed.Item) []feed.Item {
+	out := ws[:0]
+	for _, w := range ws {
+		if w.Kind == feed.KindWarning && w.Title == feed.WarningKindUntriagedBeads {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
 // renderNextText renders the feed in compact human-readable form. Warnings
-// render first as a header block, followed by the ranked main feed.
-func renderNextText(out io.Writer, main, warnings []feed.Item) error {
+// render first as a header block, followed by the ranked main feed. When a
+// drift baseline is recorded and at least one of (untriaged, multi-matched,
+// external-drift) is non-zero, a one-line drift summary is prepended above
+// the warning block per specs/commands.md §"kerf next" drift summary.
+func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSummaryCounts, hasBaseline bool) error {
+	// Drift-summary headline (Plan 009 / Bead 11b). Suppressed when no
+	// baseline is recorded — the legacy `untriaged_beads` warning carries
+	// the count in that case.
+	headlineRendered := false
+	if hasBaseline && summary.renders() {
+		fmt.Fprintln(out, summary.headline())
+		headlineRendered = true
+	}
+
 	if len(main) == 0 && len(warnings) == 0 {
-		fmt.Fprintln(out, nextEmptyText)
+		if !headlineRendered {
+			fmt.Fprintln(out, nextEmptyText)
+		}
 		return nil
 	}
 
@@ -381,16 +580,29 @@ func renderNextText(out io.Writer, main, warnings []feed.Item) error {
 	return nil
 }
 
-// renderNextJSON renders the full item stream including warnings. Empty feed
-// emits `[]`. WorkCodename / BeadID emit literal null for non-bead items per
-// the spec (feed.Item enforces this via pointer types and no omitempty).
-func renderNextJSON(out io.Writer, main, warnings []feed.Item) error {
+// renderNextJSON renders the full item stream including warnings. When a
+// drift baseline is recorded, the output is an object with `drift_summary`
+// alongside the `items` stream (Plan 009 / Bead 11b deliverable). When no
+// baseline exists, the output is the bare item array for backwards
+// compatibility — empty feed emits `[]`. WorkCodename / BeadID emit literal
+// null for non-bead items per the spec (feed.Item enforces this via
+// pointer types and no omitempty).
+func renderNextJSON(out io.Writer, main, warnings []feed.Item, summary driftSummaryCounts, hasBaseline bool) error {
 	combined := make([]feed.Item, 0, len(main)+len(warnings))
 	combined = append(combined, warnings...)
 	combined = append(combined, main...)
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
-	return enc.Encode(combined)
+	if !hasBaseline {
+		return enc.Encode(combined)
+	}
+	return enc.Encode(struct {
+		DriftSummary driftSummaryCounts `json:"drift_summary"`
+		Items        []feed.Item        `json:"items"`
+	}{
+		DriftSummary: summary,
+		Items:        combined,
+	})
 }
 
 // firstUnknownKind returns the first invalid kind token encountered while

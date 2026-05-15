@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/feed"
 )
 
@@ -41,11 +42,11 @@ func TestNextHelp_SixElementContractInOrder(t *testing.T) {
 	// The six elements per specs/commands.md §"kerf next" → "Help text".
 	wanted := []string{
 		"ranked feed of things to act on right now", // 1. what it returns
-		"Item kinds:",                               // 2. item kinds glossary
-		"Default action loop",                       // 3. default loop
-		"Filter flags:",                             // 4. filter flags
-		"Machine output",                            // 5. machine output
-		"Scoring",                                   // 6. scoring + pointer
+		"Item kinds:",         // 2. item kinds glossary
+		"Default action loop", // 3. default loop
+		"Filter flags:",       // 4. filter flags
+		"Machine output",      // 5. machine output
+		"Scoring",             // 6. scoring + pointer
 	}
 	idx := 0
 	for _, w := range wanted {
@@ -89,7 +90,7 @@ func TestNextFlags_ExpectedFlagsRegistered(t *testing.T) {
 
 func TestRenderNextText_EmptyFeed(t *testing.T) {
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, nil, nil); err != nil {
+	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, false); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	got := strings.TrimRight(buf.String(), "\n")
@@ -100,7 +101,7 @@ func TestRenderNextText_EmptyFeed(t *testing.T) {
 
 func TestRenderNextJSON_EmptyFeed(t *testing.T) {
 	var buf bytes.Buffer
-	if err := renderNextJSON(&buf, nil, nil); err != nil {
+	if err := renderNextJSON(&buf, nil, nil, driftSummaryCounts{}, false); err != nil {
 		t.Fatalf("renderNextJSON: %v", err)
 	}
 	// json.Encoder.Encode appends a newline.
@@ -120,7 +121,7 @@ func TestRenderNextJSON_NonBeadEmitsNullFields(t *testing.T) {
 		Reason: "3 beads match no work",
 	}
 	var buf bytes.Buffer
-	if err := renderNextJSON(&buf, nil, []feed.Item{warn}); err != nil {
+	if err := renderNextJSON(&buf, nil, []feed.Item{warn}, driftSummaryCounts{}, false); err != nil {
 		t.Fatalf("renderNextJSON: %v", err)
 	}
 	body := buf.String()
@@ -149,7 +150,7 @@ func TestRenderNextJSON_BeadIncludesIDAndCodename(t *testing.T) {
 		BeadID:       &id,
 	}
 	var buf bytes.Buffer
-	if err := renderNextJSON(&buf, []feed.Item{beadItem}, nil); err != nil {
+	if err := renderNextJSON(&buf, []feed.Item{beadItem}, nil, driftSummaryCounts{}, false); err != nil {
 		t.Fatalf("renderNextJSON: %v", err)
 	}
 	body := buf.String()
@@ -182,7 +183,7 @@ func TestRenderNextText_WarningsAboveRanked(t *testing.T) {
 		{Kind: feed.KindWarning, Title: "untriaged_beads", Action: "check bead_filter"},
 	}
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, main, warnings); err != nil {
+	if err := renderNextText(&buf, main, warnings, driftSummaryCounts{}, false); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	body := buf.String()
@@ -513,6 +514,173 @@ func TestNext_FinalizedStatus_IsExcluded(t *testing.T) {
 		if it.WorkCodename != nil && *it.WorkCodename == "blue-fox" {
 			t.Fatalf("finalized work should be excluded from the feed; items=%+v", items)
 		}
+	}
+}
+
+// --- Plan 009 / Bead 11b — drift-summary headline counters -----------------
+//
+// Coverage:
+//   - Three non-zero categories render the exact spec format.
+//   - Zero drift → no line.
+//   - JSON drift_summary shape (object form, present only when baseline
+//     exists).
+//   - Sync cache absent → empty baseline → command does not crash and the
+//     bare JSON array contract is preserved.
+
+// TestRenderNextText_DriftSummary_AllThreeCategories asserts the headline
+// renders with the spec-exact phrasing for three non-zero counts when a
+// baseline is recorded. See specs/commands.md §"kerf next" drift summary.
+func TestRenderNextText_DriftSummary_AllThreeCategories(t *testing.T) {
+	var buf bytes.Buffer
+	summary := driftSummaryCounts{
+		Untriaged:     6,
+		MultiMatched:  2,
+		ExternalDrift: 1,
+	}
+	if err := renderNextText(&buf, nil, nil, summary, true); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	body := buf.String()
+	want := "! 6 untriaged beads · ! 2 beads multi-matched · ! 1 bead changed externally — run 'kerf triage'"
+	if !strings.Contains(body, want) {
+		t.Fatalf("expected drift summary headline\n  want: %q\n  got:  %q", want, body)
+	}
+}
+
+// TestRenderNextText_DriftSummary_OmitsZeroSegments asserts segments with
+// zero counts are dropped from the headline; the surviving segments still
+// render in the canonical order untriaged → multi-matched → external.
+func TestRenderNextText_DriftSummary_OmitsZeroSegments(t *testing.T) {
+	var buf bytes.Buffer
+	summary := driftSummaryCounts{Untriaged: 0, MultiMatched: 1, ExternalDrift: 0}
+	if err := renderNextText(&buf, nil, nil, summary, true); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	body := buf.String()
+	if !strings.Contains(body, "! 1 bead multi-matched") {
+		t.Fatalf("missing multi-matched segment; got:\n%s", body)
+	}
+	if strings.Contains(body, "untriaged") {
+		t.Fatalf("zero-count untriaged segment must be omitted; got:\n%s", body)
+	}
+	if strings.Contains(body, "changed externally") {
+		t.Fatalf("zero-count external-drift segment must be omitted; got:\n%s", body)
+	}
+}
+
+// TestRenderNextText_DriftSummary_ZeroDriftNoLine asserts the whole line
+// is omitted when all three counts are zero (or when no baseline exists).
+func TestRenderNextText_DriftSummary_ZeroDriftNoLine(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, true); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	if strings.Contains(buf.String(), "kerf triage") {
+		t.Fatalf("zero drift must not render the summary line; got:\n%s", buf.String())
+	}
+
+	buf.Reset()
+	// Even with non-zero counters, absent baseline suppresses the headline.
+	summary := driftSummaryCounts{Untriaged: 3}
+	if err := renderNextText(&buf, nil, nil, summary, false); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	if strings.Contains(buf.String(), "untriaged") {
+		t.Fatalf("no-baseline must suppress the headline; got:\n%s", buf.String())
+	}
+}
+
+// TestRenderNextJSON_DriftSummaryShape asserts that JSON output emits a
+// top-level `drift_summary` object alongside an `items` array when a
+// baseline is recorded.
+func TestRenderNextJSON_DriftSummaryShape(t *testing.T) {
+	var buf bytes.Buffer
+	summary := driftSummaryCounts{Untriaged: 2, MultiMatched: 1, ExternalDrift: 3}
+	if err := renderNextJSON(&buf, nil, nil, summary, true); err != nil {
+		t.Fatalf("renderNextJSON: %v", err)
+	}
+	var got struct {
+		DriftSummary driftSummaryCounts `json:"drift_summary"`
+		Items        []feed.Item        `json:"items"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v\nbody=%s", err, buf.String())
+	}
+	if got.DriftSummary != summary {
+		t.Fatalf("drift_summary mismatch\n  got:  %+v\n  want: %+v", got.DriftSummary, summary)
+	}
+	// Field names must be snake_case.
+	for _, key := range []string{`"untriaged"`, `"multi_matched"`, `"external_drift"`} {
+		if !strings.Contains(buf.String(), key) {
+			t.Errorf("expected snake_case key %s in JSON; body:\n%s", key, buf.String())
+		}
+	}
+}
+
+// TestRenderNextJSON_NoBaselineKeepsArrayShape asserts that without a
+// recorded baseline the JSON output remains a bare array — the existing
+// contract that `[]` denotes an empty feed is preserved.
+func TestRenderNextJSON_NoBaselineKeepsArrayShape(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderNextJSON(&buf, nil, nil, driftSummaryCounts{}, false); err != nil {
+		t.Fatalf("renderNextJSON: %v", err)
+	}
+	if strings.TrimSpace(buf.String()) != "[]" {
+		t.Fatalf("no-baseline JSON must be bare array; got:\n%s", buf.String())
+	}
+}
+
+// TestComputeDriftSummary_FromWarnings asserts the counter derivation:
+// untriaged from the untriaged_beads warning's Reason, multi_matched as
+// the number of `multi_matched:` warning items, external_drift summing
+// the four drift.Diff categories (Changed intentionally excluded).
+func TestComputeDriftSummary_FromWarnings(t *testing.T) {
+	warnings := []feed.Item{
+		{Kind: feed.KindWarning, Title: feed.WarningKindUntriagedBeads, Reason: "5 beads match no work via current filter and are not pinned"},
+		{Kind: feed.KindWarning, Title: feed.WarningKindMultiMatchedBead + ": kerf-a"},
+		{Kind: feed.KindWarning, Title: feed.WarningKindMultiMatchedBead + ": kerf-b"},
+		{Kind: feed.KindWarning, Title: feed.WarningKindExternalDrift + "/external_close"}, // not counted directly
+	}
+	d := drift.Diff{
+		New:                []string{"kerf-n1"},
+		Deleted:            []string{"kerf-d1", "kerf-d2"},
+		ClosedExternally:   []string{"kerf-c1"},
+		ReopenedExternally: nil,
+		Changed:            []string{"kerf-x1"}, // must NOT be counted in external_drift
+	}
+	got := computeDriftSummary(warnings, d)
+	want := driftSummaryCounts{Untriaged: 5, MultiMatched: 2, ExternalDrift: 4}
+	if got != want {
+		t.Fatalf("counters mismatch\n  got:  %+v\n  want: %+v", got, want)
+	}
+}
+
+// TestRunNext_CacheAbsent_FirstRunDoesNotCrash exercises the end-to-end
+// path: with no sync-cache file, the command must still render the
+// existing warning block and main feed, and JSON must remain a bare
+// array. Bead 11b spec: "Sync cache absent → empty baseline → first-run
+// shows everything as new; text rendering still works."
+func TestRunNext_CacheAbsent_FirstRunDoesNotCrash(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mkdirp(filepath.Join(tmp, ".kerf", "projects", "test-proj")); err != nil {
+		t.Fatal(err)
+	}
+	resetNextFlags()
+	nextFormat = "json"
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
+	}
+	// No baseline → bare array shape.
+	if strings.TrimSpace(buf.String()) != "[]" {
+		t.Fatalf("expected bare array JSON when cache is absent; got:\n%s", buf.String())
 	}
 }
 
