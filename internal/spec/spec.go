@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/gberns/kerf/internal/beads"
 )
 
 // SpecYAML represents the spec.yaml file — source of truth for work metadata.
@@ -38,6 +40,11 @@ type SpecYAML struct {
 
 	// Cross-work relationships
 	RelatedTo []RelatedWork `yaml:"related_to,omitempty"`
+
+	// Bead attachment — optional per-work override of the project's bead_filter.
+	// See plans/006_bead_attachment and specs/coordination.md §"Bead Attachment".
+	// Pointer to distinguish absence from an explicit empty filter.
+	BeadFilter *beads.Filter `yaml:"bead_filter,omitempty"`
 
 	// Implementation linkage
 	Implementation Implementation `yaml:"implementation"`
@@ -86,6 +93,12 @@ func Read(path string) (*SpecYAML, error) {
 	var s SpecYAML
 	if err := yaml.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("parsing spec.yaml: %w", err)
+	}
+
+	if s.BeadFilter != nil {
+		if err := s.BeadFilter.Validate(); err != nil {
+			return nil, fmt.Errorf("spec.yaml: invalid bead_filter: %w", err)
+		}
 	}
 
 	return &s, nil

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/gberns/kerf/internal/beads"
 )
 
 func TestRoundTrip(t *testing.T) {
@@ -288,6 +290,158 @@ func TestRoundTripRelatedTo(t *testing.T) {
 	}
 	if got.RelatedTo[1].Codename != "third-work" || got.RelatedTo[1].Relationship != "supersedes" {
 		t.Errorf("RelatedTo[1] = %+v, want {third-work supersedes}", got.RelatedTo[1])
+	}
+}
+
+func TestRoundTripBeadFilter_AnyForm(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	s := &SpecYAML{
+		Codename: "bridge",
+		Type:     "plan",
+		Project:  Project{ID: "proj"},
+		Jig:      "plan",
+		Status:   "research",
+		Created:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		BeadFilter: &beads.Filter{
+			Any: []beads.Filter{
+				{Label: "subsystem:bridge"},
+				{IDPrefix: "hk-cb"},
+			},
+		},
+	}
+
+	if err := Write(path, s); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if got.BeadFilter == nil {
+		t.Fatalf("bead_filter = nil, want non-nil")
+	}
+	if len(got.BeadFilter.Any) != 2 {
+		t.Fatalf("bead_filter.any length = %d, want 2", len(got.BeadFilter.Any))
+	}
+	if got.BeadFilter.Any[0].Label != "subsystem:bridge" {
+		t.Errorf("any[0].label = %q, want %q", got.BeadFilter.Any[0].Label, "subsystem:bridge")
+	}
+	if got.BeadFilter.Any[1].IDPrefix != "hk-cb" {
+		t.Errorf("any[1].id_prefix = %q, want %q", got.BeadFilter.Any[1].IDPrefix, "hk-cb")
+	}
+	if err := got.BeadFilter.Validate(); err != nil {
+		t.Errorf("loaded bead_filter failed Validate: %v", err)
+	}
+}
+
+func TestRoundTripBeadFilter_DirectLabel(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	s := &SpecYAML{
+		Codename:   "alpha",
+		Type:       "plan",
+		Project:    Project{ID: "proj"},
+		Jig:        "plan",
+		Status:     "research",
+		Created:    time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		BeadFilter: &beads.Filter{Label: "work:{codename}"},
+	}
+
+	if err := Write(path, s); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if got.BeadFilter == nil || got.BeadFilter.Label != "work:{codename}" {
+		t.Errorf("bead_filter.label = %+v, want label=work:{codename}", got.BeadFilter)
+	}
+}
+
+func TestBackwardCompatibility_NoBeadFilter(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	content := []byte(`codename: legacy
+type: plan
+project:
+    id: proj
+jig: plan
+status: research
+created: 2026-01-01T00:00:00Z
+updated: 2026-01-01T00:00:00Z
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if got.BeadFilter != nil {
+		t.Errorf("BeadFilter = %+v, want nil for spec without bead_filter", got.BeadFilter)
+	}
+}
+
+func TestBeadFilter_InvalidEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	// Empty bead_filter (no label, id_prefix, or any) is invalid.
+	content := []byte(`codename: bad
+type: plan
+project:
+    id: proj
+jig: plan
+status: research
+created: 2026-01-01T00:00:00Z
+updated: 2026-01-01T00:00:00Z
+bead_filter: {}
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	_, err := Read(path)
+	if err == nil {
+		t.Fatal("expected error for empty bead_filter, got nil")
+	}
+}
+
+func TestBeadFilter_InvalidMixedClauses(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	// Mixing direct leaf (label) with any: is invalid.
+	content := []byte(`codename: bad
+type: plan
+project:
+    id: proj
+jig: plan
+status: research
+created: 2026-01-01T00:00:00Z
+updated: 2026-01-01T00:00:00Z
+bead_filter:
+  label: "subsystem:foo"
+  any:
+    - id_prefix: "hk-"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	_, err := Read(path)
+	if err == nil {
+		t.Fatal("expected error for mixed direct/any bead_filter, got nil")
 	}
 }
 
