@@ -1,0 +1,54 @@
+# adv-fanout-trap — fan-out chases the wrong work.
+#
+# Hypothesis: kerf prefers `trunk-trivial` (fanOut=15, each dependent is a
+# 1-bead trivial leaf) over `trunk-deep` (fanOut=3, each dependent is a 12-bead
+# real piece of work). Total downstream effort is far larger behind
+# trunk-deep, but the score doesn't know that — fanOut is a count, not a
+# weighted-by-effort count. Expected result: kerf finishes work_completed
+# similarly to FIFO but inflates wall_ticks and agent_ticks_total because it
+# starts trivial leaves while deep beads sit. Predicted loss metric:
+# wall_ticks (kerf > FIFO-by-work).
+seed: 9001
+ticks: 60000
+agents: 3
+
+works:
+  - codename: trunk-trivial
+    areas: [core]
+    deps: []
+    bead_count: 4
+  - codename: trunk-deep
+    areas: [core]
+    deps: []
+    bead_count: 4
+  # 15 trivial leaves behind trunk-trivial — every one contributes to its fanOut.
+  - { codename: leaf-aa, areas: [a], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-ab, areas: [b], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-ac, areas: [c], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-ad, areas: [d], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-ae, areas: [e], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-af, areas: [f], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-ag, areas: [g], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-ah, areas: [h], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-ai, areas: [i], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-aj, areas: [j], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-ak, areas: [k], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-al, areas: [l], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-am, areas: [m], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-an, areas: [n], deps: [trunk-trivial], bead_count: 1 }
+  - { codename: leaf-ao, areas: [o], deps: [trunk-trivial], bead_count: 1 }
+  # 3 deep dependents behind trunk-deep — each holds substantial beads.
+  - { codename: deep-x, areas: [x], deps: [trunk-deep], bead_count: 12 }
+  - { codename: deep-y, areas: [y], deps: [trunk-deep], bead_count: 12 }
+  - { codename: deep-z, areas: [z], deps: [trunk-deep], bead_count: 12 }
+
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.0
+    target_works: [trunk-trivial, trunk-deep]
+
+agent_model:
+  duration:
+    kind: lognormal
+    median_ticks: 30
+    sigma: 0.8

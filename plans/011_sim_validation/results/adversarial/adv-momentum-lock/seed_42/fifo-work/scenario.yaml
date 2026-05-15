@@ -1,0 +1,51 @@
+seed: 42
+ticks: 60000
+agents: 2
+works:
+  - codename: marathon
+    areas: [core]
+    bead_count: 30
+  - codename: marathon-tail
+    areas: [core]
+    deps: [marathon]
+    bead_count: 2
+  - codename: urgent-prereq
+    areas: [api]
+    bead_count: 2
+  - codename: urgent
+    areas: [api]
+    deps: [urgent-prereq]
+    bead_count: 6
+  - codename: cust-a
+    areas: [cust-a]
+    deps: [urgent]
+    bead_count: 3
+  - codename: cust-b
+    areas: [cust-b]
+    deps: [urgent]
+    bead_count: 3
+  - codename: cust-c
+    areas: [cust-c]
+    deps: [urgent]
+    bead_count: 3
+  - codename: cust-d
+    areas: [cust-d]
+    deps: [urgent]
+    bead_count: 3
+  - codename: cust-e
+    areas: [cust-e]
+    deps: [urgent]
+    bead_count: 3
+  - codename: cust-f
+    areas: [cust-f]
+    deps: [urgent]
+    bead_count: 3
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.003
+    target_works: [marathon]
+agent_model:
+  duration:
+    kind: lognormal
+    sigma: 0.9
+    median_ticks: 35

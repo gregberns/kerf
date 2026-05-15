@@ -1,0 +1,53 @@
+seed: 44
+ticks: 30000
+agents: 4
+works:
+  - codename: w-core-1
+    areas: [core util]
+    bead_count: 8
+  - codename: w-core-2
+    areas: [api core]
+    bead_count: 8
+  - codename: w-core-3
+    areas: [core storage]
+    bead_count: 8
+  - codename: w-core-4
+    areas: [cli core]
+    bead_count: 8
+  - codename: w-iso-1
+    areas: [iso-a]
+    bead_count: 6
+  - codename: w-iso-2
+    areas: [iso-b]
+    bead_count: 6
+  - codename: w-iso-3
+    areas: [iso-c]
+    bead_count: 6
+  - codename: w-iso-4
+    areas: [iso-d]
+    bead_count: 6
+  - codename: c1-dn
+    areas: [d1]
+    deps: [w-core-1]
+    bead_count: 2
+  - codename: c2-dn
+    areas: [d2]
+    deps: [w-core-2]
+    bead_count: 2
+  - codename: c3-dn
+    areas: [d3]
+    deps: [w-core-3]
+    bead_count: 2
+  - codename: c4-dn
+    areas: [d4]
+    deps: [w-core-4]
+    bead_count: 2
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0
+    target_works: [w-core-1 w-core-2 w-core-3 w-core-4]
+agent_model:
+  duration:
+    kind: lognormal
+    sigma: 0.8
+    median_ticks: 30

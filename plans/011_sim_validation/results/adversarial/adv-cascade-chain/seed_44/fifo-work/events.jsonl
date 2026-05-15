@@ -1,0 +1,12 @@
+{"t":0,"kind":"dispatch","agent":0,"bead":"c-01/b1","work":"c-01"}
+{"t":0,"kind":"dispatch","agent":1,"bead":"c-01/b2","work":"c-01"}
+{"t":0,"kind":"dispatch","agent":2,"bead":"c-01/b3","work":"c-01"}
+{"t":0,"kind":"queue_snapshot","top":"c-01/b2"}
+{"t":0,"kind":"queue_snapshot","top":"c-01/b3"}
+{"t":0,"kind":"queue_snapshot","top":"c-01/b4"}
+{"t":49,"kind":"complete","bead":"c-01/b2"}
+{"t":49,"kind":"dispatch","agent":1,"bead":"c-01/b4","work":"c-01"}
+{"t":49,"kind":"queue_snapshot","top":""}
+{"t":84,"kind":"complete","bead":"c-01/b4"}
+{"t":91,"kind":"complete","bead":"c-01/b3"}
+{"t":93,"kind":"complete","bead":"c-01/b1"}

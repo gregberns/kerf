@@ -1,0 +1,31 @@
+seed: 42
+ticks: 40000
+agents: 2
+works:
+  - codename: stale-work
+    areas: [legacy]
+    bead_count: 3
+  - codename: new-hotness
+    areas: [core]
+    bead_count: 8
+  - codename: down-1
+    areas: [downstream-a]
+    deps: [new-hotness]
+    bead_count: 4
+  - codename: down-2
+    areas: [downstream-b]
+    deps: [new-hotness]
+    bead_count: 4
+  - codename: down-3
+    areas: [downstream-c]
+    deps: [new-hotness]
+    bead_count: 4
+  - codename: down-4
+    areas: [downstream-d]
+    deps: [new-hotness]
+    bead_count: 4
+agent_model:
+  duration:
+    kind: lognormal
+    sigma: 0.9
+    median_ticks: 40

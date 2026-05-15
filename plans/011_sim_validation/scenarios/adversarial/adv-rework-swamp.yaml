@@ -1,0 +1,54 @@
+# adv-rework-swamp — stale rework keeps stealing the dispatch slot.
+#
+# Hypothesis: explicit arrivals pile 6 rework beads onto `stale-work` early
+# (tick 50–500). Each rework bead adds +15 to its score, so stale-work scores
+# ~90 from rework alone. Meanwhile `new-hotness` (fanOut=4, bead_count=8) only
+# scores 40 from fan-out. kerf will service rework-on-stale-work first even
+# though no one cares — the rework arrivals are an artefact of a paused area,
+# not real demand. FIFO-by-bead will mix them in by arrival time, FIFO-by-work
+# will ignore the rework signal entirely. Predicted loss metric:
+# goal_completion_3d for `new-hotness` (kerf < FIFO).
+seed: 9002
+ticks: 40000
+agents: 2
+
+works:
+  - codename: stale-work
+    areas: [legacy]
+    deps: []
+    bead_count: 3
+  - codename: new-hotness
+    areas: [core]
+    deps: []
+    bead_count: 8
+  - codename: down-1
+    areas: [downstream-a]
+    deps: [new-hotness]
+    bead_count: 4
+  - codename: down-2
+    areas: [downstream-b]
+    deps: [new-hotness]
+    bead_count: 4
+  - codename: down-3
+    areas: [downstream-c]
+    deps: [new-hotness]
+    bead_count: 4
+  - codename: down-4
+    areas: [downstream-d]
+    deps: [new-hotness]
+    bead_count: 4
+
+bead_arrivals:
+  explicit:
+    - { tick: 50,  work: stale-work, labels: [rework] }
+    - { tick: 120, work: stale-work, labels: [rework] }
+    - { tick: 200, work: stale-work, labels: [rework] }
+    - { tick: 300, work: stale-work, labels: [rework] }
+    - { tick: 420, work: stale-work, labels: [rework] }
+    - { tick: 500, work: stale-work, labels: [rework] }
+
+agent_model:
+  duration:
+    kind: lognormal
+    median_ticks: 40
+    sigma: 0.9

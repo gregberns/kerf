@@ -1,0 +1,91 @@
+seed: 43
+ticks: 60000
+agents: 3
+works:
+  - codename: trunk-trivial
+    areas: [core]
+    bead_count: 4
+  - codename: trunk-deep
+    areas: [core]
+    bead_count: 4
+  - codename: leaf-aa
+    areas: [a]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-ab
+    areas: [b]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-ac
+    areas: [c]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-ad
+    areas: [d]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-ae
+    areas: [e]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-af
+    areas: [f]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-ag
+    areas: [g]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-ah
+    areas: [h]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-ai
+    areas: [i]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-aj
+    areas: [j]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-ak
+    areas: [k]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-al
+    areas: [l]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-am
+    areas: [m]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-an
+    areas: [n]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: leaf-ao
+    areas: [o]
+    deps: [trunk-trivial]
+    bead_count: 1
+  - codename: deep-x
+    areas: [x]
+    deps: [trunk-deep]
+    bead_count: 12
+  - codename: deep-y
+    areas: [y]
+    deps: [trunk-deep]
+    bead_count: 12
+  - codename: deep-z
+    areas: [z]
+    deps: [trunk-deep]
+    bead_count: 12
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0
+    target_works: [trunk-deep trunk-trivial]
+agent_model:
+  duration:
+    kind: lognormal
+    sigma: 0.8
+    median_ticks: 30

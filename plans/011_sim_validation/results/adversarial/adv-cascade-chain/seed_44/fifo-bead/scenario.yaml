@@ -1,0 +1,72 @@
+seed: 44
+ticks: 40000
+agents: 3
+works:
+  - codename: c-01
+    areas: [a]
+    bead_count: 4
+  - codename: c-02
+    areas: [a]
+    deps: [c-01]
+    bead_count: 4
+  - codename: c-03
+    areas: [a]
+    deps: [c-02]
+    bead_count: 4
+  - codename: c-04
+    areas: [a]
+    deps: [c-03]
+    bead_count: 4
+  - codename: c-05
+    areas: [a]
+    deps: [c-04]
+    bead_count: 4
+  - codename: c-06
+    areas: [a]
+    deps: [c-05]
+    bead_count: 4
+  - codename: c-07
+    areas: [a]
+    deps: [c-06]
+    bead_count: 4
+  - codename: c-08
+    areas: [a]
+    deps: [c-07]
+    bead_count: 4
+  - codename: c-09
+    areas: [a]
+    deps: [c-08]
+    bead_count: 4
+  - codename: c-10
+    areas: [a]
+    deps: [c-09]
+    bead_count: 4
+  - codename: c-11
+    areas: [a]
+    deps: [c-10]
+    bead_count: 4
+  - codename: c-12
+    areas: [a]
+    deps: [c-11]
+    bead_count: 4
+  - codename: c-13
+    areas: [a]
+    deps: [c-12]
+    bead_count: 4
+  - codename: c-14
+    areas: [a]
+    deps: [c-13]
+    bead_count: 4
+  - codename: c-15
+    areas: [a]
+    deps: [c-14]
+    bead_count: 4
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0
+    target_works: [c-01]
+agent_model:
+  duration:
+    kind: lognormal
+    sigma: 0.8
+    median_ticks: 30

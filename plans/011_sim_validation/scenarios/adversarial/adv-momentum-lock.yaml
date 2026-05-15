@@ -1,0 +1,68 @@
+# adv-momentum-lock — momentum bonus glues agents to a deep work that
+# should have been pre-empted.
+#
+# Hypothesis: `marathon` has 30 beads. Once 50–80% complete, its momentum
+# bonus is 2.5–4.0, plus its small fanOut of 1 (=10). At tick 5000 a high-
+# value `urgent` work (fanOut=6 = 60) becomes actionable (its dep
+# `urgent-prereq` finishes via explicit fast beads). On paper urgent should
+# score higher. But because marathon also pulls rework arrivals (and is
+# heavily complete), its rework+momentum stack can keep it tied or ahead.
+# Predicted loss metric: top_of_queue_churn LOW for kerf (sticks too long)
+# and goal_completion_1d for `urgent` (kerf < FIFO-by-work, which would
+# round-robin works).
+seed: 9003
+ticks: 60000
+agents: 2
+
+works:
+  - codename: marathon
+    areas: [core]
+    deps: []
+    bead_count: 30
+  - codename: marathon-tail
+    areas: [core]
+    deps: [marathon]
+    bead_count: 2
+  - codename: urgent-prereq
+    areas: [api]
+    deps: []
+    bead_count: 2
+  - codename: urgent
+    areas: [api]
+    deps: [urgent-prereq]
+    bead_count: 6
+  - codename: cust-a
+    areas: [cust-a]
+    deps: [urgent]
+    bead_count: 3
+  - codename: cust-b
+    areas: [cust-b]
+    deps: [urgent]
+    bead_count: 3
+  - codename: cust-c
+    areas: [cust-c]
+    deps: [urgent]
+    bead_count: 3
+  - codename: cust-d
+    areas: [cust-d]
+    deps: [urgent]
+    bead_count: 3
+  - codename: cust-e
+    areas: [cust-e]
+    deps: [urgent]
+    bead_count: 3
+  - codename: cust-f
+    areas: [cust-f]
+    deps: [urgent]
+    bead_count: 3
+
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.003
+    target_works: [marathon]
+
+agent_model:
+  duration:
+    kind: lognormal
+    median_ticks: 35
+    sigma: 0.9
