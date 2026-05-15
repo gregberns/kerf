@@ -1170,8 +1170,21 @@ kerf init [--jig <plan|spec>]
 5. If `--jig` is provided, set `default_jig` in config and print confirmation.
 6. If `--jig` is not provided and `default_jig` is not set, print a note with the two options (`kerf config default_jig plan` and `kerf config default_jig spec`).
 7. **Prompt the user to select active jigs** for the project. Present the available jigs (from the jig library) and allow the user to choose which ones to activate. For composable jigs (e.g., `implementation`), also prompt for which passes to include.
-8. **Create `project.yaml`** with the selected jig and pass configuration. If `.kerf/config.yaml` already declares `storage: local`, write it to `{repo}/.kerf/project.yaml` and create the bench symlink at `~/.kerf/projects/{project-id}` pointing at `{repo}/.kerf/works/`. Otherwise write it to `~/.kerf/projects/{project-id}/project.yaml`. See [architecture.md](architecture.md) for the `project.yaml` schema and storage modes.
-9. **Run `kerf setup`** to generate agent-facing instructions from the project's active jigs. The setup output is included in the init output (see Output below).
+8. **Auto-detect `bead_filter`.** Reads the bead store using kerf's existing bead-read path (the same one `kerf next` uses). If the bead tool is unavailable, silently skip auto-detect — the built-in default (`label: "work:{codename}"`) applies. Otherwise:
+   1. Collect existing work codenames from `~/.kerf/projects/{project-id}/` (or the bench equivalent under local storage).
+   2. If zero codenames exist, skip auto-detect; init proceeds without setting `bead_filter`.
+   3. List label prefixes that appear in the bead store with at least 3 beads. For each prefix `P:`, compute `match_score = (beads matching some codename via "P:{codename}") / (total beads with prefix "P:")`. Pick the highest `match_score` above 0.5.
+   4. If a candidate is selected, prompt:
+      ```
+      Detected: 87% of beads use `subsystem:*` labels.
+      Set project-wide bead_filter to `subsystem:{codename}`? [Y/n]
+      ```
+   5. If no candidate scores above 0.5, fall back to a manual prompt offering the top 5 prefixes by raw count plus a "type your own" option (or skip).
+   6. The chosen filter is written into `project.yaml`. It is always editable later via the standard config files. See [coordination.md](coordination.md#bead-attachment).
+   7. If the bead store is empty or unreachable, skip detection silently — the built-in default applies.
+   8. If kerf is invoked non-interactively (stdin not a TTY), auto-detect runs but does not prompt; if a confident candidate exists it is written, otherwise no `bead_filter` is set.
+9. **Create `project.yaml`** with the selected jig and pass configuration, plus the chosen `bead_filter` (if any). If `.kerf/config.yaml` already declares `storage: local`, write it to `{repo}/.kerf/project.yaml` and create the bench symlink at `~/.kerf/projects/{project-id}` pointing at `{repo}/.kerf/works/`. Otherwise write it to `~/.kerf/projects/{project-id}/project.yaml`. See [architecture.md](architecture.md) for the `project.yaml` schema and storage modes.
+10. **Run `kerf setup`** to generate agent-facing instructions from the project's active jigs. The setup output is included in the init output (see Output below).
 
 ### Output
 
@@ -1180,12 +1193,13 @@ The output includes:
 1. Project initialization status (created or already exists).
 2. Default jig status (set, or instructions to set it).
 3. Active jig selection summary (which jigs and passes were selected).
-4. `project.yaml` creation confirmation.
-5. The full output of `kerf setup` (see [`kerf setup`](#kerf-setup)), which includes:
+4. Bead-filter detection summary: the detected filter (if any), or a note that the built-in default applies.
+5. `project.yaml` creation confirmation.
+6. The full output of `kerf setup` (see [`kerf setup`](#kerf-setup)), which includes:
    - Agent setup instructions: process instructions from each active jig, tool requirements, jig sequencing, references to kerf commands
    - What to add to `.gitignore` (`.kerf/` but commit `.kerf/project-identifier`)
    - Agent-agnostic instructions to add to the agent's configuration file (CLAUDE.md, .cursorrules, etc.)
-6. A verification step the agent can run to confirm the setup works.
+7. A verification step the agent can run to confirm the setup works.
 
 The instructions are agent-agnostic. kerf does not know or reference any specific AI tool. The agent reading the output determines where to put the instructions based on its own configuration conventions.
 
@@ -1395,59 +1409,139 @@ Commands:
 
 ### Purpose
 
-Computed ordering of actionable work items. Filters out blocked and shelved works. Orders by dependency depth and completion momentum. The output is a view over current state, not stored data.
+A ranked feed of things to act on right now. `kerf next` is the agent's primary pull signal: it runs at the top of every cycle, returns one ordered list, and the agent acts on the top item. The feed mixes several kinds of items — beads to work on, cleanup tasks owed on a work, and project-level warnings — so a single command surfaces everything the agent should resolve next.
+
+The output is a view over current state, not stored data. Running it ten times with no state changes returns the same list.
 
 ### Syntax
 
 ```
-kerf next [--project <project-id>]
+kerf next [--only <kind>] [--include <kind>] [--kinds <list>] [--format <format>] [--project <project-id>]
 ```
+
+### Item kinds
+
+Every item carries a `kind` and a `target`:
+
+| kind | target | meaning |
+|------|--------|---------|
+| `bead` | a bead | A ready-to-work bead. Do this bead. |
+| `cleanup` | a work | Something is owed on this work — walk the jig, advance status, or shelve. |
+| `warning` | project-level | A project-wide issue (typically a misconfiguration). Fix config, not code. |
+
+`pr` and additional kinds may be added in later versions. The item shape is designed to absorb them without changing existing kinds.
 
 ### Flags
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--project` | No | Inferred from cwd | Show next actions for this project. |
+| `--only <kind>` | No | — | Show only items of this kind. Repeatable. Example: `--only=bead`. |
+| `--include <kind>` | No | — | Add a non-default kind to the feed. Repeatable. Example: `--include=warning`. |
+| `--kinds <list>` | No | — | Comma-separated list of kinds to show, replacing the default set. Example: `--kinds=bead,cleanup`. |
+| `--format <format>` | No | `text` | Output format. `text` (compact, default) or `json`. |
+| `--project <project-id>` | No | Inferred from cwd | Show next actions for this project. |
+
+`--only=bead` is shorthand for the bead-only feed (today's behavior). See **Flag precedence** below for combined-flag rules.
 
 ### Behavior
 
 1. Resolve the project ID.
-2. Read all active works and their `spec.yaml` files.
-3. **Filter**: exclude works that are blocked (have unmet `must-complete-first` dependencies), archived, or finalized.
-4. **Order** the remaining works. The ordering considers:
-   - **Dependency depth**: works that unblock other works are prioritized (a work that is a dependency for many others ranks higher).
-   - **Completion momentum**: works closer to their terminal status rank higher (position in `status_values` relative to total).
-   - The ordering algorithm is in a single location in the codebase for easy tuning.
-5. For each work, determine a suggested action based on its current status and jig (e.g., "continue research pass", "ready for finalization").
+2. Read all active works and their `spec.yaml` files; read project state (filter config, areas, dependencies).
+3. **Assemble candidate items** from each source:
+   - **Beads** — from the bead store, filtered per work via the resolved `bead_filter` (see [coordination.md](coordination.md#bead-attachment)). Beads that are blocked, in progress, or closed are excluded. Each ready bead becomes a `bead` item attributed to every work it matches.
+   - **Cleanup detectors** — pure functions over current state, run on every invocation. v1 detectors:
+     - `work_no_attached_beads` — fires when a work's resolved `bead_filter` matches zero beads (attached_count == 0). Suggested action: edit the work's `spec.yaml` or the project filter.
+     - `work_beads_done_status_open` — fires when a work has attached_count > 0, every attached bead is closed, and the work's jig status is not terminal. Suggested action: advance status (`kerf status <codename> <next-stage>`) or `kerf shelve <codename>`.
 
-### Output
+     The two detectors are mutually exclusive by construction (the attached-count guard on `work_beads_done_status_open` ensures a zero-bead work is reported only by `work_no_attached_beads`).
+   - **Warning detectors** — project-level state checks. v1 detectors:
+     - Unmatched beads: any beads in the store that match no work's filter. Surfaced once as a single warning item.
+     - Filter literal yields zero matches: when the project-wide `bead_filter`'s literal prefix matches nothing in the bead store, surface a warning suggesting a case-mismatch check (e.g., `Subsystem:` vs `subsystem:`). Matching is case sensitive — see [coordination.md](coordination.md#bead-attachment).
+4. **Exclude** items per kind:
+   - `bead` items are excluded when their target work is blocked by an unmet `must-complete-first` dependency, archived, or finalized. Dependency gating remains strict on jig status — see [dependencies.md](dependencies.md). The bead-done-but-status-stale case is intentionally surfaced as a `cleanup` item rather than auto-clearing dependency gates.
+   - `cleanup` items are excluded only when their target work is archived or finalized. A blocked work still surfaces its cleanup items — those items are how the user resolves the block.
+   - `warning` items are project-level and not filtered by work state.
+5. **Score** each kind separately. Beads rank against beads using the factors described in [coordination.md](coordination.md#computed-priority) — dependency fan-out, completion momentum, rework, area focus. Cleanup items do not enter bead scoring; they sort after all beads, ordered by their parent work's would-be bead score (descending), so that a stale-status work near the top of the queue is visible without leapfrogging genuinely-blocking new work. Warning items are not ranked.
+6. **Filter** by the kind selection from the flags above.
+7. **Render** the feed.
+
+### Default kind selection
+
+Without flags, the feed includes `bead` and `cleanup` items. Beads are ranked first; cleanup items follow after all beads, ordered by their parent work's would-be bead score. `warning` items, when present, are rendered as a header block above the ranked list — they are project-wide, not ranked entries.
+
+### Flag precedence
+
+`--kinds`, `--only`, and `--include` compose as follows:
+
+1. `--kinds=a,b` sets the base set, replacing the default. With no `--kinds`, the base set is all kinds.
+2. `--only=X` is repeatable and acts as intersection — it restricts the working set to the listed kinds. Multiple `--only` flags union among themselves first (so `--only=bead --only=cleanup` keeps both), then intersect with the base set.
+3. `--include=X` is repeatable and acts as union — each adds a kind back into the set.
+4. Repeated identical flags are idempotent (union semantics, no last-wins).
+5. `--only=warning` produces a feed containing only the warning header block; no ranked items are emitted.
+
+### Output (default: compact text)
 
 ```
-Next actions for {project-id}:
+$ kerf next
+1. bead   hk-cb-042  "wire retry into adapter"        work: bridge
+2. bead   hk-cb-051  "extract header parser"          work: bridge
+3. clean  bridge      all beads closed; walk jig or shelve
 
-  1. database-migration   plan   tasks          Unblocks: token-refresh, session-mgmt
-     → Ready for finalization
-
-  2. token-refresh        plan   research       Areas: auth, api-gateway
-     → Continue research pass
-
-  3. rate-limiter         spec   decompose      Areas: api-gateway
-     → Continue decompose pass
-
-Commands:
-  kerf resume <codename>    Resume working on a work
-  kerf show <codename>      View work details
+run with --format=json for machine output, --help for filters
 ```
 
-- Each entry shows rank, codename, type, status, areas (if any), and which works it unblocks (if any).
-- The suggested action line indicates what to do next.
-- If no actionable works exist, output says so.
+Each line shows rank, kind, target identifier, title or reason, and (for `bead` and `cleanup`) the owning work codename. The footer points at machine output and the filter help.
+
+Text output is for humans (and for an agent reading it as prose at the top of a cycle). It is not a parsing contract: column positions, spacing, and exact phrasing may change between versions. Agents or scripts that need stable structured output use `--format=json`.
+
+When unmatched beads are present, the feed prepends a warning block:
+
+```
+warning: 12 beads match no work — check bead_filter in project.yaml
+```
+
+If no items exist, the output says so.
+
+### Output (`--format=json`)
+
+`--format=json` emits the full item stream — one record per item, in rank order, including `warning` items. No other formats in v1. Field names are snake_case. The item shape:
+
+```
+{
+  "kind":          "<one of the build's known kinds>",
+  "score":         <number>,
+  "title":         "<human one-liner>",
+  "action":        "<suggested command or next step>",
+  "reason":        "<why this surfaced>",
+  "work_codename": "<codename or null>",
+  "bead_id":       "<id or null>"
+}
+```
+
+The set of valid `kind` values comes from the current build (v1: `bead`, `cleanup`, `warning`). Future kinds (e.g., `pr`) are additive. Consumers should treat unknown kinds as informational rather than erroring.
+
+Filter flags apply to JSON output identically.
+
+### Help text
+
+`kerf next --help` is part of the spec — the agent's contract. A fresh agent running it once must come away knowing the full loop. The help text covers, in this fixed order:
+
+1. **What it returns** — a ranked feed of things to act on right now.
+2. **The item kinds** — one line per kind: `bead` = work on this; `cleanup` = resolve this on a work; `warning` = project-level issue, fix config.
+3. **The default action loop** — read the top item, do it, re-run `kerf next`.
+4. **The filter flags** with concrete examples: `--only=bead`, `--include=warning`, `--kinds=bead,cleanup`.
+5. **Machine output** — `--format=json` for scripts.
+6. **How scoring works** in one sentence, with a pointer to [coordination.md](coordination.md#computed-priority) for detail.
+
+Changes to this help text require a spec change.
 
 ### Errors
 
 | Condition | Message |
 |-----------|---------|
 | No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+| Unknown kind in `--only`/`--include`/`--kinds` | `Error: unknown item kind '{value}'. Known kinds: {list of kinds from the current build}.` |
+| Unknown value in `--format` | `Error: unknown format '{value}'. Supported: text, json.` |
 
 ---
 

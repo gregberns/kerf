@@ -242,6 +242,13 @@ The file `~/.kerf/projects/{project-id}/project.yaml` contains per-project setti
 #   fan_out: 10.0
 #   momentum: 5.0
 #   creation: 0.1
+
+# Project-wide bead attachment filter for `kerf next` and related views.
+# Resolution order: per-work bead_filter (in spec.yaml) → this project filter →
+# built-in default `label: "work:{codename}"`. First hit wins.
+# See coordination.md#bead-attachment.
+# bead_filter:
+#   label: "subsystem:{codename}"
 ```
 
 ### Semantics
