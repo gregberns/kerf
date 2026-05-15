@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -229,6 +230,110 @@ func TestRun_FormatJSONStreamsSummary(t *testing.T) {
 	}
 	if _, ok := doc["full"]; !ok {
 		t.Errorf("stdout JSON missing \"full\" key; got keys: %v", keys(doc))
+	}
+}
+
+// TestRun_AgentsSweep verifies that --agents-sweep produces per-agent-count
+// output directories under <out>/<scenario>/seed_<n>/agents_<k>/<policy>/ and
+// writes a sweep_summary.csv with one row per (agent_count, policy, seed).
+func TestRun_AgentsSweep(t *testing.T) {
+	tmp := t.TempDir()
+	outDir := filepath.Join(tmp, "sweep")
+
+	if err := runRun(&bytes.Buffer{}, "small-linear", &runOpts{
+		runs: 1, format: "text", outDir: outDir,
+		seed: 42, seedSet: true,
+		agentsSweep: "1,2",
+	}); err != nil {
+		t.Fatalf("runRun: %v", err)
+	}
+
+	scDir := filepath.Join(outDir, "small-linear")
+
+	// Both agent-count subdirectories must exist with the four policy dirs.
+	for _, k := range []int{1, 2} {
+		base := filepath.Join(scDir, "seed_42", "agents_"+strconv.Itoa(k))
+		for _, p := range policyNames {
+			if _, err := os.Stat(filepath.Join(base, p, "summary.json")); err != nil {
+				t.Errorf("missing %s/%s/summary.json: %v", base, p, err)
+			}
+		}
+	}
+
+	// sweep_summary.csv must exist and contain a row for each
+	// (agent_count, policy, seed) combination: 2 counts × 4 policies × 1 seed = 8 rows.
+	csvPath := filepath.Join(scDir, "sweep_summary.csv")
+	b, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatalf("read sweep_summary.csv: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(lines) < 1 {
+		t.Fatalf("sweep_summary.csv is empty")
+	}
+	header := lines[0]
+	for _, col := range []string{"agent_count", "policy", "seed", "work_completed", "agent_idle_pct", "top_of_queue_churn", "area_collisions", "goal_completion_3d", "rework_p95_wait", "priority_inversions"} {
+		if !strings.Contains(header, col) {
+			t.Errorf("sweep_summary.csv header missing %q: %s", col, header)
+		}
+	}
+	if got := len(lines) - 1; got != 8 {
+		t.Errorf("sweep_summary.csv: got %d data rows, want 8 (2 counts × 4 policies × 1 seed)", got)
+	}
+	// Spot-check that both agent counts appear in column 1.
+	have1, have2 := false, false
+	for _, ln := range lines[1:] {
+		switch {
+		case strings.HasPrefix(ln, "1,"):
+			have1 = true
+		case strings.HasPrefix(ln, "2,"):
+			have2 = true
+		}
+	}
+	if !have1 || !have2 {
+		t.Errorf("sweep_summary.csv missing rows for agent_count=1 (%v) or 2 (%v)", have1, have2)
+	}
+}
+
+// TestParseAgentsSweep covers the flag-parser edge cases enumerated in the
+// plan: empty value, zero/negative reject, dedupe, ordering.
+func TestParseAgentsSweep(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    []int
+		wantErr bool
+	}{
+		{"empty", "", nil, false},
+		{"whitespace only", "   ", nil, false},
+		{"single", "3", []int{3}, false},
+		{"basic", "1,2,3", []int{1, 2, 3}, false},
+		{"unsorted gets sorted", "5,1,3", []int{1, 3, 5}, false},
+		{"dedupe", "1,1,2", []int{1, 2}, false},
+		{"with spaces", "1, 2 , 3", []int{1, 2, 3}, false},
+		{"zero rejected", "0", nil, true},
+		{"negative rejected", "-1,2", nil, true},
+		{"non-integer rejected", "1,foo,2", nil, true},
+		{"zero in middle", "1,0,2", nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseAgentsSweep(tc.in)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("parseAgentsSweep(%q): err=%v wantErr=%v", tc.in, err, tc.wantErr)
+			}
+			if tc.wantErr {
+				return
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("parseAgentsSweep(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("parseAgentsSweep(%q) = %v, want %v", tc.in, got, tc.want)
+				}
+			}
+		})
 	}
 }
 

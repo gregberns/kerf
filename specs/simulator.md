@@ -33,7 +33,7 @@ No spec elsewhere in kerf depends on the simulator. Removing `kerfsim` would not
 `kerfsim` is invoked separately from `kerf`. It has no shared state, no shared config, and no implicit project context.
 
 ```
-kerfsim run <scenario.yaml> [--weights w.yaml] [--seed N] [--runs N] [--out dir/]
+kerfsim run <scenario.yaml> [--weights w.yaml] [--seed N] [--runs N] [--out dir/] [--agents-sweep "k1,k2,..."]
 kerfsim diff <runA-dir/> <runB-dir/>
 kerfsim sweep <scenario.yaml> --param weights.rework=5..30:5    # Phase 2
 ```
@@ -46,6 +46,7 @@ Executes one scenario and writes a run directory.
 - `--seed` — overrides the seed in the scenario file. Useful for repeat runs without editing the scenario.
 - `--runs N` — repeats the simulation with seeds `seed, seed+1, …, seed+N-1`, producing one run directory per seed plus an aggregate summary. The scenario generator re-runs per seed, so the dependency DAG, bead counts, and pre-rolled durations all vary across seeds. `kerfsim diff` of two `--runs` directories reports median plus p10/p90 across the N runs.
 - `--out` — output directory. Defaults to a timestamped directory under the current working directory.
+- `--agents-sweep "k1,k2,..."` — comma-separated list of agent counts. Runs the scenario once per agent count, overriding the scenario's `agents:` field. Output layout: `<out>/<scenario>/seed_<n>/agents_<k>/<policy>/`. Also writes `<out>/<scenario>/sweep_summary.csv` with one row per `(agent_count, policy, seed)` combination (columns: `agent_count, policy, seed, work_completed, agent_idle_pct, top_of_queue_churn, area_collisions, goal_completion_3d, rework_p95_wait, priority_inversions`). Combines with `--runs N` (sweep is the outer loop). Each agent count must be ≥ 1; duplicates are deduped.
 
 ### `kerfsim diff`
 
