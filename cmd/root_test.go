@@ -23,6 +23,39 @@ func TestRootCommand_NoBench(t *testing.T) {
 	testutil.AssertStringContains(t, out, "kerf")
 	testutil.AssertStringContains(t, out, "No bench found")
 	testutil.AssertStringContains(t, out, "kerf new")
+
+	// Bead 8: every command in the Available-commands list must render.
+	for _, cmdName := range expectedCommandNames() {
+		testutil.AssertStringContains(t, out, "kerf "+cmdName)
+	}
+}
+
+// expectedCommandNames returns the command names that must appear in the
+// rendered "Available commands" help output. Mirrors specs/commands.md.
+func expectedCommandNames() []string {
+	return []string{
+		"init",
+		"setup",
+		"localize",
+		"new",
+		"list",
+		"show",
+		"status",
+		"resume",
+		"shelve",
+		"finalize",
+		"square",
+		"next",
+		"map",
+		"areas",
+		"snapshot",
+		"history",
+		"restore",
+		"archive",
+		"delete",
+		"config",
+		"jig",
+	}
 }
 
 func TestRootCommand_WithBench(t *testing.T) {
@@ -42,6 +75,11 @@ func TestRootCommand_WithBench(t *testing.T) {
 	testutil.AssertStringContains(t, out, "Bench summary")
 	testutil.AssertStringContains(t, out, "Total active works: 1")
 	testutil.AssertStringContains(t, out, "Standard workflow")
+
+	// Bead 8: every command in the Available-commands list must render.
+	for _, cmdName := range expectedCommandNames() {
+		testutil.AssertStringContains(t, out, "kerf "+cmdName)
+	}
 }
 
 func TestRootCommand_WithJigChain(t *testing.T) {

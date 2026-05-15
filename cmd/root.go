@@ -117,6 +117,9 @@ func printWorkflow() {
 
 func printCommands() {
 	fmt.Println("Available commands:")
+	fmt.Println("  kerf init [--jig <plan|spec>]   Bootstrap kerf in a project")
+	fmt.Println("  kerf setup             Regenerate agent-facing instructions")
+	fmt.Println("  kerf localize          Migrate project to local storage")
 	fmt.Println("  kerf new               Create a new work")
 	fmt.Println("  kerf list              Show all works on the bench")
 	fmt.Println("  kerf show <codename>   View full work details")
@@ -125,6 +128,9 @@ func printCommands() {
 	fmt.Println("  kerf shelve [codename] Pause work with state preservation")
 	fmt.Println("  kerf finalize <codename> --branch <name>  Complete and hand off")
 	fmt.Println("  kerf square <codename> Verify work completeness")
+	fmt.Println("  kerf next              Ranked feed of things to act on")
+	fmt.Println("  kerf map               Portfolio view of works by area")
+	fmt.Println("  kerf areas <subcommand>   Manage project areas")
 	fmt.Println("  kerf snapshot <codename>  Manual snapshot")
 	fmt.Println("  kerf history <codename>   View snapshot history")
 	fmt.Println("  kerf restore <codename> <snapshot>  Restore to a snapshot")
