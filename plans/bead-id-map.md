@@ -44,6 +44,25 @@ Use these IDs with `bd show <id>`, `bd update <id>`, etc. The `implement-beads` 
 
 **L0 ready to dispatch first:** `kerf-7ll` (B1), `kerf-jpk` (B2), `kerf-een` (B3). These three can run in parallel.
 
+## Plan 009 — Triage Workflow
+
+| Plan / Bead | Title | bd ID | Layer / Phase | Blocked by |
+|---|---|---|---|---|
+| 009 / B1   | internal/spec/mutate.go — comment-preserving YAML mutators (+ beads.ParseFilterClause) | `kerf-vvo` | L0 / phase-0 | — (READY) |
+| 009 / B2   | internal/drift — snapshot capture, hash, diff, cache lifecycle | `kerf-8o9` | L0 / phase-0 | — (READY) |
+| 009 / B3   | internal/spec/spec.go — PinnedBeads field on SpecYAML | `kerf-whk` | L0 / phase-0 | — (READY) |
+| 009 / B4   | internal/feed/warning.go — triage detectors (untriaged / multi_matched / external_drift) + rename | `kerf-eto` | L1 / phase-1 | B2, B3 |
+| 009 / B5   | internal/feed/feed.go — drift + pin layer wired before BeadSource | `kerf-nn8` | L1 / phase-1 | B2, B3 |
+| 009 / B9   | cmd/pin.go — new command (single-owner pin) | `kerf-52z` | L1 / phase-1 | B1, B3 |
+| 009 / B10  | cmd/work_edit.go — bead-filter mutators | `kerf-mxu` | L1 / phase-1 | B1 |
+| 009 / B11a | cmd/new.go — --bead-filter flag | `kerf-avh` | L1 / phase-1 | B1, B3 |
+| 009 / B7   | cmd/show.go — Attached beads block + drift markers | `kerf-7st` | L2 / phase-2 | B3, B5 (+ plan 008 B1 on main) |
+| 009 / B8   | cmd/triage.go — new command (--resolved / --ack / --format / --kind) | `kerf-665` | L2 / phase-2 | B2, B4, B5 |
+| 009 / B11b | cmd/next.go — drift-summary headline counters | `kerf-rxc` | L2 / phase-2 | B2, B4, B5 |
+| 009 / B12  | E2E triage loop test | `kerf-xty` | L3 / phase-3 | B7, B8, B9, B10, B11a, B11b |
+
+**L0 ready to dispatch first (3 in parallel):** `kerf-vvo` (B1), `kerf-8o9` (B2), `kerf-whk` (B3). Critical path: B2 → B5 → B8 → B12 (4 hops). Peak parallelism: 6.
+
 ## Plan 008 — Exploratory Testing (follow-ups)
 
 | Plan / Bead | Title | bd ID | Layer / Phase | Blocked by |
