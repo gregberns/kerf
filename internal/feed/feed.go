@@ -27,6 +27,12 @@ type Input struct {
 	AllBeads            []beads.Bead
 	QueueEntries        []queue.Entry
 	ProjectID           string
+	// ProjectFilter is the project-wide bead_filter from project.yaml.
+	// Per-work filters live on each spec.SpecYAML.BeadFilter. Resolution
+	// follows beads.Resolve(perWork, project) — see specs/coordination.md
+	// §"Resolution order". Used by warning detectors (B5) and any future
+	// detectors that need the effective per-work filter set.
+	ProjectFilter       *beads.Filter
 	WorkCreated         map[string]time.Time
 	BlockedWorks        map[string]bool
 	ArchivedOrFinalized map[string]bool

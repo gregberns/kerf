@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/jig"
@@ -101,8 +104,13 @@ func runInit() error {
 	if err != nil {
 		return fmt.Errorf("resolving storage mode: %w", err)
 	}
+
+	// Step 8 (specs/commands.md §"kerf init"): auto-detect bead_filter.
+	// Best-effort: errors here never fail init.
+	detectedFilter := detectBeadFilter(resolver, os.Stdin, os.Stdout)
+
 	projCfgPath := resolver.ProjectConfigPath()
-	if err := createDefaultProjectConfig(projCfgPath); err != nil {
+	if err := createDefaultProjectConfig(projCfgPath, detectedFilter); err != nil {
 		return fmt.Errorf("creating project.yaml: %w", err)
 	}
 	if resolver.Mode == storage.ModeLocal {
@@ -130,8 +138,9 @@ func runInit() error {
 }
 
 // createDefaultProjectConfig creates project.yaml with all available jigs.
-// For composable jigs, all passes are included by default.
-func createDefaultProjectConfig(path string) error {
+// For composable jigs, all passes are included by default. If beadFilter is
+// non-nil, it is written into the project config as the project-wide filter.
+func createDefaultProjectConfig(path string, beadFilter *beads.Filter) error {
 	jigsDir := userJigsDir()
 	summaries, err := jig.ListAll(jigsDir)
 	if err != nil {
@@ -161,8 +170,9 @@ func createDefaultProjectConfig(path string) error {
 	}
 
 	projCfg := &config.ProjectConfig{
-		Jigs:   jigNames,
-		Passes: passes,
+		Jigs:       jigNames,
+		Passes:     passes,
+		BeadFilter: beadFilter,
 	}
 	if len(passes) == 0 {
 		projCfg.Passes = nil
@@ -174,6 +184,126 @@ func createDefaultProjectConfig(path string) error {
 
 	fmt.Printf("Created project.yaml with %d active jigs: %s\n", len(jigNames), strings.Join(jigNames, ", "))
 
+	return nil
+}
+
+// isInteractiveStdin returns true when stdin is attached to a terminal (i.e.
+// character device). When stdin is piped/redirected (the typical CI or
+// scripted-init case), the auto-detect step does not prompt.
+func isInteractiveStdin(in *os.File) bool {
+	if in == nil {
+		return false
+	}
+	fi, err := in.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// detectBeadFilter implements specs/commands.md §"kerf init" step 8.
+// Returns a *beads.Filter when a confident candidate is found and accepted (or
+// auto-applied non-interactively), or nil to leave bead_filter unset.
+// Failures degrade silently — init must always succeed.
+func detectBeadFilter(resolver *storage.Resolver, stdin *os.File, stdout io.Writer) *beads.Filter {
+	if !beads.IsAvailable() {
+		return nil
+	}
+
+	codenames, err := resolver.ListWorks()
+	if err != nil || len(codenames) == 0 {
+		// No existing works → cannot correlate label prefixes with codenames.
+		// Per spec: skip auto-detect entirely, do not prompt.
+		return nil
+	}
+
+	all, err := beads.List()
+	if err != nil || len(all) == 0 {
+		// Bead store empty or unreachable → silent skip.
+		return nil
+	}
+
+	prefix, score, top := beads.DetectFilterPrefix(all, codenames)
+	interactive := isInteractiveStdin(stdin)
+
+	if prefix != "" {
+		filter := &beads.Filter{Label: prefix + ":{codename}"}
+		if !interactive {
+			fmt.Fprintf(stdout, "Detected: %d%% of beads use `%s:*` labels. Setting project-wide bead_filter to `%s:{codename}`.\n",
+				int(score*100+0.5), prefix, prefix)
+			return filter
+		}
+		fmt.Fprintf(stdout, "Detected: %d%% of beads use `%s:*` labels.\n", int(score*100+0.5), prefix)
+		fmt.Fprintf(stdout, "Set project-wide bead_filter to `%s:{codename}`? [Y/n] ", prefix)
+		if confirmYesDefault(stdin) {
+			return filter
+		}
+		return nil
+	}
+
+	// No confident candidate. Non-interactive: write nothing.
+	if !interactive {
+		return nil
+	}
+	if len(top) == 0 {
+		return nil
+	}
+	return promptFallbackPrefix(top, stdin, stdout)
+}
+
+// confirmYesDefault reads a line from stdin and returns true for "", "y", "Y",
+// "yes", "YES". Anything else is treated as "no". Read errors return false.
+func confirmYesDefault(stdin *os.File) bool {
+	if stdin == nil {
+		return false
+	}
+	reader := bufio.NewReader(stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil && line == "" {
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "" || answer == "y" || answer == "yes"
+}
+
+// promptFallbackPrefix presents the top-by-count prefixes plus an option to
+// type a custom prefix or skip, and returns the user's choice as a Filter (or
+// nil to skip).
+func promptFallbackPrefix(top []beads.PrefixCount, stdin *os.File, stdout io.Writer) *beads.Filter {
+	fmt.Fprintln(stdout, "No dominant label prefix detected. Top prefixes by raw count:")
+	for i, pc := range top {
+		fmt.Fprintf(stdout, "  %d. %s:* (%d beads)\n", i+1, pc.Prefix, pc.Count)
+	}
+	custom := len(top) + 1
+	skip := len(top) + 2
+	fmt.Fprintf(stdout, "  %d. type your own\n", custom)
+	fmt.Fprintf(stdout, "  %d. skip\n", skip)
+	fmt.Fprintf(stdout, "Choose [1-%d]: ", skip)
+
+	reader := bufio.NewReader(stdin)
+	line, _ := reader.ReadString('\n')
+	answer := strings.TrimSpace(line)
+	if answer == "" {
+		return nil
+	}
+
+	// Numeric choice.
+	for i := range top {
+		if answer == fmt.Sprintf("%d", i+1) {
+			return &beads.Filter{Label: top[i].Prefix + ":{codename}"}
+		}
+	}
+	if answer == fmt.Sprintf("%d", custom) {
+		fmt.Fprint(stdout, "Enter prefix (without trailing ':'): ")
+		line, _ := reader.ReadString('\n')
+		p := strings.TrimSpace(line)
+		p = strings.TrimSuffix(p, ":")
+		if p == "" {
+			return nil
+		}
+		return &beads.Filter{Label: p + ":{codename}"}
+	}
+	// "skip" or anything unrecognized → no filter.
 	return nil
 }
 
