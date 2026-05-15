@@ -187,7 +187,7 @@ When an agent pulls multiple beads to work on together (e.g., beads in the same 
 
 ### kerf and Beads
 
-kerf generates bead definitions during task breakdown (the TASK activity). The beads system (bd) tracks bead execution state — who claimed it, whether it is complete, whether it failed. kerf queries bead status to compute its views:
+kerf generates bead definitions during task breakdown (the TASK activity). The beads system (br) tracks bead execution state — who claimed it, whether it is complete, whether it failed. kerf queries bead status to compute its views:
 
 - `kerf next` needs to know which beads are available (not blocked, not in-progress, not complete).
 - `kerf map` needs to know how many beads are done vs. remaining for each work item.
@@ -373,7 +373,7 @@ These compose with `work_no_attached_beads` per the rule above: a zero-match wor
 ### Information Flow
 
 ```
-kerf                              beads (bd)
+kerf                              beads (br)
  |                                   |
  |-- work items, specs, areas ------>|  (bead definitions reference
  |                                   |   backing specs and areas)

@@ -234,7 +234,7 @@ The file `~/.kerf/projects/{project-id}/project.yaml` contains per-project setti
 # Informational — emitted in `kerf setup` output so agents know what to use.
 # tools:
 #   orchestrator: ntm         # agent orchestration tool
-#   tasks: bd                 # task/bead management tool
+#   tasks: br                 # task/bead management tool
 
 # Queue scoring weights for `kerf next`.
 # Any field omitted falls back to its default. See coordination.md.

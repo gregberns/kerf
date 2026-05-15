@@ -47,7 +47,7 @@ For **implementation works** specifically, kerf also reports bead status when av
 - Total beads, open beads, closed beads
 - Whether any beads have unresolved review feedback
 
-This is informational — bead counts are reported alongside the process pass status to give visibility into implementation progress. kerf reads bead status via `bd list` if `bd` is available. If `bd` is not available, the process pass check relies solely on the work's status value.
+This is informational — bead counts are reported alongside the process pass status to give visibility into implementation progress. kerf reads bead status via `br list` if `br` is available. If `br` is not available, the process pass check relies solely on the work's status value.
 
 Process pass checks apply only to jigs that have process passes. Spec-writing jigs (plan, spec, bug) have only artifact passes and are unaffected.
 

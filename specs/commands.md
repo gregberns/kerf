@@ -653,7 +653,7 @@ Jigs for {project-id}:
     plan (also: feature)    Write a plan before changing code. ...    v1    planning       built-in
     implementation          Spec-to-code with composable passes ...   v1    implementation built-in
       Passes: breakdown, dispatch, implement, review
-      Tools: bd, ntm
+      Tools: br, ntm
     spike                   Explore before you spec ...               v1    planning       built-in
       Tools: —
 
@@ -675,7 +675,7 @@ Available jigs:
   bug                     Investigate and specify a fix for ...     v2    bug-fix        built-in
   implementation          Spec-to-code with composable passes ...   v1    implementation built-in
     Passes: breakdown, dispatch, implement, review
-    Tools: bd, ntm
+    Tools: br, ntm
 
 Commands:
   kerf jig show <name>    View full jig definition
@@ -1359,7 +1359,7 @@ kerf setup
 The output is a clearly delimited block of agent-facing instructions containing:
 
 - **Process instructions** from each active jig: the full agent-facing process for each jig's passes.
-- **Tool requirements**: which external tools are needed (e.g., `bd` for bead management, `ntm` for orchestration), as declared by the active jigs.
+- **Tool requirements**: which external tools are needed (e.g., `br` for bead management, `ntm` for orchestration), as declared by the active jigs.
 - **Jig sequencing**: the composition chain for this project — which jigs are available and in what SDLC order.
 - **References to kerf commands**: the kerf commands relevant to each phase (e.g., `kerf new --jig plan` for planning, `kerf new --jig implementation` for implementation).
 

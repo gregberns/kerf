@@ -59,7 +59,7 @@ file_structure:           # Complete list of expected files in the work director
 **New fields:**
 
 - **`phase`** — Which SDLC phase this jig applies to. Values: `planning` (plan, spec), `implementation` (implementation), `bug-fix` (bug), `exploration` (spike, retrofit). Used for display grouping in `kerf jig list` and for agent discovery. Not enforced — informational only.
-- **`tools`** — External tools the jig depends on (e.g., `bd`, `ntm`, `agent-mail`). Declared at the jig level and optionally overridden per-pass. Informational — lets agents and users know what needs to be available. kerf does not verify tool availability.
+- **`tools`** — External tools the jig depends on (e.g., `br`, `ntm`, `agent-mail`). Declared at the jig level and optionally overridden per-pass. Informational — lets agents and users know what needs to be available. kerf does not verify tool availability.
 - **`composable`** — Whether a project can select which of this jig's passes to include. When `false` (default), all passes are used. When `true`, the project config specifies which passes are active. Composable jigs define the full set of available passes; the project selects a subset.
 
 ### Markdown Body
