@@ -475,3 +475,189 @@ updated: 2025-01-01T00:00:00Z
 		t.Errorf("expected nil RelatedTo for legacy spec, got %v", got.RelatedTo)
 	}
 }
+
+// --- PinnedBeads (Plan 009 / B3) -----------------------------------------
+
+// TestRoundTripPinnedBeads covers the populated-list case from beads.md.
+func TestRoundTripPinnedBeads(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	s := &SpecYAML{
+		Codename:    "bridge",
+		Type:        "plan",
+		Project:     Project{ID: "proj"},
+		Jig:         "plan",
+		Status:      "research",
+		Created:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		PinnedBeads: []string{"hk-cb-001", "hk-cb-099"},
+	}
+
+	if err := Write(path, s); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if len(got.PinnedBeads) != 2 {
+		t.Fatalf("pinned_beads length = %d, want 2", len(got.PinnedBeads))
+	}
+	if got.PinnedBeads[0] != "hk-cb-001" || got.PinnedBeads[1] != "hk-cb-099" {
+		t.Errorf("PinnedBeads = %v, want [hk-cb-001 hk-cb-099]", got.PinnedBeads)
+	}
+}
+
+// TestPinnedBeadsEmptyRendersFlowList asserts the empty list is serialized
+// as `pinned_beads: []` rather than `pinned_beads: null` or omitted (per
+// works.md row: required-on-write, default `[]`).
+func TestPinnedBeadsEmptyRendersFlowList(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	s := &SpecYAML{
+		Codename:    "alpha",
+		Type:        "plan",
+		Project:     Project{ID: "proj"},
+		Jig:         "plan",
+		Status:      "research",
+		Created:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		PinnedBeads: []string{},
+	}
+
+	if err := Write(path, s); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	// go-yaml renders an empty slice as the flow form `[]`; an omitted or
+	// nil slice would render as `pinned_beads: null` or be absent. Assert
+	// the key is present and renders as the empty flow list.
+	if !bytesContains(raw, []byte("pinned_beads: []")) {
+		t.Errorf("written spec.yaml does not contain `pinned_beads: []`:\n%s", raw)
+	}
+}
+
+// TestPinnedBeadsNilCoercedOnWrite asserts that a nil PinnedBeads slice is
+// coerced to an empty slice on Write (since the field has no `omitempty`,
+// a nil slice would otherwise render as `pinned_beads: null`).
+func TestPinnedBeadsNilCoercedOnWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	s := &SpecYAML{
+		Codename: "gamma",
+		Type:     "plan",
+		Project:  Project{ID: "proj"},
+		Jig:      "plan",
+		Status:   "research",
+		Created:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		// PinnedBeads left nil intentionally.
+	}
+
+	if err := Write(path, s); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !bytesContains(raw, []byte("pinned_beads: []")) {
+		t.Errorf("nil PinnedBeads should be coerced to []; output:\n%s", raw)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.PinnedBeads == nil {
+		t.Errorf("Read returned nil PinnedBeads; expected non-nil empty slice")
+	}
+	if len(got.PinnedBeads) != 0 {
+		t.Errorf("PinnedBeads length = %d, want 0", len(got.PinnedBeads))
+	}
+}
+
+// TestPinnedBeadsDuplicateRejected asserts Validate (and therefore Read /
+// Write) reject duplicate bead IDs within a single work's pinned_beads.
+func TestPinnedBeadsDuplicateRejected(t *testing.T) {
+	s := &SpecYAML{
+		Codename:    "delta",
+		Type:        "plan",
+		Project:     Project{ID: "proj"},
+		Jig:         "plan",
+		Status:      "research",
+		Created:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		PinnedBeads: []string{"hk-cb-001", "hk-cb-002", "hk-cb-001"},
+	}
+
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected duplicate-ID error from Validate, got nil")
+	}
+
+	// Write must also surface the error.
+	dir := t.TempDir()
+	if err := Write(filepath.Join(dir, "spec.yaml"), s); err == nil {
+		t.Fatal("expected duplicate-ID error from Write, got nil")
+	}
+}
+
+// TestBackwardCompatibility_NoPinnedBeads asserts that reading a legacy
+// spec.yaml (no `pinned_beads:` key) returns a non-nil empty slice, so
+// downstream code can iterate without a nil check.
+func TestBackwardCompatibility_NoPinnedBeads(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	content := []byte(`codename: legacy
+type: plan
+project:
+    id: proj
+jig: plan
+status: research
+created: 2026-01-01T00:00:00Z
+updated: 2026-01-01T00:00:00Z
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.PinnedBeads == nil {
+		t.Error("expected non-nil empty PinnedBeads for legacy spec, got nil")
+	}
+	if len(got.PinnedBeads) != 0 {
+		t.Errorf("PinnedBeads length = %d, want 0", len(got.PinnedBeads))
+	}
+}
+
+// bytesContains is a tiny helper to avoid pulling in `bytes` for one
+// substring check in a file that already imports nothing from there.
+func bytesContains(haystack, needle []byte) bool {
+	if len(needle) == 0 {
+		return true
+	}
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		match := true
+		for j := range needle {
+			if haystack[i+j] != needle[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}

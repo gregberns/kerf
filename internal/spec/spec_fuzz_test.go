@@ -30,6 +30,21 @@ project:
 created: 2026-01-01T00:00:00Z
 updated: 2026-01-01T00:00:00Z
 `))
+	// Plan 009 / B3: seed including pinned_beads.
+	f.Add([]byte(`codename: with-pins
+type: plan
+status: research
+jig: plan
+jig_version: 1
+status_values: [research]
+project:
+  id: p
+created: 2026-01-01T00:00:00Z
+updated: 2026-01-01T00:00:00Z
+pinned_beads:
+  - hk-cb-001
+  - hk-cb-042
+`))
 	f.Add([]byte(`{{{`))
 	f.Add([]byte(`codename: [broken`))
 	f.Add([]byte(``))

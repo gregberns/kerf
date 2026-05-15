@@ -48,6 +48,7 @@ func TestProperty_YAMLRoundTrip(t *testing.T) {
 				Relationship: "inform",
 			},
 		},
+		PinnedBeads: []string{"hk-cb-001", "hk-cb-042"},
 		Implementation: Implementation{
 			Branch:  &branch,
 			PR:      &pr,
@@ -140,6 +141,15 @@ func TestProperty_YAMLRoundTrip(t *testing.T) {
 	if len(roundTripped.Implementation.Commits) != 2 {
 		t.Error("Implementation.Commits mismatch")
 	}
+	// PinnedBeads (Plan 009 / B3)
+	if len(roundTripped.PinnedBeads) != 2 {
+		t.Fatalf("PinnedBeads len = %d, want 2", len(roundTripped.PinnedBeads))
+	}
+	for i, want := range original.PinnedBeads {
+		if roundTripped.PinnedBeads[i] != want {
+			t.Errorf("PinnedBeads[%d] = %q, want %q", i, roundTripped.PinnedBeads[i], want)
+		}
+	}
 }
 
 func TestProperty_YAMLRoundTrip_NilOptionalFields(t *testing.T) {
@@ -172,6 +182,11 @@ func TestProperty_YAMLRoundTrip_NilOptionalFields(t *testing.T) {
 	}
 	if roundTripped.ActiveSession != nil {
 		t.Error("ActiveSession should be nil")
+	}
+	// PinnedBeads is normalized to non-nil empty slice on Read, regardless
+	// of whether it was specified on Write (Plan 009 / B3).
+	if roundTripped.PinnedBeads == nil {
+		t.Error("PinnedBeads should be non-nil empty slice after round-trip")
 	}
 }
 
