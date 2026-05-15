@@ -172,6 +172,16 @@ bead_filter:                            # object, optional
     - label: "codename:claude-hook-bridge"
     - id_prefix: "hk-cb"
 
+# Explicit per-bead pins — see coordination.md#pin-layer
+# Optional. A list of bead IDs that attach to this work in addition to whatever
+# the resolved bead_filter matches. Pins are a single-owner layer: a bead ID
+# appears in at most one work's `pinned_beads` list across the project. Pinning
+# a bead to this work removes it from any other work's list (see
+# commands.md#kerf-pin).
+pinned_beads:                           # list of strings, optional (empty list default)
+  - hk-cb-042
+  - hk-cb-099
+
 # Dependencies — see dependencies.md for full details
 depends_on:                             # list of dependency objects, optional (empty list default)
   - codename: database-migration        # string, required — codename of dependency
@@ -210,6 +220,7 @@ implementation:                         # object, optional
 | `depends_on` | list\<dependency\> | no | `[]` | yes | Work dependencies. See [dependencies](dependencies.md). |
 | `related_to` | list\<relationship\> | no | `[]` | yes | Cross-work relationships beyond dependencies (e.g., co-design). See [coordination](coordination.md). |
 | `bead_filter` | object | no | — | yes | Per-work override for which beads attach to this work. See [coordination](coordination.md#bead-attachment). |
+| `pinned_beads` | list\<string\> | no | `[]` | yes | Explicit bead IDs attached to this work. Single-owner: a bead ID appears in at most one work's `pinned_beads` across the project. See [coordination](coordination.md#pin-layer) and [commands.md](commands.md#kerf-pin). |
 | `implementation` | object | no | `{branch: null, pr: null, commits: []}` | yes | Populated at [finalization](finalization.md). |
 
 ### Immutability Rules

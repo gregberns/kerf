@@ -59,7 +59,7 @@ Create a new [work](works.md) on the bench.
 ### Syntax
 
 ```
-kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <name>...] [--project <project-id>]
+kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <name>...] [--bead-filter <expr>] [--project <project-id>]
 ```
 
 ### Arguments and Flags
@@ -71,6 +71,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 | `--type` | No | Matches jig name | Work type (e.g., `feature`, `bug`). |
 | `--jig` | No | `default_jig` from config.yaml (required if `default_jig` unset) | Jig to use for this work. Resolved via jig resolution order (see [jig-system.md](jig-system.md)). |
 | `--area` | No | `[]` | One or more area names to associate with the work. May be repeated (e.g., `--area auth --area api`). Each name must exist in `areas.yaml`. |
+| `--bead-filter` | No | — | A single bead-filter clause to write into the new work's `spec.yaml` as its per-work `bead_filter`. Accepts either `label=<value>` or `id_prefix=<value>` (e.g., `--bead-filter 'label=subsystem:bridge'`). Repeating the flag composes a union (`any:`) of the supplied clauses. See [coordination.md](coordination.md#bead-attachment). |
 | `--project` | No | Inferred from `.kerf/project-identifier` | Project to create the work under. |
 
 ### Behavior
@@ -84,7 +85,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 3. **Resolve codename.** If no codename argument is provided, auto-generate an `adjective-noun` slug (e.g., `blue-bear`, `swift-maple`). Validate the codename format. Error if a work with this codename already exists in the project.
 4. **Resolve jig.** Look up the jig via the resolution order (see [jig-system.md](jig-system.md)). Error if the jig is not found.
 5. **Create the work directory** at the location dictated by the project's storage mode: `~/.kerf/projects/{project-id}/{codename}/` in bench mode, or `{repo}/.kerf/works/{codename}/` in local mode. If local mode is active and the bench symlink at `~/.kerf/projects/{project-id}` does not yet exist, kerf creates it pointing at `{repo}/.kerf/works/`. See [architecture.md](architecture.md#storage-modes).
-6. **Initialize `spec.yaml`** with: codename, title, type, project ID, jig name, jig version, initial status (first value in the jig's `status_values`), `created` and `updated` timestamps, empty `sessions` list, empty `depends_on` list, empty `related_to` list, null `implementation` fields, the jig's `status_values` list, and the `areas` list from `--area` flags (empty if none provided).
+6. **Initialize `spec.yaml`** with: codename, title, type, project ID, jig name, jig version, initial status (first value in the jig's `status_values`), `created` and `updated` timestamps, empty `sessions` list, empty `depends_on` list, empty `related_to` list, null `implementation` fields, the jig's `status_values` list, the `areas` list from `--area` flags (empty if none provided), an empty `pinned_beads` list, and — when `--bead-filter` is given — a `bead_filter` value built from the supplied clause(s). A single `--bead-filter` clause is written as a direct clause; multiple `--bead-filter` flags are written as an `any:` union (see [coordination.md](coordination.md#bead-attachment)). Drift baseline is not advanced (see [coordination.md](coordination.md#baseline-advancement)).
 7. **Check area overlap.** If `--area` flags were provided, scan other active (non-archived) works in the project for overlapping areas. If any other work shares an area, emit an overlap warning in the output (see Output below). This is informational — it does not block creation.
 8. **Record session.** Append a session entry to `sessions` with the current timestamp and `ended: null`. Set `active_session`.
 9. **Take a snapshot** of the initial state (see [snapshots.md](snapshots.md)).
@@ -110,6 +111,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 | Codename format invalid | `Error: codename must be lowercase alphanumeric and hyphens (matching [a-z0-9]+(-[a-z0-9]+)*).` |
 | Jig not found | `Error: jig '{name}' not found. Run 'kerf jig list' to see available jigs.` |
 | Area name not in `areas.yaml` | `Error: area '{name}' not found. Run 'kerf areas list' to see defined areas, or 'kerf areas add <name>' to create one.` |
+| `--bead-filter` value does not parse as `label=<value>` or `id_prefix=<value>` | `Error: --bead-filter expects 'label=<value>' or 'id_prefix=<value>', got '{value}'.` |
 | `default_jig` unset and no `--jig` flag | See First-Run Onboarding below. |
 
 ### First-Run Onboarding
@@ -247,6 +249,20 @@ The output includes:
   Beads: 7 total, 3 closed, 4 open, 1 with unresolved review feedback
   ```
   If no beads exist, this section is omitted.
+- **Attached beads** (when the work has any beads attached by filter or pin): a per-bead listing, sourced from the resolved `bead_filter` (see [coordination.md](coordination.md#bead-attachment)) composed with the work's `pinned_beads` list (see [coordination.md](coordination.md#pin-layer)). Open beads come first, then closed beads. Each line carries the bead ID, status, title, and any drift markers computed against the cached baseline (see [coordination.md](coordination.md#drift-detection)). Pinned beads are annotated `(pinned)`.
+
+  ```
+  Attached beads (4 open / 3 closed):
+    hk-cb-042  open    wire retry into adapter
+    hk-cb-051  open    extract header parser
+    hk-cb-099  open    investigate flaky timeout                   (pinned)
+    hk-cb-101  open    add idempotency guard                       ! closed externally since last triage
+    hk-cb-030  closed  scaffold adapter
+    hk-cb-031  closed  swap stub for real client
+    hk-cb-040  closed  add retry envelope                          ! reopened externally since last triage
+  ```
+
+  Drift markers correspond to the categories in [coordination.md](coordination.md#drift-categories): `! closed externally since last triage`, `! reopened externally since last triage`, `! deleted externally since last triage`, `! new since last triage`. When no baseline exists, drift markers are omitted. When the work has zero attached beads, this section is omitted (the `Bead status` line above already covers the empty case).
 - **Commands block**: contextually relevant next actions:
 
 ```
@@ -1483,6 +1499,9 @@ Every item carries a `kind` and a `target`:
    - **Warning detectors** — project-level state checks. v1 detectors:
      - Unmatched beads: any beads in the store that match no work's filter. Surfaced once as a single warning item.
      - Filter literal yields zero matches: when the project-wide `bead_filter`'s literal prefix matches nothing in the bead store, surface a warning suggesting a case-mismatch check (e.g., `Subsystem:` vs `subsystem:`). Matching is case sensitive — see [coordination.md](coordination.md#bead-attachment).
+     - `untriaged_beads`: count of beads matching no work's filter and not pinned. Equivalent to the unmatched-beads count; rendered as part of the drift summary line below rather than as a separate warning block when a baseline exists.
+     - `multi_matched`: count of beads matching more than one work's filter and not resolved by a pin. See [coordination.md](coordination.md#drift-categories).
+     - `external_drift`: aggregated count of beads classified as `external_close`, `external_reopen`, `external_delete`, or `external_new` since the last drift baseline. See [coordination.md](coordination.md#drift-detection).
 4. **Exclude** items per kind:
    - `bead` items are excluded when their target work is blocked by an unmet `must-complete-first` dependency, archived, or finalized. Dependency gating remains strict on jig status — see [dependencies.md](dependencies.md). The bead-done-but-status-stale case is intentionally surfaced as a `cleanup` item rather than auto-clearing dependency gates.
    - `cleanup` items are excluded only when their target work is archived or finalized. A blocked work still surfaces its cleanup items — those items are how the user resolves the block.
@@ -1520,7 +1539,15 @@ Each line shows rank, kind, target identifier, title or reason, and (for `bead` 
 
 Text output is for humans (and for an agent reading it as prose at the top of a cycle). It is not a parsing contract: column positions, spacing, and exact phrasing may change between versions. Agents or scripts that need stable structured output use `--format=json`.
 
-When unmatched beads are present, the feed prepends a warning block:
+When drift counters are non-zero, the feed prepends a one-line drift summary above any warning block:
+
+```
+! 6 untriaged beads · ! 2 beads multi-matched · ! 1 bead changed externally — run 'kerf triage'
+```
+
+Each segment is omitted when its count is zero; the whole line is omitted when all three counts are zero. The segments correspond to the `untriaged_beads`, `multi_matched`, and `external_drift` detectors above. The summary line is the agent's pull signal that `kerf triage` has new work to surface — it appears whether or not the agent is invoking `kerf triage` directly.
+
+When unmatched beads are present and the drift-summary line is rendered, the older "warning: N beads match no work" line is omitted from the same invocation (the drift-summary `untriaged` segment covers it). When no baseline has been recorded and the drift-summary line is suppressed, the legacy warning is still emitted:
 
 ```
 warning: 12 beads match no work — check bead_filter in project.yaml
@@ -1568,6 +1595,307 @@ Changes to this help text require a spec change.
 | No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
 | Unknown kind in `--only`/`--include`/`--kinds` | `Error: unknown item kind '{value}'. Known kinds: {list of kinds from the current build}.` |
 | Unknown value in `--format` | `Error: unknown format '{value}'. Supported: text, json.` |
+
+---
+
+## `kerf triage`
+
+### Purpose
+
+A single drift report for the project's bead store. `kerf triage` is the agent's closed loop for reconciling kerf's view of the bead store with what is actually there: beads added, relabeled, closed, reopened, or deleted by other tools since the last acknowledged baseline. The output sections, exit codes, and `--ack`/`--resolved` flags compose so an agent can loop `until kerf triage --resolved; do <act>; done` and terminate.
+
+Triage reads bead state and the drift baseline at `.kerf/sync-cache.json` (see [coordination.md](coordination.md#drift-detection)). It does not mutate the baseline except on `--ack`.
+
+### Syntax
+
+```
+kerf triage [--resolved] [--ack] [--kind <kind>...] [--format <format>] [--project <project-id>]
+```
+
+### Item kinds
+
+Every triage item carries a `kind` and a `target`:
+
+| kind | target | meaning |
+|------|--------|---------|
+| `untriaged` | a bead | A bead matches no work's filter and is not pinned. Suggested action: a `kerf new`, `kerf work edit --bead-filter-add`, or `kerf pin` command. |
+| `multi_matched` | a bead | A bead matches more than one work's filter and is not pinned to disambiguate. Suggested action: `kerf pin <codename> <bead-id>` or narrow a filter via `kerf work edit --bead-filter-remove`. |
+| `external_drift` | a bead | A bead's status changed externally since the last acknowledged baseline. Sub-kinds: `external_close`, `external_reopen`, `external_delete`, `external_new`. Suggested action: investigate, then `kerf triage --ack`. |
+
+The `--kind` flag selects which kinds are shown; see Flags below.
+
+### Flags
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--resolved` | No | `false` | Exit-code mode (see Exit codes). With `--resolved`, kerf still emits the report so an agent loop can capture the latest state; the load-bearing piece is the exit code. |
+| `--ack` | No | `false` | Acknowledge the current bead-store snapshot as the new drift baseline. Writes `.kerf/sync-cache.json`. No other state changes. Mutually exclusive with `--resolved`. |
+| `--kind <kind>` | No | All kinds | Repeatable. Show only items of this kind. Accepts `untriaged`, `multi_matched`, `external_drift` (or any `external_*` sub-kind). |
+| `--format <format>` | No | `text` | Output format. `text` (default) or `json`. |
+| `--project <project-id>` | No | Inferred from cwd | Show triage for this project. |
+
+`--resolved` and `--ack` cannot be combined.
+
+### Behavior
+
+1. Resolve the project ID. If `project.yaml` is absent, exit 1 with the `not_initialized` kind (see Errors).
+2. Read the current bead-store snapshot via the configured bead tool.
+3. Read the drift baseline at `.kerf/sync-cache.json`. A missing or empty file is treated as an empty baseline.
+4. Compute filter resolution for every active work (see [coordination.md](coordination.md#resolution-order)) composed with the pin layer (see [coordination.md](coordination.md#pin-layer)). Classify each current bead:
+   - Pinned to a work → attached to that work only; not eligible for `multi_matched`.
+   - Matches no work's filter and not pinned → `untriaged`.
+   - Matches more than one work's filter and not pinned → `multi_matched`.
+5. Compute drift categories by diffing current snapshot against baseline (see [coordination.md](coordination.md#drift-categories)).
+6. If `--kind` is given, filter the item list to the selected kinds.
+7. Render the report.
+8. **If `--ack` was given**: capture the current snapshot, write it to `.kerf/sync-cache.json`, replacing the previous baseline. Items already rendered are still listed in the report; only the cache file is mutated.
+9. **If `--resolved` was given**: compute the exit code per the table below and exit.
+
+`kerf triage` does not mutate works, `spec.yaml` files, or beads — only `.kerf/sync-cache.json` (on `--ack`).
+
+### Output (default: compact text)
+
+The text report is structured by section. Sections with zero items are omitted.
+
+```
+Triage for {project-id} (baseline: 2026-05-13T09:14:00Z, 5 days ago):
+
+Untriaged beads (3):
+  hk-cb-077  open  "audit log rotation"      labels: subsystem:audit
+    suggest: kerf new audit --bead-filter 'label=subsystem:audit'
+  hk-cb-078  open  "rotate audit secrets"    labels: subsystem:audit
+    suggest: kerf work edit audit --bead-filter-add 'label=subsystem:audit'
+  hk-cb-091  open  "investigate timeout"     labels: -
+    suggest: kerf pin <codename> hk-cb-091
+
+Multi-matched beads (1):
+  hk-cb-064  open  "shared header parser"    matches: bridge, gateway
+    suggest: kerf pin bridge hk-cb-064
+
+External changes since last triage (2):
+  hk-cb-040  closed  "add retry envelope"     was open at baseline
+  hk-cb-101  deleted "old idempotency probe"  present at baseline, gone now
+
+Per-work bead health:
+  bridge   filter: label=subsystem:bridge   beads: 4 open / 3 closed
+  gateway  filter: label=subsystem:gateway  beads: 0 open / 0 closed   (no attached beads)
+
+Next:
+  Address surfaced items, then run 'kerf triage --ack' to advance the baseline.
+  Re-run 'kerf triage --resolved' to confirm the project is clean.
+```
+
+Each per-bead suggestion is a templated, ready-to-paste command. Agents copy literally rather than synthesizing. The chosen template for each kind:
+
+- `untriaged` — `kerf new <suggested-codename> --bead-filter '<clause derived from the bead's labels>'` for new buckets; otherwise `kerf work edit <existing-codename> --bead-filter-add '<clause>'` when a closely-named work exists; otherwise `kerf pin <codename> <bead-id>`.
+- `multi_matched` — `kerf pin <codename> <bead-id>` for the lexicographically-earliest matching codename (single deterministic suggestion).
+- `external_drift` — informational; the remediation is `kerf triage --ack` after the agent investigates.
+
+When no items exist, the output says so and prints the baseline timestamp:
+
+```
+Triage for {project-id} (baseline: 2026-05-15T11:02:00Z, 0 days ago):
+  No untriaged, multi-matched, or externally-changed beads. Project is clean.
+```
+
+### Output (`--format=json`)
+
+`--format=json` emits one record per surfaced item, in section order (untriaged → multi_matched → external_drift). Field names are snake_case. The item shape:
+
+```
+{
+  "kind":          "<untriaged | multi_matched | external_drift>",
+  "sub_kind":      "<external_close | external_reopen | external_delete | external_new | null>",
+  "bead_id":       "<id>",
+  "title":         "<bead title>",
+  "status":        "<bead status>",
+  "labels":        ["..."],
+  "work_codenames": ["..."],
+  "suggest":       "<ready-to-paste command or null>",
+  "reason":        "<one-line explanation>"
+}
+```
+
+`sub_kind` is populated only for `external_drift` items; `null` otherwise. `work_codenames` carries the matching works for `multi_matched`; for `untriaged` it is `[]`; for `external_drift` it reflects the bead's current filter-resolved attachment (post-pin).
+
+The report's baseline timestamp and per-work bead-health summary are emitted as a header object preceding the item stream:
+
+```
+{
+  "baseline_captured_at": "2026-05-13T09:14:00Z",
+  "works": [
+    { "codename": "bridge",  "filter": "label=subsystem:bridge",  "open": 4, "closed": 3 },
+    { "codename": "gateway", "filter": "label=subsystem:gateway", "open": 0, "closed": 0 }
+  ],
+  "items": [ /* records as above */ ]
+}
+```
+
+### Exit codes
+
+`kerf triage` (without `--resolved`) exits 0 on a successful report, 1 on error. With `--resolved`, the exit code reflects drift state:
+
+| Condition | Exit |
+|-----------|------|
+| Untriaged == 0, multi_matched == 0, external_drift == 0 | 0 |
+| Bead store unreadable, project not initialized (`kind: not_initialized`), or other error | 1 |
+| Non-zero drift, drift count decreased compared to the previous `--resolved` run | 3 |
+| Non-zero drift, no progress since the previous `--resolved` run | 2 |
+
+Exit 3 is the "made progress" signal so that a loop of the form `until kerf triage --resolved; do <act>; done` terminates: an agent that sees two consecutive exit-3 runs with identical drift sets should break out and ask for human help rather than spin. Exit 2 indicates the same drift set the agent already saw — repeating the act-then-retry cycle without changing approach will not converge.
+
+The "previous run" comparison is in-memory across a single agent loop; kerf does not persist exit-3 history.
+
+### Help text
+
+`kerf triage --help` covers, in fixed order: what triage returns (drift report), the three item kinds with one-line meanings, the `--resolved` exit-code semantics including the stuck-loop guidance, and `--ack` as the only baseline-advancement command. Changes to the help text require a spec change.
+
+### Errors
+
+| Condition | Message | Exit |
+|-----------|---------|------|
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` | 1 |
+| `project.yaml` absent | `Error: project not initialized. Run 'kerf init' first.` (`kind: not_initialized` in JSON output) | 1 |
+| Bead store unreadable | `Error: cannot read bead store: {detail}.` | 1 |
+| `--resolved` and `--ack` both given | `Error: --resolved and --ack are mutually exclusive.` | 1 |
+| Unknown value in `--kind` | `Error: unknown triage kind '{value}'. Known kinds: untriaged, multi_matched, external_drift.` | 1 |
+| Unknown value in `--format` | `Error: unknown format '{value}'. Supported: text, json.` | 1 |
+
+A non-zero exit from a not-yet-initialized project is *not* "drift exists" — the agent reads the `kind: not_initialized` signal and runs `kerf init` before retrying.
+
+---
+
+## `kerf pin`
+
+### Purpose
+
+Attach a specific bead to a specific work by ID, regardless of filter outcome. `kerf pin` is the escape hatch for the case where a bead cannot reasonably be caught by any filter clause, or where a multi-matched bead needs to be resolved to a single owner. See [coordination.md](coordination.md#pin-layer).
+
+Pins are a single-owner layer: pinning a bead to one work removes it from every other work's pin list as part of the same operation. Filter resolution is unchanged — pins ride on top.
+
+### Syntax
+
+```
+kerf pin <codename> <bead-id> [--project <project-id>]
+```
+
+### Arguments and Flags
+
+| Argument/Flag | Required | Default | Description |
+|---------------|----------|---------|-------------|
+| `codename` | Yes | — | The work the bead is being pinned to. |
+| `bead-id` | Yes | — | The bead ID to pin. |
+| `--project` | No | Inferred from cwd | The project containing the work. |
+
+### Behavior
+
+1. Resolve the project ID.
+2. Read the target work's `spec.yaml`. Error if the work does not exist.
+3. If the bead ID is already in the target work's `pinned_beads`, exit 0 with a no-op message.
+4. Scan every other active (non-archived) work's `spec.yaml` for the bead ID in `pinned_beads`. For each match, remove the bead ID from that work's list and update its `updated` timestamp. This enforces the single-owner invariant.
+5. Append the bead ID to the target work's `pinned_beads` list.
+6. Update the target work's `updated` timestamp.
+7. Take a [snapshot](snapshots.md) of the target work (and of any other work whose `pinned_beads` list changed).
+
+The drift baseline is not advanced (see [coordination.md](coordination.md#baseline-advancement)).
+
+### Output
+
+```
+Pinned hk-cb-091 to bridge.
+```
+
+If the pin moved the bead from another work:
+
+```
+Pinned hk-cb-091 to bridge (removed from gateway).
+```
+
+If the bead was already pinned to the target work:
+
+```
+hk-cb-091 is already pinned to bridge. No change.
+```
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| Work not found | `Error: work '{codename}' not found in project '{project-id}'.` |
+| Bead ID format invalid | `Error: bead ID '{value}' is not a valid identifier.` |
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+
+kerf does not validate that the bead ID exists in the bead store — pin is a kerf-side declaration. A pin pointing at a missing bead surfaces through normal drift detection as the bead being absent.
+
+---
+
+## `kerf work edit`
+
+### Purpose
+
+Edit a work's bead-attachment configuration in place. `kerf work edit` mutates the work's `spec.yaml` — primarily the `bead_filter` — without forcing the user to hand-edit YAML. It is the primary remediation path when a work's filter is too narrow (the `work_no_attached_beads` cleanup item) or too broad (a bead surfaces as `multi_matched`).
+
+### Syntax
+
+```
+kerf work edit <codename> [--bead-filter-add <clause>...] [--bead-filter-remove <clause>...] [--project <project-id>]
+```
+
+### Arguments and Flags
+
+| Argument/Flag | Required | Default | Description |
+|---------------|----------|---------|-------------|
+| `codename` | Yes | — | The work to edit. |
+| `--bead-filter-add <clause>` | No | — | Repeatable. Add a clause to the work's `bead_filter`. Accepts `label=<value>` or `id_prefix=<value>`. |
+| `--bead-filter-remove <clause>` | No | — | Repeatable. Remove a clause from the work's `bead_filter`. Accepts `label=<value>` or `id_prefix=<value>`. The value must match an existing clause exactly. |
+| `--project` | No | Inferred from cwd | The project containing the work. |
+
+At least one of `--bead-filter-add` or `--bead-filter-remove` is required.
+
+### Behavior
+
+1. Resolve the project ID.
+2. Read the target work's `spec.yaml`. Error if the work does not exist.
+3. Read the current `bead_filter` value. The starting state:
+   - Missing → empty clause set.
+   - Direct clause (e.g., `label: "subsystem:bridge"`) → single-clause set.
+   - `any:` union → the listed clauses.
+4. Apply removals first, then additions. Removals match clauses by exact type and value. A removal that finds no matching clause is a warning, not an error.
+5. Re-emit `bead_filter` in canonical form:
+   - Zero clauses remain → remove the `bead_filter` key entirely; the work falls back to project filter then built-in default (see [coordination.md](coordination.md#resolution-order)).
+   - One clause → direct clause form.
+   - Two or more clauses → `any:` union form.
+6. Preserve user comments and field ordering in `spec.yaml` where the YAML library permits round-trip.
+7. Update the work's `updated` timestamp and take a [snapshot](snapshots.md).
+
+The drift baseline is not advanced (see [coordination.md](coordination.md#baseline-advancement)).
+
+### Output
+
+```
+Updated bead_filter for {codename}:
+  + label=subsystem:audit
+  - label=subsystem:gateway
+
+Now matches: 5 beads (was: 2 beads).
+```
+
+The match-count delta is informational. When the filter is removed entirely (zero clauses remain), the output notes the fallback to the project filter or built-in default.
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| Work not found | `Error: work '{codename}' not found in project '{project-id}'.` |
+| Neither `--bead-filter-add` nor `--bead-filter-remove` given | `Error: at least one of --bead-filter-add or --bead-filter-remove is required.` |
+| Clause value does not parse as `label=<value>` or `id_prefix=<value>` | `Error: clause '{value}' does not parse. Expected 'label=<value>' or 'id_prefix=<value>'.` |
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+
+A `--bead-filter-remove` clause that matches no existing clause emits a warning but does not error:
+
+```
+Warning: --bead-filter-remove 'label=subsystem:legacy' did not match any existing clause. No change for that clause.
+```
 
 ---
 

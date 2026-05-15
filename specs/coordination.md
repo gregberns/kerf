@@ -243,6 +243,8 @@ When attaching beads for a given work, kerf resolves the filter in this order �
 
 A filter resolution is per-call; no caching.
 
+Pins (see [Pin Layer](#pin-layer) below) compose with filter resolution as a separate layer applied after the filter resolves. A bead pinned to work A is excluded from the resolved filter match of every other work, so it appears under A only. The "first hit wins, filters do not merge" rule above is unaffected — pins are not a filter.
+
 #### Multiple matches
 
 A bead may match the filters of more than one work. In that case it counts for each — bead attachment is a many-to-many relation, and downstream computations (queue scoring, bead progress in `kerf map`) see the bead under every work it matches.
@@ -250,6 +252,110 @@ A bead may match the filters of more than one work. In that case it counts for e
 #### Unmatched beads
 
 A bead that matches no work's filter is **unmatched**. Unmatched beads are not an error — they may belong to other tooling, may be in flight, or may indicate a misconfigured filter. kerf surfaces them as a project-level warning item in `kerf next` (see [commands.md](commands.md#kerf-next)) so the user can decide whether to adjust the filter or ignore them.
+
+An unmatched bead is a candidate for triage: `kerf triage` reports it as `untriaged` and offers ready-to-paste remediation commands (see [commands.md](commands.md#kerf-triage)). The `untriaged_beads` triage category and the project-wide unmatched-beads warning describe the same set of beads viewed from two angles — the warning surfaces existence; triage surfaces remediation. They do not double-fire: when triage output is rendered, the warning's count line is omitted from the same `kerf next` invocation.
+
+The `work_no_attached_beads` cleanup detector (a work whose filter matches zero beads) and `untriaged_beads` (a bead matching no work) are complementary — they describe inverse zero-match conditions. They do not double-fire on the same work: a work with a zero-match filter surfaces only as `work_no_attached_beads`; the beads that fail to match are surfaced as `untriaged` items attributed to no specific work.
+
+### Pin Layer
+
+The **pin layer** attaches specific bead IDs to specific works regardless of filter outcome. Each work's `spec.yaml` carries a `pinned_beads:` list (see [works.md](works.md)). Pins exist for the case where a bead cannot reasonably be caught by any filter clause and editing the filter would over-broaden it.
+
+#### Composition with filter resolution
+
+Pins apply *after* filter resolution. For a given bead:
+
+1. The filter for each work is resolved per [Resolution order](#resolution-order) above and produces a candidate set of matching works.
+2. If the bead ID appears in any work's `pinned_beads`, the bead's attachment is restricted to that single pinning work. The bead is removed from every other work's filter-resolved match.
+3. If the bead ID is not pinned, the filter-resolved candidate set stands. The bead may attach to multiple works (see [Multiple matches](#multiple-matches)).
+
+The filter rule is unchanged: filters do not merge. The pin layer rides on top.
+
+#### Single-owner invariant
+
+A bead ID appears in at most one work's `pinned_beads` list across the entire project. Pinning bead B to work A removes B from any other work's `pinned_beads` list as part of the same operation — pins are *not* additive. This is what lets `kerf triage --resolved` converge: an additive pin layer would loop forever on a bead whose filter overlap cannot be narrowed.
+
+A pinned bead is never reported as multi-matched, even if its filter matches multiple works. The pin is the answer.
+
+See [commands.md](commands.md#kerf-pin) for the `kerf pin` command that mutates pin state.
+
+### Drift Detection
+
+kerf reads bead state from the beads system on every invocation, but a project's bead store evolves independently of kerf: beads are added, relabeled, closed, reopened, deleted by other tools. **Drift detection** records what kerf has previously acknowledged about the bead store and surfaces changes since that baseline.
+
+Drift detection is the data layer that powers `kerf triage` (see [commands.md](commands.md#kerf-triage)) and the drift summary line at the top of `kerf next`.
+
+#### Sync cache
+
+Drift state lives in the project-local file `.kerf/sync-cache.json` (registered in [architecture.md](architecture.md#in-the-repo-inside-git)). The file holds a single snapshot — the **baseline** — representing the last bead-store state the project acknowledged via `kerf triage --ack`.
+
+A missing or empty `.kerf/sync-cache.json` is treated as an empty baseline: every current bead reads as "new since baseline," and the first `kerf triage` run becomes a full inventory pass.
+
+#### Snapshot shape
+
+```json
+{
+  "snapshot_id": "<sha256 of sorted per-bead hashes>",
+  "captured_at": "2026-05-15T12:34:56Z",
+  "beads": {
+    "hk-cb-042": {
+      "status": "open",
+      "labels": ["subsystem:bridge", "priority:p1"],
+      "title": "wire retry into adapter",
+      "deps": ["hk-cb-040"],
+      "hash": "<sha256 of the fields above>"
+    }
+  },
+  "filter_assignments": {
+    "hk-cb-042": ["bridge"]
+  }
+}
+```
+
+- `snapshot_id` — sha256 of the per-bead hashes concatenated in sorted-by-id order. Cheap to recompute, lets the cache itself be a content-addressed signature.
+- `captured_at` — RFC 3339 timestamp of when the baseline was written.
+- `beads` — keyed by bead ID. The recorded fields are the only ones kerf consumes.
+- `filter_assignments` — for each bead in the snapshot, the list of work codenames it was attached to at baseline time. Used to detect that a bead's attached works changed (e.g., a label edit moved it between works).
+
+#### Hash scope
+
+The per-bead `hash` covers the kerf-consumed fields only:
+
+1. The bead's status (e.g., `open`, `closed`, `in-progress`).
+2. The bead's labels, sorted lexicographically.
+3. The bead's title.
+4. The bead's dependency list (other bead IDs it depends on), sorted lexicographically.
+
+Other fields the beads system may carry (assignees, custom metadata, timestamps not visible to kerf) are not part of the hash. This keeps the hash stable across changes kerf does not act on, and avoids a forced re-triage every time the bead system adds a field.
+
+#### Drift categories
+
+When kerf compares the current bead store to the baseline, it classifies each difference into one of:
+
+- **`untriaged`** — a bead in the current store that matches no work's filter and is not pinned. The bead may be new since baseline, or may have existed at baseline with a label that matched a filter that has since been edited away.
+- **`multi_matched`** — a bead in the current store that matches more than one work's filter and is not pinned to resolve the ambiguity.
+- **`external_close`** — a bead present at baseline and at current with status differing such that it closed externally.
+- **`external_reopen`** — a bead present at baseline as closed, now open again at current.
+- **`external_delete`** — a bead present at baseline, absent at current.
+- **`external_new`** — a bead absent at baseline, present at current.
+
+`untriaged` and `multi_matched` are computed from the current store alone (no baseline needed). The four `external_*` categories require the baseline to compute.
+
+#### Baseline advancement
+
+The baseline advances only on `kerf triage --ack` (see [commands.md](commands.md#kerf-triage)). On `--ack`, kerf captures the current snapshot and writes it to `.kerf/sync-cache.json`, replacing whatever was there.
+
+The baseline does **not** advance implicitly. Commands that change kerf-side state — `kerf new`, `kerf pin`, `kerf work edit`, `kerf status` — leave the baseline untouched. Drift surfaces stay sticky until the agent acknowledges them. Implicit advancement would let drift silently rebaseline on routine commands, hiding external changes the agent never saw.
+
+#### Composition with other detectors
+
+The drift categories listed above coexist with the existing `kerf next` warning detectors (see [commands.md](commands.md#kerf-next)):
+
+- The `untriaged_beads` triage category and the project-wide unmatched-beads warning describe the same set; the drift-summary line at the top of `kerf next` reports the count, and the lower warning block is omitted when the drift-summary line is present.
+- The `multi_matched` triage category drives a new `multi_matched` warning kind on `kerf next`.
+- The four `external_*` categories drive a single `external_drift` warning kind on `kerf next` (counts aggregated; details belong in `kerf triage`).
+
+These compose with `work_no_attached_beads` per the rule above: a zero-match work surfaces only as a cleanup item, and the inverse zero-match beads surface only as `untriaged`. The two detectors do not double-fire on the same work.
 
 ### Information Flow
 

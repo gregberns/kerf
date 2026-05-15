@@ -283,8 +283,18 @@ The bench (`~/.kerf/`) and the repository are separate domains with a defined in
 
 - `.kerf/project-identifier` — the project ID file
 - `.kerf/config.yaml` — repo configuration, when present (declares storage mode)
+- `.kerf/sync-cache.json` — drift-detection cache (see below)
 - Finalized work artifacts placed by `kerf finalize`
 - In local mode: `.kerf/works/`, `.kerf/project.yaml`, `.kerf/areas.yaml`
+
+### Project-local infrastructure files
+
+Two files in the repo's `.kerf/` directory hold kerf's per-project runtime state. Both are peer to `.kerf/project-identifier` and live inside git in every storage mode:
+
+- **`.kerf/project-identifier`** — the project ID. Committed.
+- **`.kerf/sync-cache.json`** — the drift baseline: the last bead-store snapshot kerf has acknowledged for this project. Used by `kerf triage` to detect external changes since the last triage pass. See [coordination.md](coordination.md#drift-detection) for the snapshot shape and update rules. Whether this file is committed is a project choice; kerf treats a missing cache as an empty baseline.
+
+In both storage modes, `.kerf/sync-cache.json` lives in the repo (not on the bench), so that worktrees of the same repo do not share drift baselines across branches. In local mode it sits alongside the rest of `.kerf/`; in bench mode it is the second project-local file in the repo (the first being `.kerf/project-identifier`).
 
 ### Storage-mode placement
 
