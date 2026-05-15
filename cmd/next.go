@@ -138,6 +138,13 @@ func runNext(cmd *cobra.Command) error {
 		}
 		works = append(works, s)
 		workCreated[s.Codename] = s.Created
+		// Per specs/_index.md Invariant 5, status is an open string: the CLI
+		// warns on unrecognized values but does not enforce. An unknown status
+		// (i.e. one not in the work's status_values) must NOT cause the work
+		// to be dropped from the feed — it is treated as still actionable.
+		// We therefore exclude only on the literal terminal sentinel
+		// "finalized"; anything else (known intermediate values or unknown
+		// strings) remains visible. See Bead kerf-1dm (Plan 008 / B4).
 		if s.Status == "finalized" {
 			archivedOrFinalized[s.Codename] = true
 		}

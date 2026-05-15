@@ -431,6 +431,91 @@ func TestRunNext_SingleWorkTextProducesRanking(t *testing.T) {
 	}
 }
 
+// --- runNext: unknown status remains visible -------------------------------
+
+// TestNext_UnknownStatus_RemainsVisible locks Invariant 5 (specs/_index.md
+// L75): status is an open string. A work whose status is outside the
+// known set must NOT be dropped from the feed. Plan 008 / Bead 4 (kerf-1dm).
+func TestNext_UnknownStatus_RemainsVisible(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	projDir := filepath.Join(tmp, ".kerf", "projects", "test-proj")
+	// "wibble-status" is not in the jig's status_values list and is also
+	// not the terminal sentinel "finalized". The work must remain visible.
+	writeSpecWithAreas(t,
+		filepath.Join(projDir, "blue-fox", "spec.yaml"),
+		"blue-fox", "test-proj", "wibble-status", "Auth rewrite", nil)
+
+	resetNextFlags()
+	nextFormat = "json"
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
+	}
+
+	var items []feed.Item
+	if err := json.Unmarshal(buf.Bytes(), &items); err != nil {
+		t.Fatalf("decode feed json: %v\nbody=%s", err, buf.String())
+	}
+
+	// The work must surface in at least one feed item (typically a cleanup
+	// such as "no attached beads") — the bug we are guarding against is
+	// silent suppression.
+	found := false
+	for _, it := range items {
+		if it.WorkCodename != nil && *it.WorkCodename == "blue-fox" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("work with unknown status was dropped from the feed; items=%+v", items)
+	}
+}
+
+// TestNext_FinalizedStatus_IsExcluded is the negative pair for
+// TestNext_UnknownStatus_RemainsVisible: the literal terminal sentinel
+// "finalized" still suppresses the work. Lock both halves of the contract
+// so a future refactor of the status-exclusion block cannot regress either.
+func TestNext_FinalizedStatus_IsExcluded(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	projDir := filepath.Join(tmp, ".kerf", "projects", "test-proj")
+	writeSpecWithAreas(t,
+		filepath.Join(projDir, "blue-fox", "spec.yaml"),
+		"blue-fox", "test-proj", "finalized", "Auth rewrite", nil)
+
+	resetNextFlags()
+	nextFormat = "json"
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
+	}
+
+	var items []feed.Item
+	if err := json.Unmarshal(buf.Bytes(), &items); err != nil {
+		t.Fatalf("decode feed json: %v\nbody=%s", err, buf.String())
+	}
+
+	for _, it := range items {
+		if it.WorkCodename != nil && *it.WorkCodename == "blue-fox" {
+			t.Fatalf("finalized work should be excluded from the feed; items=%+v", items)
+		}
+	}
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func mkdirp(path string) error {
