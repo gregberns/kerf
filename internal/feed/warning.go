@@ -42,6 +42,12 @@ const (
 //   - no_project_yaml: emits a single fatal warning when project.yaml is
 //     absent from both local-storage and bench paths
 //     (specs/commands.md §"Warning kinds" → `no_project_yaml`).
+//   - relabel_drift: emits one warning per bead whose per-bead drift hash
+//     changed between the cached baseline and the current store, i.e. any
+//     bead listed in Input.DriftResult.Changed (Plan 008 / B11-code; hash
+//     scope per specs/coordination.md §"Hash scope"). Hash-only: when the
+//     caller passes a zero-value DriftResult (no in-memory last-seen yet —
+//     plan 009 wires the persisted cache), the detector emits nothing.
 //
 // All detectors are project-level: WorkCodename and BeadID are nil and
 // Score is 0. Warnings are never excluded by work state.
@@ -51,7 +57,43 @@ func NewWarningDetectors(projectFilter *beads.Filter) []Detector {
 		DetectorFunc(filterCaseMismatchDetector(projectFilter)),
 		DetectorFunc(corruptSpecDetector),
 		DetectorFunc(noProjectYAMLDetector),
+		DetectorFunc(relabelDriftDetector),
 	}
+}
+
+// relabelDriftDetector emits one warning per bead ID in
+// Input.DriftResult.Changed. A bead lands in Changed when it is present at
+// both baseline and current with the same open/closed polarity but its
+// canonical per-bead hash differs (see drift.Compute). The hash scope is
+// id+status+labels+title+deps (specs/coordination.md §"Hash scope"), so a
+// label edit, retitle, or dependency change all surface here.
+//
+// This bead (Plan 008 / B11-code) is contract-only: it consumes whatever
+// DriftResult the caller supplies. Persisted last-seen state — i.e.
+// actually wiring `.kerf/sync-cache.json` into the next-command Input — is
+// plan 009 scope (kerf-8o9 cache + kerf-nn8 wiring). When the caller
+// passes a zero-value DriftResult (empty Changed slice), the detector is
+// silent: no baseline, no warning.
+//
+// Warnings are project-level (no WorkCodename / BeadID) so they render in
+// the header block of `kerf next` next to the other drift signals.
+func relabelDriftDetector(in Input) []Item {
+	if len(in.DriftResult.Changed) == 0 {
+		return nil
+	}
+	out := make([]Item, 0, len(in.DriftResult.Changed))
+	for _, id := range in.DriftResult.Changed {
+		out = append(out, Item{
+			Kind:         KindWarning,
+			Score:        0,
+			Title:        fmt.Sprintf("Relabel drift: %s", id),
+			Action:       "kerf triage",
+			Reason:       fmt.Sprintf("Bead '%s' content (labels, title, or deps) changed since the last acknowledged baseline. Run 'kerf triage' to review and 'kerf triage --ack' to acknowledge.", id),
+			WorkCodename: nil,
+			BeadID:       nil,
+		})
+	}
+	return out
 }
 
 // corruptSpecDetector emits one warning per entry in in.CorruptSpecs.

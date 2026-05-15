@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gberns/kerf/internal/beads"
+	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/spec"
 )
 
@@ -316,9 +317,10 @@ func TestFilterCaseMismatch_HandlesAnyUnion(t *testing.T) {
 func TestNewWarningDetectors_ReturnsAll(t *testing.T) {
 	// v1 detectors (Plan 006/B5): unmatched_beads, filter_case_mismatch.
 	// Plan 008/B10-code adds corrupt_spec and no_project_yaml.
+	// Plan 008/B11-code adds relabel_drift.
 	ds := NewWarningDetectors(&beads.Filter{Label: "work:{codename}"})
-	if len(ds) != 4 {
-		t.Fatalf("want 4 detectors, got %d", len(ds))
+	if len(ds) != 5 {
+		t.Fatalf("want 5 detectors, got %d", len(ds))
 	}
 }
 
@@ -435,5 +437,69 @@ func TestWarning_NoProjectYaml_NoOpWhenFalse(t *testing.T) {
 	in := Input{ProjectID: "kerf-demo", NoProjectYAML: false}
 	if got := noProjectYAMLDetector(in); len(got) != 0 {
 		t.Errorf("want 0 warnings, got %d", len(got))
+	}
+}
+
+// --- relabel_drift detector (Plan 008 / B11-code) -------------------------
+
+// TestWarning_RelabelDrift_Fires verifies the detector emits one warning
+// per bead whose canonical hash differs between baseline and current
+// snapshots. The fixture pair below changes one bead's labels between
+// snapshots; drift.Compute classifies it under Changed, and the detector
+// surfaces it.
+func TestWarning_RelabelDrift_Fires(t *testing.T) {
+	// Baseline: two beads, both open with their original labels.
+	baselineBeads := []beads.Bead{
+		{ID: "kerf-a", Status: "open", Title: "first", Labels: []string{"phase-1"}},
+		{ID: "kerf-b", Status: "open", Title: "second", Labels: []string{"phase-1"}},
+	}
+	// Current: kerf-a got a new label (relabeled externally); kerf-b is
+	// unchanged. Same IDs, same statuses, same titles, same deps — only
+	// the labels on kerf-a differ.
+	currentBeads := []beads.Bead{
+		{ID: "kerf-a", Status: "open", Title: "first", Labels: []string{"phase-1", "plan-008"}},
+		{ID: "kerf-b", Status: "open", Title: "second", Labels: []string{"phase-1"}},
+	}
+	baseline := drift.Capture(baselineBeads, nil)
+	current := drift.Capture(currentBeads, nil)
+	closed := map[string]bool{"closed": true, "done": true}
+	diff := drift.Compute(baseline, current, closed)
+
+	if len(diff.Changed) != 1 || diff.Changed[0] != "kerf-a" {
+		t.Fatalf("fixture invariant: want Changed=[kerf-a], got %v", diff.Changed)
+	}
+
+	in := Input{DriftResult: diff}
+	got := relabelDriftDetector(in)
+	if len(got) != 1 {
+		t.Fatalf("want 1 warning, got %d", len(got))
+	}
+	w := got[0]
+	if w.Kind != KindWarning {
+		t.Errorf("kind = %s, want warning", w.Kind)
+	}
+	if w.Score != 0 {
+		t.Errorf("score = %v, want 0", w.Score)
+	}
+	if !strings.Contains(w.Title, "kerf-a") {
+		t.Errorf("title should name the drifted bead, got %q", w.Title)
+	}
+	if !strings.Contains(w.Reason, "kerf-a") {
+		t.Errorf("reason should name the drifted bead, got %q", w.Reason)
+	}
+	if w.Action != "kerf triage" {
+		t.Errorf("action = %q, want %q", w.Action, "kerf triage")
+	}
+	if w.WorkCodename != nil || w.BeadID != nil {
+		t.Errorf("expected project-level warning (no WorkCodename/BeadID)")
+	}
+}
+
+// TestWarning_RelabelDrift_QuietOnEmptyDrift: zero-value DriftResult
+// (no in-memory last-seen yet — plan 009 wires the cache) → no warning.
+func TestWarning_RelabelDrift_QuietOnEmptyDrift(t *testing.T) {
+	in := Input{} // zero-value DriftResult, Changed is nil
+	if got := relabelDriftDetector(in); len(got) != 0 {
+		t.Errorf("want 0 warnings on empty DriftResult, got %d", len(got))
 	}
 }
