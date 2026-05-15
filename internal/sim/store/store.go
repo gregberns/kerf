@@ -69,12 +69,14 @@ type Store struct {
 	workOrder  []string         // canonical codename ordering (insertion order)
 	beadsByID  map[string]*BeadState
 	beadOrder  []string         // insertion order for deterministic iteration
+	durations  map[string]int64 // pre-rolled durations per bead, in ticks
 }
 
 // New returns an empty store.
 func New() *Store {
 	return &Store{
 		beadsByID: make(map[string]*BeadState),
+		durations: make(map[string]int64),
 	}
 }
 
@@ -211,6 +213,38 @@ func (s *Store) Complete(beadID string, tick int64) {
 	}
 	b.Status = StatusClosed
 	b.CompleteAt = tick
+}
+
+// SetDuration records the pre-rolled completion duration (in ticks) for a
+// bead. Durations are pre-rolled at scenario creation (see specs/simulator.md
+// §Pre-rolled Durations) and looked up by the loop when scheduling a
+// completion event after dispatch.
+func (s *Store) SetDuration(beadID string, ticks int64) {
+	if s.durations == nil {
+		s.durations = make(map[string]int64)
+	}
+	s.durations[beadID] = ticks
+}
+
+// Duration returns the pre-rolled duration for a bead in ticks. If no
+// duration has been recorded, it returns 0 — the loop treats a zero
+// duration as "completes on the same tick it was dispatched".
+func (s *Store) Duration(beadID string) int64 {
+	if s.durations == nil {
+		return 0
+	}
+	return s.durations[beadID]
+}
+
+// AllClosed reports whether every bead in the store is in the closed state.
+// Returns true vacuously when the store has no beads.
+func (s *Store) AllClosed() bool {
+	for _, id := range s.beadOrder {
+		if s.beadsByID[id].Status != StatusClosed {
+			return false
+		}
+	}
+	return true
 }
 
 // GeneratedWorld is the output of the scenario generator (B5). The simulator
