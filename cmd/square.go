@@ -3,15 +3,16 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
+	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/dep"
 	"github.com/gberns/kerf/internal/jig"
 )
@@ -115,7 +116,7 @@ func checkSquare(projectID, codename string) (*squareResult, error) {
 	result.FilesPass = result.FilesPresent == result.FilesTotal
 
 	// Process pass check
-	checkProcessPasses(jigDef, s.Status, result)
+	checkProcessPasses(jigDef, s.Status, projectID, result)
 
 	// Dependency check
 	blockingResults := dep.CheckBlocking(s.DependsOn, bp, projectID)
@@ -144,7 +145,7 @@ func checkSquare(projectID, codename string) (*squareResult, error) {
 // non-composable jigs (e.g., Ready in plan, Square in spike/retrofit) are NOT process passes.
 // Per verification.md: "Process pass checks apply only to jigs that have process passes.
 // Spec-writing jigs (plan, spec, bug) have only artifact passes and are unaffected."
-func checkProcessPasses(jigDef *jig.JigDefinition, workStatus string, result *squareResult) {
+func checkProcessPasses(jigDef *jig.JigDefinition, workStatus, projectID string, result *squareResult) {
 	// Only composable jigs have process passes
 	if !jigDef.Composable {
 		return
@@ -205,27 +206,47 @@ func checkProcessPasses(jigDef *jig.JigDefinition, workStatus string, result *sq
 
 	// Try to get bead info for implementation jigs
 	if jigDef.Name == "implementation" {
-		tryLoadBeadInfo(result)
+		tryLoadBeadInfo(projectID, result)
 	}
 }
 
-// tryLoadBeadInfo attempts to read bead status via `bd list`. Fails silently if bd unavailable.
-func tryLoadBeadInfo(result *squareResult) {
-	out, err := exec.Command("bd", "list").Output()
-	if err != nil {
+// tryLoadBeadInfo attempts to read bead status via the configured beads CLI
+// (project.yaml `tools.tasks`, default `br`). Fails silently if the tool is
+// unavailable. Uses the canonical `br list` text output via internal/beads.
+func tryLoadBeadInfo(projectID string, result *squareResult) {
+	toolName := beads.DefaultToolName
+	if r, err := cmdutil.Resolver(projectID); err == nil {
+		if cfg, err := config.LoadProjectConfig(r.ProjectConfigPath()); err == nil && cfg != nil {
+			toolName = beads.ResolveToolName(cfg.Tools)
+		}
+	}
+
+	bs, err := beads.ListNamed(toolName)
+	if err != nil || len(bs) == 0 {
 		return
 	}
-	total, closed, open := parseBeadOutput(string(out))
-	if total > 0 {
-		result.HasBeadInfo = true
-		result.BeadTotal = total
-		result.BeadClosed = closed
-		result.BeadOpen = open
+
+	total := len(bs)
+	closed := 0
+	open := 0
+	for _, b := range bs {
+		switch strings.ToLower(b.Status) {
+		case "closed", "done", "complete":
+			closed++
+		default:
+			open++
+		}
 	}
+	result.HasBeadInfo = true
+	result.BeadTotal = total
+	result.BeadClosed = closed
+	result.BeadOpen = open
 }
 
-// parseBeadOutput extracts bead counts from bd list output.
+// parseBeadOutput extracts bead counts from beads-CLI text list output.
 // It looks for lines containing "total", "closed", "open" with numeric values.
+// Retained for back-compat / unit tests; new code paths use tryLoadBeadInfo
+// which delegates to internal/beads.
 func parseBeadOutput(output string) (total, closed, open int) {
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)

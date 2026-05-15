@@ -114,10 +114,11 @@ func TestShowNonComposableJig(t *testing.T) {
 	}
 }
 
-func TestGetBeadSummary_NoBd(t *testing.T) {
-	// bd is not installed in test env — should return empty string silently
+func TestGetBeadSummary_NoBr(t *testing.T) {
+	// br may or may not be installed in test env; if no beads exist for the
+	// (nonexistent) test project, the function returns empty string silently.
 	got := getBeadSummary("any-project")
 	if got != "" {
-		t.Errorf("expected empty string when bd unavailable, got %q", got)
+		t.Errorf("expected empty string when beads tool unavailable or no beads, got %q", got)
 	}
 }

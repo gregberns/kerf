@@ -31,9 +31,37 @@ type EpicSummary struct {
 	Rework     int
 }
 
+// DefaultToolName is the default beads-CLI binary name when project.yaml
+// does not override it via tools.tasks.
+const DefaultToolName = "br"
+
+// ResolveToolName returns the configured beads-CLI binary name, falling back
+// to DefaultToolName ("br") when the tools.tasks key is unset or empty.
+//
+// The argument is a tools map (typically ProjectConfig.Tools) rather than the
+// full config struct, to avoid an import cycle between internal/beads and
+// internal/config (which already imports internal/beads).
+func ResolveToolName(tools map[string]string) string {
+	if tools == nil {
+		return DefaultToolName
+	}
+	if name, ok := tools["tasks"]; ok && name != "" {
+		return name
+	}
+	return DefaultToolName
+}
+
 // IsAvailable checks whether the br binary is on PATH.
 func IsAvailable() bool {
-	_, err := exec.LookPath("br")
+	return IsAvailableNamed(DefaultToolName)
+}
+
+// IsAvailableNamed checks whether the given beads-CLI binary is on PATH.
+func IsAvailableNamed(toolName string) bool {
+	if toolName == "" {
+		toolName = DefaultToolName
+	}
+	_, err := exec.LookPath(toolName)
 	return err == nil
 }
 
@@ -41,13 +69,24 @@ func IsAvailable() bool {
 // JSON output into a slice of Bead. Returns an empty slice (no error) if br
 // is not available, keeping callers from needing to handle the missing-tool case.
 func List() ([]Bead, error) {
-	if !IsAvailable() {
+	return ListNamed(DefaultToolName)
+}
+
+// ListNamed shells out to `<toolName> list --format json --all --limit 0`
+// using the resolved beads-CLI binary name (per project.yaml tools.tasks).
+// Argv shape matches the `br` CLI; do not pass a binary that does not accept
+// these flags.
+func ListNamed(toolName string) ([]Bead, error) {
+	if toolName == "" {
+		toolName = DefaultToolName
+	}
+	if !IsAvailableNamed(toolName) {
 		return nil, nil
 	}
 
-	out, err := exec.Command("br", "list", "--format", "json", "--all", "--limit", "0").Output()
+	out, err := exec.Command(toolName, "list", "--format", "json", "--all", "--limit", "0").Output()
 	if err != nil {
-		// br failed (bad config, no DB, etc.) -- degrade gracefully
+		// tool failed (bad config, no DB, etc.) -- degrade gracefully
 		return nil, nil
 	}
 

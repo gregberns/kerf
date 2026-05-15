@@ -4,6 +4,29 @@ import (
 	"testing"
 )
 
+func TestResolveToolName(t *testing.T) {
+	cases := []struct {
+		name  string
+		tools map[string]string
+		want  string
+	}{
+		{"nil map", nil, "br"},
+		{"unset tasks", map[string]string{"orchestrator": "ntm"}, "br"},
+		{"empty tasks", map[string]string{"tasks": ""}, "br"},
+		{"explicit br", map[string]string{"tasks": "br"}, "br"},
+		{"explicit bd", map[string]string{"tasks": "bd"}, "bd"},
+		{"custom binary", map[string]string{"tasks": "my-tracker"}, "my-tracker"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ResolveToolName(c.tools)
+			if got != c.want {
+				t.Errorf("ResolveToolName(%v) = %q, want %q", c.tools, got, c.want)
+			}
+		})
+	}
+}
+
 // --- test fixtures ---
 
 func sampleBeads() []Bead {

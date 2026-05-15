@@ -42,7 +42,7 @@ passes:
     - review
 tools:
   orchestrator: ntm
-  tasks: bd
+  tasks: br
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -66,8 +66,8 @@ tools:
 	if cfg.Tools["orchestrator"] != "ntm" {
 		t.Errorf("Tools[orchestrator] = %q, want %q", cfg.Tools["orchestrator"], "ntm")
 	}
-	if cfg.Tools["tasks"] != "bd" {
-		t.Errorf("Tools[tasks] = %q, want %q", cfg.Tools["tasks"], "bd")
+	if cfg.Tools["tasks"] != "br" {
+		t.Errorf("Tools[tasks] = %q, want %q", cfg.Tools["tasks"], "br")
 	}
 }
 

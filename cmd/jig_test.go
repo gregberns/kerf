@@ -29,7 +29,7 @@ func TestJigListCommand(t *testing.T) {
 	// Composable jig shows passes.
 	testutil.AssertStringContains(t, out, "Passes:")
 	// Implementation jig shows tools.
-	testutil.AssertStringContains(t, out, "Tools: bd, ntm, agent-mail")
+	testutil.AssertStringContains(t, out, "Tools: br, ntm, agent-mail")
 }
 
 func TestJigListCommand_MixedSources(t *testing.T) {

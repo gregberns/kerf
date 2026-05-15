@@ -23,7 +23,7 @@ func TestCheckProcessPasses_NoProcessPasses(t *testing.T) {
 	}
 
 	result := &squareResult{}
-	checkProcessPasses(jigDefNoProcess, "done", result)
+	checkProcessPasses(jigDefNoProcess, "done", "", result)
 
 	if result.HasProcessPasses {
 		t.Error("HasProcessPasses should be false for jig with no empty-output passes")
@@ -57,7 +57,7 @@ func TestCheckProcessPasses_AllComplete(t *testing.T) {
 
 	// Status past all passes (not in status_values — treated as past terminal)
 	result := &squareResult{}
-	checkProcessPasses(jigDef, "finalized", result)
+	checkProcessPasses(jigDef, "finalized", "", result)
 
 	if !result.HasProcessPasses {
 		t.Fatal("HasProcessPasses should be true")
@@ -89,7 +89,7 @@ func TestCheckProcessPasses_PartialComplete(t *testing.T) {
 
 	// Status is "verify" — Implement is past (done), Complete is not yet done
 	result := &squareResult{}
-	checkProcessPasses(jigDef, "verify", result)
+	checkProcessPasses(jigDef, "verify", "", result)
 
 	if !result.HasProcessPasses {
 		t.Fatal("HasProcessPasses should be true")
@@ -136,7 +136,7 @@ func TestCheckProcessPasses_ActiveStatus(t *testing.T) {
 
 	// Status is "implementing" — currently active on Implement pass
 	result := &squareResult{}
-	checkProcessPasses(jigDef, "implementing", result)
+	checkProcessPasses(jigDef, "implementing", "", result)
 
 	if result.ProcessComplete != 0 {
 		t.Errorf("ProcessComplete = %d, want 0", result.ProcessComplete)

@@ -4,7 +4,7 @@ description: Implement a spec. Break down, dispatch, execute, verify.
 version: 1
 phase: implementation
 tools:
-  - bd
+  - br
   - ntm
   - agent-mail
 aliases: [impl, implement]
@@ -19,7 +19,7 @@ passes:
   - name: "Breakdown"
     status: breakdown
     output: ["01-breakdown.md"]
-    tools: ["bd"]
+    tools: ["br"]
   - name: "Dispatch"
     status: dispatch
     output: ["02-dispatch.md"]
@@ -43,6 +43,8 @@ file_structure:
 ---
 
 # Implementation Jig
+
+> Beads-CLI binary name comes from `project.yaml` `tools.tasks` (default `br`). If you have configured a different binary (e.g. `bd`), translate the argv shape — this template uses the `br` CLI syntax verbatim.
 
 ## Overview
 
@@ -72,10 +74,10 @@ You are turning a finalized spec into an actionable task list. Each task becomes
 
 1. Read the source spec or plan work. Find the finalized `SPEC.md` or equivalent document. If the implementation work has a `depends_on` referencing a plan work, read that work's artifacts.
 2. Read `07-tasks.md` from the plan work if it exists — the plan jig already produced a task breakdown. Use it as a starting point, not as gospel. The breakdown pass may need to split, merge, or reorder tasks based on implementation considerations.
-3. Create beads using `bd`:
-   - `bd create "Task title" --desc "Full description with acceptance criteria"`
+3. Create beads using `br`:
+   - `br create "Task title" --description "Full description with acceptance criteria"`
    - Include the spec reference in the description so the implementing agent knows what to check against
-   - Set dependencies between beads: `bd dep <child> <parent>`
+   - Set dependencies between beads: `br dep add <issue> <depends-on>` (i.e. "issue depends on depends-on")
 4. Verify the dependency graph forms a DAG (no circular dependencies).
 5. Verify completeness: every section of the spec is covered by at least one bead. Every acceptance criterion appears in at least one bead's description.
 6. Write `01-breakdown.md` documenting:
@@ -87,7 +89,7 @@ You are turning a finalized spec into an actionable task list. Each task becomes
 
 ### What done looks like
 
-- Beads exist in the `bd` database with descriptions and dependencies
+- Beads exist in the `br` database with descriptions and dependencies
 - `01-breakdown.md` exists with the full task list, dependency graph, and spec traceability
 - Every spec section and acceptance criterion maps to at least one bead
 - Dependencies form a DAG
@@ -109,19 +111,19 @@ You are the controller agent. You set up the orchestration environment and begin
    - Register agents if using agent-mail coordination
 
 2. **Dispatch beads:**
-   - Query ready beads: `bd list --status open` or `bd ready`
+   - Query ready beads: `br list --status open` or `br ready`
    - Use `ntm assign` for dependency-aware dispatch, or manually send to specific panes:
      `ntm send <session> --panes=<N> -- "<bead instructions>"`
    - Each dispatch message must include:
      - The bead ID and title
      - The full bead description with acceptance criteria
      - The spec reference (which spec section this implements)
-     - Instructions to update bead status when starting (`bd update <id> --status in-progress`) and when done
+     - Instructions to update bead status when starting (`br update <id> --status in_progress`) and when done
    - If using `ntm assign --watch`, enable continuous auto-assignment of unblocked beads
 
 3. **Monitor progress:**
    - Check session status: `ntm status <session>`
-   - Check bead status: `bd list` or `bd status`
+   - Check bead status: `br list` or `br status`
    - Poll for completion — check periodically, don't busy-wait
    - Handle failures: if a worker agent fails or goes off-script, capture the output, reset the bead, and re-dispatch
 
@@ -143,7 +145,7 @@ These patterns have been validated across multiple projects. Follow them:
 
 - **Captures:** Use `ntm view <session>` to see agent output. Do not rely on agent memory — check actual output.
 - **Polling intervals:** Check every 60-120 seconds during active work. Don't busy-wait.
-- **Context resets:** If a worker agent's context is exhausted, the bead state is in `bd`. Start a new session for that agent and have it pick up the bead by ID.
+- **Context resets:** If a worker agent's context is exhausted, the bead state is in `br`. Start a new session for that agent and have it pick up the bead by ID.
 - **One bead per prompt:** Never batch multiple beads into a single agent prompt. One bead, one dispatch.
 - **File reservations:** Always use agent-mail file reservations when 2+ agents may touch the same files.
 
@@ -183,7 +185,7 @@ For each bead:
    - Up to 3 feedback rounds per bead. After that, flag for human review.
 
 4. **Close the bead:**
-   - When review passes: `bd update <id> --status closed`
+   - When review passes: `br close <id>`
    - Move to the next bead
 
 5. **Clear context between beads:**
@@ -200,7 +202,7 @@ For each bead:
 
 ### What done looks like
 
-- All beads are closed (`bd list` shows 0 open)
+- All beads are closed (`br list` shows 0 open)
 - Every bead was reviewed against the spec
 - No unresolved review feedback remains
 
@@ -250,7 +252,7 @@ The implementation is done. This is a terminal pass.
 ### What to do
 
 1. Run `kerf square <codename>` to verify all expected artifacts exist.
-2. Confirm all beads are closed: `bd list` shows 0 open for this work.
+2. Confirm all beads are closed: `br list` shows 0 open for this work.
 3. The implementation work is complete. It can be archived.
 
 ### What done looks like

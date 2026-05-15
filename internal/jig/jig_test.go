@@ -920,8 +920,8 @@ func TestParseImplementationJig(t *testing.T) {
 	if jig.Phase != "implementation" {
 		t.Errorf("Phase = %q, want %q", jig.Phase, "implementation")
 	}
-	if !reflect.DeepEqual(jig.Tools, []string{"bd", "ntm", "agent-mail"}) {
-		t.Errorf("Tools = %v, want [bd ntm agent-mail]", jig.Tools)
+	if !reflect.DeepEqual(jig.Tools, []string{"br", "ntm", "agent-mail"}) {
+		t.Errorf("Tools = %v, want [br ntm agent-mail]", jig.Tools)
 	}
 	if !jig.Composable {
 		t.Error("Composable = false, want true")
@@ -935,8 +935,8 @@ func TestParseImplementationJig(t *testing.T) {
 
 	// Verify pass details
 	// Pass 0: Breakdown
-	if !reflect.DeepEqual(jig.Passes[0].Tools, []string{"bd"}) {
-		t.Errorf("Passes[0].Tools = %v, want [bd]", jig.Passes[0].Tools)
+	if !reflect.DeepEqual(jig.Passes[0].Tools, []string{"br"}) {
+		t.Errorf("Passes[0].Tools = %v, want [br]", jig.Passes[0].Tools)
 	}
 	// Pass 1: Dispatch
 	if !reflect.DeepEqual(jig.Passes[1].Tools, []string{"ntm"}) {

@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -12,8 +10,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gberns/kerf/internal/areas"
+	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/bench"
 	"github.com/gberns/kerf/internal/cmdutil"
+	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/dep"
 	"github.com/gberns/kerf/internal/jig"
 )
@@ -98,7 +98,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Bead status (best-effort via bd tool)
+	// Bead status (best-effort via configured beads tool; default "br").
 	if beadSummary := getBeadSummary(s.Project.ID); beadSummary != "" {
 		fmt.Println(beadSummary)
 		fmt.Println()
@@ -262,53 +262,39 @@ func computePassStatus(statusValues []string, currentStatus, passStatus string) 
 	return "pending"
 }
 
-// bdBead represents a single bead from bd list --json output.
-type bdBead struct {
-	Status         string `json:"status"`
-	ReviewFeedback string `json:"review_feedback"`
-}
-
-// getBeadSummary tries to run bd list --json and returns a summary string.
-// Returns empty string if bd is unavailable or no beads exist.
+// getBeadSummary tries to read bead status via the configured beads CLI
+// (project.yaml `tools.tasks`, default `br`) and returns a summary string.
+// Returns empty string if the tool is unavailable or no beads exist.
+//
+// The argv shape used is the canonical `br` form
+// (`br list --format json --all --limit 0`); if the user has configured a
+// different binary, it must accept compatible flags.
 func getBeadSummary(projectID string) string {
-	args := []string{"list", "--json"}
-	if projectID != "" {
-		args = append(args, "--project", projectID)
+	toolName := beads.DefaultToolName
+	if r, err := cmdutil.Resolver(projectID); err == nil {
+		if cfg, err := config.LoadProjectConfig(r.ProjectConfigPath()); err == nil && cfg != nil {
+			toolName = beads.ResolveToolName(cfg.Tools)
+		}
 	}
-	out, err := exec.Command("bd", args...).Output()
-	if err != nil {
+
+	bs, err := beads.ListNamed(toolName)
+	if err != nil || len(bs) == 0 {
 		return ""
 	}
 
-	var beads []bdBead
-	if err := json.Unmarshal(out, &beads); err != nil {
-		return ""
-	}
-	if len(beads) == 0 {
-		return ""
-	}
-
-	total := len(beads)
+	total := len(bs)
 	closed := 0
 	open := 0
-	unresolvedFeedback := 0
-	for _, b := range beads {
-		switch b.Status {
+	for _, b := range bs {
+		switch strings.ToLower(b.Status) {
 		case "closed", "done", "complete":
 			closed++
 		default:
 			open++
 		}
-		if b.ReviewFeedback != "" && b.Status != "closed" && b.Status != "done" && b.Status != "complete" {
-			unresolvedFeedback++
-		}
 	}
 
-	summary := fmt.Sprintf("Beads: %d total, %d closed, %d open", total, closed, open)
-	if unresolvedFeedback > 0 {
-		summary += fmt.Sprintf(", %d with unresolved review feedback", unresolvedFeedback)
-	}
-	return summary
+	return fmt.Sprintf("Beads: %d total, %d closed, %d open", total, closed, open)
 }
 
 // statusProgression renders the status progression with a pointer to current.
