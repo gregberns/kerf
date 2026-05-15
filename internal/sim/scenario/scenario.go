@@ -22,6 +22,14 @@ type Scenario struct {
 	BeadArrivals BeadArrivals `yaml:"bead_arrivals"`
 	AgentModel   AgentModel   `yaml:"agent_model"`
 
+	// MergeModel is the optional synthetic conflict-merge model. When
+	// non-nil, the run loop adds a merge-phase contribution to every
+	// bead's effective completion tick: with probability
+	// ConflictProbability the contribution is a draw from
+	// ConflictDuration; otherwise it is a draw from BaseDuration. See
+	// specs/simulator.md §Merge Model.
+	MergeModel *MergeModel `yaml:"merge_model,omitempty"`
+
 	// raw holds the bytes the scenario was loaded from, when known. It is
 	// used by SHA256 to compute scenario_sha256 over the canonical source.
 	raw []byte `yaml:"-"`
@@ -57,24 +65,95 @@ type ExplicitArrival struct {
 }
 
 // AgentModel groups the agent-side knobs of the scenario. Phase 1 carries
-// only the duration model.
+// only the duration model; Plan 012 adds an optional per-phase spin_up.
 type AgentModel struct {
-	Duration Duration `yaml:"duration"`
+	Duration Duration  `yaml:"duration"`
+	SpinUp   *Duration `yaml:"spin_up,omitempty"`
 }
 
-// Duration describes the bead duration distribution. Phase 1 supports
-// kind: "lognormal". Exactly one of MeanTicks or MedianTicks must be set;
-// Sigma is the log-normal shape parameter.
+// Duration describes a per-phase duration distribution. Phase 1 supports
+// kind: "lognormal" (inline mu/sigma via mean_ticks/median_ticks). Plan
+// 012 adds kind: "from_distribution" — a named reference into the fitted
+// distributions registry — plus kind: "gamma" / "weibull" / "point_mass"
+// / "mixture" for inline specs that don't need the registry.
+//
+// Exactly one parameterisation must be present for a given kind:
+//   - lognormal: one of MeanTicks/MedianTicks plus Sigma.
+//   - from_distribution: Distribution (the registry key).
+//   - gamma: Shape + Scale.
+//   - weibull: Shape + Scale.
+//   - point_mass: Value.
+//   - mixture: Components.
 type Duration struct {
-	Kind        string   `yaml:"kind"`
+	Kind string `yaml:"kind"`
+
+	// Log-normal inline params (kind == "lognormal").
 	MeanTicks   *float64 `yaml:"mean_ticks,omitempty"`
 	MedianTicks *float64 `yaml:"median_ticks,omitempty"`
-	Sigma       float64  `yaml:"sigma"`
+	Sigma       float64  `yaml:"sigma,omitempty"`
+
+	// Registry reference (kind == "from_distribution").
+	Distribution string `yaml:"distribution,omitempty"`
+
+	// Gamma / Weibull inline params.
+	Shape float64 `yaml:"shape,omitempty"`
+	Scale float64 `yaml:"scale,omitempty"`
+
+	// Point-mass inline param.
+	Value float64 `yaml:"value,omitempty"`
+
+	// Mixture inline components.
+	Components []DurationComponent `yaml:"components,omitempty"`
+}
+
+// DurationComponent is one component of a mixture Duration spec. Mirrors
+// rawMixtureComponent in the duration registry but stays on the scenario
+// side so the YAML schema is self-contained.
+type DurationComponent struct {
+	Weight float64 `yaml:"weight"`
+	Kind   string  `yaml:"kind,omitempty"`
+	// Alias for kind to ease porting from fitted_distributions.yaml format.
+	Family string `yaml:"family,omitempty"`
+
+	MeanTicks    *float64 `yaml:"mean_ticks,omitempty"`
+	MedianTicks  *float64 `yaml:"median_ticks,omitempty"`
+	Sigma        float64  `yaml:"sigma,omitempty"`
+	Mu           float64  `yaml:"mu,omitempty"`
+	Shape        float64  `yaml:"shape,omitempty"`
+	Scale        float64  `yaml:"scale,omitempty"`
+	Value        float64  `yaml:"value,omitempty"`
+	Distribution string   `yaml:"distribution,omitempty"`
+
+	// Nested params block, matching fitted_distributions.yaml shape.
+	Params map[string]float64 `yaml:"params,omitempty"`
+}
+
+// MergeModel is the synthetic conflict-merge contribution applied to a
+// bead's effective completion tick. See specs/simulator.md §Merge Model.
+type MergeModel struct {
+	// BaseDuration is the "happy path" merge time draw. When omitted,
+	// the happy path contributes 0 ticks (point mass at zero).
+	BaseDuration *Duration `yaml:"base_duration,omitempty"`
+
+	// ConflictProbability is the per-bead probability that the merge
+	// phase incurs a conflict-resolution contribution. Must be in
+	// [0, 1]; defaults to 0.04 (matching the kerf+harmonik corpus).
+	ConflictProbability float64 `yaml:"conflict_probability"`
+
+	// ConflictDuration is the conflict-resolution draw, applied with
+	// probability ConflictProbability. Required when ConflictProbability
+	// > 0.
+	ConflictDuration *Duration `yaml:"conflict_duration,omitempty"`
 }
 
 // Recognized duration kinds.
 const (
-	DurationKindLogNormal = "lognormal"
+	DurationKindLogNormal        = "lognormal"
+	DurationKindFromDistribution = "from_distribution"
+	DurationKindGamma            = "gamma"
+	DurationKindWeibull          = "weibull"
+	DurationKindPointMass        = "point_mass"
+	DurationKindMixture          = "mixture"
 )
 
 // Load reads a scenario YAML file from disk, parses it, validates it, and
@@ -162,32 +241,89 @@ func (s *Scenario) Validate() error {
 	}
 
 	// agent_model.duration.
-	d := s.AgentModel.Duration
+	if err := validateDuration("agent_model.duration", s.AgentModel.Duration); err != nil {
+		return err
+	}
+	if s.AgentModel.SpinUp != nil {
+		if err := validateDuration("agent_model.spin_up", *s.AgentModel.SpinUp); err != nil {
+			return err
+		}
+	}
+
+	// merge_model: optional. When present, validate sub-fields.
+	if mm := s.MergeModel; mm != nil {
+		if mm.ConflictProbability < 0 || mm.ConflictProbability > 1 {
+			return fmt.Errorf("scenario: merge_model.conflict_probability must be in [0, 1] (got %g)", mm.ConflictProbability)
+		}
+		if mm.BaseDuration != nil {
+			if err := validateDuration("merge_model.base_duration", *mm.BaseDuration); err != nil {
+				return err
+			}
+		}
+		if mm.ConflictProbability > 0 {
+			if mm.ConflictDuration == nil {
+				return fmt.Errorf("scenario: merge_model.conflict_duration is required when conflict_probability > 0")
+			}
+			if err := validateDuration("merge_model.conflict_duration", *mm.ConflictDuration); err != nil {
+				return err
+			}
+		} else if mm.ConflictDuration != nil {
+			if err := validateDuration("merge_model.conflict_duration", *mm.ConflictDuration); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateDuration enforces the per-kind required-field invariants for a
+// Duration spec. The lognormal branch matches the Phase-1 contract (one
+// of mean_ticks/median_ticks; sigma > 0); the other branches enforce the
+// minimum set the registry/loader needs at sample time.
+func validateDuration(label string, d Duration) error {
 	if d.Kind == "" {
-		return fmt.Errorf("scenario: agent_model.duration.kind is required")
+		return fmt.Errorf("scenario: %s.kind is required", label)
 	}
 	switch d.Kind {
 	case DurationKindLogNormal:
-		// supported
+		hasMean := d.MeanTicks != nil
+		hasMedian := d.MedianTicks != nil
+		if hasMean && hasMedian {
+			return fmt.Errorf("scenario: %s: only one of mean_ticks or median_ticks may be set", label)
+		}
+		if !hasMean && !hasMedian {
+			return fmt.Errorf("scenario: %s: one of mean_ticks or median_ticks must be set", label)
+		}
+		if hasMean && *d.MeanTicks <= 0 {
+			return fmt.Errorf("scenario: %s.mean_ticks must be > 0", label)
+		}
+		if hasMedian && *d.MedianTicks <= 0 {
+			return fmt.Errorf("scenario: %s.median_ticks must be > 0", label)
+		}
+		if d.Sigma <= 0 {
+			return fmt.Errorf("scenario: %s.sigma must be > 0", label)
+		}
+	case DurationKindFromDistribution:
+		if d.Distribution == "" {
+			return fmt.Errorf("scenario: %s.distribution is required for kind=from_distribution", label)
+		}
+	case DurationKindGamma, DurationKindWeibull:
+		if d.Shape <= 0 {
+			return fmt.Errorf("scenario: %s.shape must be > 0 for kind=%s", label, d.Kind)
+		}
+		if d.Scale <= 0 {
+			return fmt.Errorf("scenario: %s.scale must be > 0 for kind=%s", label, d.Kind)
+		}
+	case DurationKindPointMass:
+		if d.Value < 0 {
+			return fmt.Errorf("scenario: %s.value must be >= 0", label)
+		}
+	case DurationKindMixture:
+		if len(d.Components) == 0 {
+			return fmt.Errorf("scenario: %s.components is required for kind=mixture", label)
+		}
 	default:
-		return fmt.Errorf("scenario: agent_model.duration.kind %q is not recognized", d.Kind)
-	}
-	hasMean := d.MeanTicks != nil
-	hasMedian := d.MedianTicks != nil
-	if hasMean && hasMedian {
-		return fmt.Errorf("scenario: agent_model.duration: only one of mean_ticks or median_ticks may be set")
-	}
-	if !hasMean && !hasMedian {
-		return fmt.Errorf("scenario: agent_model.duration: one of mean_ticks or median_ticks must be set")
-	}
-	if hasMean && *d.MeanTicks <= 0 {
-		return fmt.Errorf("scenario: agent_model.duration.mean_ticks must be > 0")
-	}
-	if hasMedian && *d.MedianTicks <= 0 {
-		return fmt.Errorf("scenario: agent_model.duration.median_ticks must be > 0")
-	}
-	if d.Sigma <= 0 {
-		return fmt.Errorf("scenario: agent_model.duration.sigma must be > 0")
+		return fmt.Errorf("scenario: %s.kind %q is not recognized", label, d.Kind)
 	}
 	return nil
 }

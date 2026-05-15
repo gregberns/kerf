@@ -21,6 +21,7 @@ import (
 	"math/rand"
 	"sort"
 
+	"github.com/gberns/kerf/internal/sim/duration"
 	"github.com/gberns/kerf/internal/sim/scenario"
 	"github.com/gberns/kerf/internal/sim/seed"
 )
@@ -64,12 +65,25 @@ type GeneratedWork struct {
 }
 
 // GeneratedBead is one bead with its pre-rolled duration.
+//
+// Duration is the *combined* per-bead tick budget: task work plus any
+// per-phase contributions (spin_up, merge base, merge-conflict tail)
+// produced by the agent_model / merge_model spec. The loop schedules a
+// single completion event at dispatch_tick + Duration; the merge
+// contribution is encoded as part of that single number for Phase-1
+// scheduling simplicity (no separate merge-phase events).
+//
+// MergeConflict marks beads whose merge phase included a conflict-
+// resolution draw — see specs/simulator.md §Merge Model. The flag is
+// surfaced in the run summary as `merges_with_conflict` /
+// `merges_happy_path` counters.
 type GeneratedBead struct {
-	BeadID      string
-	Work        string
-	ArrivalTick int64
-	Duration    int64
-	Labels      []string // e.g. {"rework:true"} for rework arrivals
+	BeadID        string
+	Work          string
+	ArrivalTick   int64
+	Duration      int64
+	Labels        []string // e.g. {"rework:true"} for rework arrivals
+	MergeConflict bool
 }
 
 // ScheduledArrival is a future bead-arrival event on the timeline.
@@ -85,7 +99,19 @@ type ScheduledArrival struct {
 // The function is pure: no wall-clock reads, no global state, no
 // math/rand global. Given the same scenario it returns a structurally
 // identical GeneratedWorld every time.
+//
+// Generate is a thin wrapper around GenerateWithRegistry that passes a
+// nil duration registry — fine for scenarios that use only inline
+// duration kinds (lognormal/gamma/...). Scenarios that use
+// `kind: from_distribution` must go through GenerateWithRegistry.
 func Generate(s *scenario.Scenario) (*GeneratedWorld, error) {
+	return GenerateWithRegistry(s, nil)
+}
+
+// GenerateWithRegistry mirrors Generate but allows the caller to supply
+// a fitted-distribution registry. The registry is consulted whenever a
+// Duration spec uses `kind: from_distribution`.
+func GenerateWithRegistry(s *scenario.Scenario, reg *duration.Registry) (*GeneratedWorld, error) {
 	if s == nil {
 		return nil, fmt.Errorf("generator: nil scenario")
 	}
@@ -110,11 +136,95 @@ func Generate(s *scenario.Scenario) (*GeneratedWorld, error) {
 	// spec in bead_arrivals.generator.
 	evRNG := rand.New(rand.NewSource(int64(derive(seed.Events))))
 
-	mu, err := s.AgentModel.Duration.Mu()
-	if err != nil {
-		return nil, fmt.Errorf("generator: duration mu: %w", err)
-	}
+	// Resolve duration distributions. Legacy scenarios (kind=lognormal,
+	// no spin_up, no merge_model) continue to use the bit-identical
+	// drawDuration(mu, sigma) path below. New scenarios with
+	// kind=from_distribution or with spin_up/merge_model fields go
+	// through the Distribution interface.
+	var (
+		taskDist        duration.Distribution
+		spinUpDist      duration.Distribution
+		mergeBaseDist   duration.Distribution
+		conflictDist    duration.Distribution
+		conflictProb    float64
+		useDistribution = s.AgentModel.Duration.Kind != scenario.DurationKindLogNormal ||
+			s.AgentModel.SpinUp != nil ||
+			s.MergeModel != nil
+	)
+
+	// Legacy fast-path: pre-compute mu/sigma for drawDuration.
+	var mu float64
 	sigma := s.AgentModel.Duration.Sigma
+	if s.AgentModel.Duration.Kind == scenario.DurationKindLogNormal {
+		m, err := s.AgentModel.Duration.Mu()
+		if err != nil {
+			return nil, fmt.Errorf("generator: duration mu: %w", err)
+		}
+		mu = m
+	}
+
+	if useDistribution {
+		var err error
+		taskDist, err = s.AgentModel.Duration.Resolve(reg)
+		if err != nil {
+			return nil, fmt.Errorf("generator: agent_model.duration: %w", err)
+		}
+		if s.AgentModel.SpinUp != nil {
+			spinUpDist, err = s.AgentModel.SpinUp.Resolve(reg)
+			if err != nil {
+				return nil, fmt.Errorf("generator: agent_model.spin_up: %w", err)
+			}
+		}
+		if mm := s.MergeModel; mm != nil {
+			conflictProb = mm.ConflictProbability
+			if mm.BaseDuration != nil {
+				mergeBaseDist, err = mm.BaseDuration.Resolve(reg)
+				if err != nil {
+					return nil, fmt.Errorf("generator: merge_model.base_duration: %w", err)
+				}
+			}
+			if mm.ConflictDuration != nil {
+				conflictDist, err = mm.ConflictDuration.Resolve(reg)
+				if err != nil {
+					return nil, fmt.Errorf("generator: merge_model.conflict_duration: %w", err)
+				}
+			}
+		}
+	}
+
+	// rollBead returns (duration, mergeConflict) for one bead. Always
+	// consults the duration sub-seed (durRNG) so determinism is preserved.
+	rollBead := func() (int64, bool) {
+		if !useDistribution {
+			return drawDuration(durRNG, mu, sigma), false
+		}
+		// Task work.
+		task := taskDist.Sample(durRNG)
+		// Spin-up.
+		spin := 0.0
+		if spinUpDist != nil {
+			spin = spinUpDist.Sample(durRNG)
+		}
+		// Merge phase. Roll Bernoulli first so the conflict-vs-happy-path
+		// stream is itself reproducible.
+		mergeContrib := 0.0
+		conflict := false
+		if conflictProb > 0 || mergeBaseDist != nil {
+			roll := durRNG.Float64()
+			if roll < conflictProb && conflictDist != nil {
+				mergeContrib = conflictDist.Sample(durRNG)
+				conflict = true
+			} else if mergeBaseDist != nil {
+				mergeContrib = mergeBaseDist.Sample(durRNG)
+			}
+		}
+		total := task + spin + mergeContrib
+		n := int64(math.Round(total))
+		if n < 1 {
+			n = 1
+		}
+		return n, conflict
+	}
 
 	// 1) Build works in scenario order. Synthesize epic assignment and
 	//    clustered-DAG edges for any work that does not already carry
@@ -147,11 +257,13 @@ func Generate(s *scenario.Scenario) (*GeneratedWorld, error) {
 	for _, w := range works {
 		for j := 0; j < w.BeadCount; j++ {
 			bid := fmt.Sprintf("%s/b%d", w.Codename, j+1)
+			dur, conflict := rollBead()
 			beads = append(beads, GeneratedBead{
-				BeadID:      bid,
-				Work:        w.Codename,
-				ArrivalTick: 0,
-				Duration:    drawDuration(durRNG, mu, sigma),
+				BeadID:        bid,
+				Work:          w.Codename,
+				ArrivalTick:   0,
+				Duration:      dur,
+				MergeConflict: conflict,
 			})
 		}
 	}
@@ -174,12 +286,14 @@ func Generate(s *scenario.Scenario) (*GeneratedWorld, error) {
 			}
 			labels := append([]string(nil), ea.Labels...)
 			tick := int64(ea.Tick)
+			dur, conflict := rollBead()
 			beads = append(beads, GeneratedBead{
-				BeadID:      bid,
-				Work:        ea.Work,
-				ArrivalTick: tick,
-				Duration:    drawDuration(durRNG, mu, sigma),
-				Labels:      labels,
+				BeadID:        bid,
+				Work:          ea.Work,
+				ArrivalTick:   tick,
+				Duration:      dur,
+				Labels:        labels,
+				MergeConflict: conflict,
 			})
 			timeline = append(timeline, ScheduledArrival{
 				Tick:   tick,
@@ -213,12 +327,14 @@ func Generate(s *scenario.Scenario) (*GeneratedWorld, error) {
 				nextIdx[wname]++
 				bid := fmt.Sprintf("%s/r%d", wname, nextIdx[wname])
 				labels := []string{"rework:true"}
+				dur, conflict := rollBead()
 				beads = append(beads, GeneratedBead{
-					BeadID:      bid,
-					Work:        wname,
-					ArrivalTick: t,
-					Duration:    drawDuration(durRNG, mu, sigma),
-					Labels:      labels,
+					BeadID:        bid,
+					Work:          wname,
+					ArrivalTick:   t,
+					Duration:      dur,
+					Labels:        labels,
+					MergeConflict: conflict,
 				})
 				timeline = append(timeline, ScheduledArrival{
 					Tick:   t,

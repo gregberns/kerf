@@ -362,7 +362,55 @@ The run stops when any one of these is true:
 
 Bead durations are pre-rolled at scenario creation and stored as part of the scenario state. Two runs of the same scenario with different weights see identical durations — only the dispatch ordering differs. This keeps weight comparisons clean.
 
+The pre-rolled per-bead `Duration` is the *combined* tick budget: task work plus any opt-in per-phase contributions from `agent_model.spin_up` and `merge_model.{base_duration, conflict_duration}`. The loop schedules a single completion event at `dispatch_tick + Duration`; merge-phase contributions are folded into that single number rather than emitted as separate events.
+
 Stochastic mode (Phase 2) re-samples durations per run so that `--runs N` produces variance bands.
+
+### Distribution Specs
+
+A per-phase duration spec (`agent_model.duration`, `agent_model.spin_up`, `merge_model.base_duration`, `merge_model.conflict_duration`) is one of the following `kind` values:
+
+| Kind | Inline params |
+|---|---|
+| `lognormal` | One of `mean_ticks` or `median_ticks`, plus `sigma`. |
+| `gamma` | `shape`, `scale`. |
+| `weibull` | `shape`, `scale`. |
+| `point_mass` | `value`. |
+| `mixture` | `components: [{weight, kind|family, params}, …]`. |
+| `from_distribution` | `distribution: <name>` (reference into the fitted-distributions registry; see below). |
+
+### Fitted Distributions Registry
+
+`kerfsim` reads `plans/012_real_corpus/data/fitted_distributions.yaml` at start. The file maps phase names (`spin_up`, `task_work`, `merge`, `reviewer`, `conflict_resolution`) to best-fit distribution specs derived from the kerf+harmonik real-bead corpus (Plan 012). Scenarios can reference these entries by name via `kind: from_distribution`:
+
+```yaml
+agent_model:
+  duration:
+    kind: from_distribution
+    distribution: task_work
+  spin_up:
+    kind: from_distribution
+    distribution: spin_up
+```
+
+A missing registry file is non-fatal — scenarios that don't use `kind: from_distribution` continue to work. Scenarios that *do* reference an absent registry entry fail at run time with a clear `"distribution not found"` error.
+
+### Merge Model
+
+`merge_model` is an optional top-level scenario block that synthesizes a per-bead merge-phase contribution. With probability `conflict_probability` (default 0.04, matching the kerf+harmonik observed rate), the loop adds a draw from `conflict_duration` to the bead's effective completion tick; otherwise it adds a draw from `base_duration` (point mass at zero when omitted). Per-bead conflict flags accumulate into the `merges_with_conflict` and `merges_happy_path` counters surfaced in `summary.json`.
+
+```yaml
+merge_model:
+  base_duration:
+    kind: from_distribution
+    distribution: merge
+  conflict_probability: 0.04
+  conflict_duration:
+    kind: from_distribution
+    distribution: conflict_resolution
+```
+
+Scenarios without a `merge_model` block leave both counters at zero and add no merge-phase contribution.
 
 ## Determinism
 

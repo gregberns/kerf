@@ -305,3 +305,110 @@ func TestRun_WallTicksParity(t *testing.T) {
 		}
 	}
 }
+
+// mergeModelScenario builds a small scenario with an explicit merge_model
+// so the Plan 012 Pillar-C bookkeeping has something to count. confProb
+// is the per-bead conflict probability; conflictMean is the mean of the
+// (point-mass) conflict-duration draw used to make the contribution
+// detectable.
+func mergeModelScenario(t *testing.T, confProb float64) *scenario.Scenario {
+	t.Helper()
+	med := 5.0
+	s := &scenario.Scenario{
+		Seed:   42,
+		Ticks:  2000,
+		Agents: 2,
+		Works: []scenario.Work{{
+			Codename:  "a",
+			Areas:     []string{"x"},
+			Deps:      nil,
+			BeadCount: 40,
+		}},
+		BeadArrivals: scenario.BeadArrivals{Generator: &scenario.Generator{
+			ReworkRatePerTick: 0,
+			TargetWorks:       []string{"a"},
+		}},
+		AgentModel: scenario.AgentModel{Duration: scenario.Duration{
+			Kind:        scenario.DurationKindLogNormal,
+			MedianTicks: &med,
+			Sigma:       0.5,
+		}},
+		MergeModel: &scenario.MergeModel{
+			ConflictProbability: confProb,
+			ConflictDuration: &scenario.Duration{
+				Kind:  scenario.DurationKindPointMass,
+				Value: 100.0,
+			},
+		},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("scenario invalid: %v", err)
+	}
+	return s
+}
+
+// TestRun_MergeModel_AllConflict asserts that conflict_probability=1.0
+// marks every bead as a merge-conflict bead and bumps the total
+// effective duration well above the bare task draw.
+func TestRun_MergeModel_AllConflict(t *testing.T) {
+	s := mergeModelScenario(t, 1.0)
+	r, err := Run(s, queue.DefaultWeights(), s.Agents)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if r.Kerf.MergesWithConflict == 0 {
+		t.Fatal("expected at least one conflict bead at p=1.0")
+	}
+	if r.Kerf.MergesHappyPath != 0 {
+		t.Errorf("expected zero happy-path merges at p=1.0, got %d", r.Kerf.MergesHappyPath)
+	}
+	// All four policies share the same world → same conflict bookkeeping.
+	for name, blk := range map[string]output.Result{
+		"random":    r.Random,
+		"fifo-bead": r.FIFOBead,
+		"fifo-work": r.FIFOWork,
+	} {
+		if blk.MergesWithConflict != r.Kerf.MergesWithConflict {
+			t.Errorf("policy %s: merges_with_conflict %d, want %d", name, blk.MergesWithConflict, r.Kerf.MergesWithConflict)
+		}
+	}
+}
+
+// TestRun_MergeModel_NoConflict asserts that conflict_probability=0.0
+// leaves every bead on the happy path and produces zero conflict beads.
+func TestRun_MergeModel_NoConflict(t *testing.T) {
+	s := mergeModelScenario(t, 0.0)
+	r, err := Run(s, queue.DefaultWeights(), s.Agents)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if r.Kerf.MergesWithConflict != 0 {
+		t.Errorf("expected zero conflict beads at p=0.0, got %d", r.Kerf.MergesWithConflict)
+	}
+	if r.Kerf.MergesHappyPath == 0 {
+		t.Fatal("expected non-zero happy-path merges at p=0.0")
+	}
+}
+
+// TestRun_MergeModel_ContributionIncreasesDuration asserts that adding a
+// non-trivial conflict-duration draw measurably increases the simulator's
+// effective wall_ticks compared to a baseline run with the same seed and
+// no merge_model.
+func TestRun_MergeModel_ContributionIncreasesDuration(t *testing.T) {
+	base := mergeModelScenario(t, 0.0)
+	base.MergeModel = nil // strip entirely so the legacy fast-path is used
+	rBase, err := Run(base, queue.DefaultWeights(), base.Agents)
+	if err != nil {
+		t.Fatalf("base Run: %v", err)
+	}
+
+	heavy := mergeModelScenario(t, 1.0)
+	rHeavy, err := Run(heavy, queue.DefaultWeights(), heavy.Agents)
+	if err != nil {
+		t.Fatalf("heavy Run: %v", err)
+	}
+	if rHeavy.Kerf.WallTicks <= rBase.Kerf.WallTicks {
+		t.Errorf("expected heavier merge model to lengthen wall_ticks: base=%d heavy=%d",
+			rBase.Kerf.WallTicks, rHeavy.Kerf.WallTicks)
+	}
+}

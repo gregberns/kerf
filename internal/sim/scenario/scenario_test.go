@@ -209,7 +209,7 @@ func TestValidate_NeitherArrivalFormSet(t *testing.T) {
 
 func TestValidate_UnknownDurationKind(t *testing.T) {
 	s := mustParse(t, validGeneratorYAML)
-	s.AgentModel.Duration.Kind = "weibull"
+	s.AgentModel.Duration.Kind = "not-a-real-kind"
 	err := s.Validate()
 	if err == nil || !strings.Contains(err.Error(), "not recognized") {
 		t.Fatalf("expected unknown-kind error, got %v", err)

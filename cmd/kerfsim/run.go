@@ -26,6 +26,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/gberns/kerf/internal/queue"
+	"github.com/gberns/kerf/internal/sim/duration"
 	"github.com/gberns/kerf/internal/sim/output"
 	"github.com/gberns/kerf/internal/sim/run"
 	"github.com/gberns/kerf/internal/sim/scenario"
@@ -102,6 +103,14 @@ func runRun(stdout io.Writer, scenarioArg string, opts *runOpts) error {
 		return fmt.Errorf("scenario %s: %w", scLabel, err)
 	}
 
+	// Load the fitted-distribution registry. A missing file is non-fatal;
+	// scenarios that use kind=from_distribution will surface a clearer
+	// "distribution not found" error downstream.
+	reg, err := duration.LoadRegistry(duration.DefaultRegistryPath)
+	if err != nil {
+		return fmt.Errorf("load fitted distributions: %w", err)
+	}
+
 	// Resolve weights: file if --weights given, defaults otherwise.
 	weights := queue.DefaultWeights()
 	if opts.weightsPath != "" {
@@ -129,7 +138,7 @@ func runRun(stdout io.Writer, scenarioArg string, opts *runOpts) error {
 
 	if opts.runs == 1 {
 		// Single-run: write the four policy dirs directly under outRoot.
-		if err := runOneSeed(stdout, sc, weights, baseSeed, outRoot, opts); err != nil {
+		if err := runOneSeed(stdout, sc, weights, baseSeed, outRoot, opts, reg); err != nil {
 			return err
 		}
 		if !opts.quiet {
@@ -146,7 +155,7 @@ func runRun(stdout io.Writer, scenarioArg string, opts *runOpts) error {
 		// and uses the value as-is.
 		sc.Seed = seedN
 		seedDir := filepath.Join(outRoot, fmt.Sprintf("seed_%d", seedN))
-		if err := runOneSeed(stdout, sc, weights, seedN, seedDir, opts); err != nil {
+		if err := runOneSeed(stdout, sc, weights, seedN, seedDir, opts, reg); err != nil {
 			return fmt.Errorf("seed %d: %w", seedN, err)
 		}
 	}
@@ -158,7 +167,7 @@ func runRun(stdout io.Writer, scenarioArg string, opts *runOpts) error {
 
 // runOneSeed drives the orchestrator once and writes its four policy outputs
 // under dir/{policy}/.
-func runOneSeed(stdout io.Writer, sc *scenario.Scenario, weights queue.Weights, seed int64, dir string, opts *runOpts) error {
+func runOneSeed(stdout io.Writer, sc *scenario.Scenario, weights queue.Weights, seed int64, dir string, opts *runOpts, reg *duration.Registry) error {
 	if !opts.quiet && opts.format == "text" {
 		// Single-line progress: emit a "starting" line. We do not currently
 		// have per-tick progress callbacks from run.Run, so the line is
@@ -180,11 +189,11 @@ func runOneSeed(stdout io.Writer, sc *scenario.Scenario, weights queue.Weights, 
 
 	var result *run.Result
 	var err error
+	runOpts := run.Options{Registry: reg}
 	if sink != nil {
-		result, err = run.RunWithDebug(sc, weights, sc.Agents, sink)
-	} else {
-		result, err = run.Run(sc, weights, sc.Agents)
+		runOpts.KerfDebug = sink
 	}
+	result, err = run.RunWithOptions(sc, weights, sc.Agents, runOpts)
 	if err != nil {
 		return err
 	}

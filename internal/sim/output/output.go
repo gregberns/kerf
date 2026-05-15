@@ -47,6 +47,12 @@ type Result struct {
 	Agents     int
 	StopReason string
 
+	// MergesWithConflict and MergesHappyPath split the generated beads by
+	// whether their merge phase incurred a conflict-resolution draw
+	// (Plan 012 / Pillar C). Both 0 when the scenario has no merge_model.
+	MergesWithConflict int
+	MergesHappyPath    int
+
 	// Events are written in the order supplied; callers are responsible for
 	// sorting into canonical event order before calling WriteRun. WriteRun
 	// applies a stable secondary sort so byte-identical inputs always yield
@@ -68,14 +74,16 @@ type EventEntry struct {
 // summaryDoc is the on-disk shape of summary.json. Field order in this struct
 // fixes JSON key order under encoding/json.
 type summaryDoc struct {
-	Full           metrics.Block `json:"full"`
-	Warmup         metrics.Block `json:"warmup"`
-	WarmupSkipped  bool          `json:"warmup_skipped"`
-	WallTicks      int64         `json:"wall_ticks"`
-	Agents         int           `json:"agents"`
-	ScenarioSHA256 string        `json:"scenario_sha256"`
-	WeightsSHA256  string        `json:"weights_sha256"`
-	StopReason     string        `json:"stop_reason"`
+	Full               metrics.Block `json:"full"`
+	Warmup             metrics.Block `json:"warmup"`
+	WarmupSkipped      bool          `json:"warmup_skipped"`
+	WallTicks          int64         `json:"wall_ticks"`
+	Agents             int           `json:"agents"`
+	ScenarioSHA256     string        `json:"scenario_sha256"`
+	WeightsSHA256      string        `json:"weights_sha256"`
+	StopReason         string        `json:"stop_reason"`
+	MergesWithConflict int           `json:"merges_with_conflict,omitempty"`
+	MergesHappyPath    int           `json:"merges_happy_path,omitempty"`
 }
 
 // WriteRun materializes a Result into dir. dir is created if it does not
@@ -111,14 +119,16 @@ func WriteRun(dir string, r Result) error {
 // Exposed so consumers (e.g. `kerfsim diff`) can read run outputs without
 // re-deriving the schema.
 type Summary struct {
-	Full           metrics.Block `json:"full"`
-	Warmup         metrics.Block `json:"warmup"`
-	WarmupSkipped  bool          `json:"warmup_skipped"`
-	WallTicks      int64         `json:"wall_ticks"`
-	Agents         int           `json:"agents"`
-	ScenarioSHA256 string        `json:"scenario_sha256"`
-	WeightsSHA256  string        `json:"weights_sha256"`
-	StopReason     string        `json:"stop_reason"`
+	Full               metrics.Block `json:"full"`
+	Warmup             metrics.Block `json:"warmup"`
+	WarmupSkipped      bool          `json:"warmup_skipped"`
+	WallTicks          int64         `json:"wall_ticks"`
+	Agents             int           `json:"agents"`
+	ScenarioSHA256     string        `json:"scenario_sha256"`
+	WeightsSHA256      string        `json:"weights_sha256"`
+	StopReason         string        `json:"stop_reason"`
+	MergesWithConflict int           `json:"merges_with_conflict,omitempty"`
+	MergesHappyPath    int           `json:"merges_happy_path,omitempty"`
 }
 
 // ReadSummary parses summary.json from the run directory dir.
@@ -141,14 +151,16 @@ func ReadSummary(dir string) (*Summary, error) {
 // callers that need to also write the summary to stdout (`--format=json`).
 func SummaryJSON(r Result) ([]byte, error) {
 	doc := summaryDoc{
-		Full:           r.Full,
-		Warmup:         r.Warmup,
-		WarmupSkipped:  r.WarmupSkipped,
-		WallTicks:      r.WallTicks,
-		Agents:         r.Agents,
-		ScenarioSHA256: r.ScenarioSHA,
-		WeightsSHA256:  r.WeightsSHA,
-		StopReason:     r.StopReason,
+		Full:               r.Full,
+		Warmup:             r.Warmup,
+		WarmupSkipped:      r.WarmupSkipped,
+		WallTicks:          r.WallTicks,
+		Agents:             r.Agents,
+		ScenarioSHA256:     r.ScenarioSHA,
+		WeightsSHA256:      r.WeightsSHA,
+		StopReason:         r.StopReason,
+		MergesWithConflict: r.MergesWithConflict,
+		MergesHappyPath:    r.MergesHappyPath,
 	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

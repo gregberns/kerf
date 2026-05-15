@@ -27,6 +27,7 @@ import (
 	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/queue"
 	"github.com/gberns/kerf/internal/sim/baselines"
+	"github.com/gberns/kerf/internal/sim/duration"
 	"github.com/gberns/kerf/internal/sim/event"
 	"github.com/gberns/kerf/internal/sim/generator"
 	"github.com/gberns/kerf/internal/sim/loop"
@@ -65,7 +66,15 @@ type Result struct {
 // invocations of Run return Results whose four output.Result fields are
 // deep-equal.
 func Run(s *scenario.Scenario, weights queue.Weights, agents int) (*Result, error) {
-	return RunWithDebug(s, weights, agents, nil)
+	return RunWithOptions(s, weights, agents, Options{})
+}
+
+// Options bundles the optional knobs to Run: a debug sink for the kerf
+// policy and a fitted-distribution registry that scenarios may reference
+// via kind=from_distribution.
+type Options struct {
+	KerfDebug metrics.DebugSink
+	Registry  *duration.Registry
 }
 
 // RunWithDebug mirrors Run but routes a metrics.DebugSink into the kerf
@@ -74,6 +83,12 @@ func Run(s *scenario.Scenario, weights queue.Weights, agents int) (*Result, erro
 // debug records, since the B14 diagnostic is about the simulator itself,
 // not policy behavior.
 func RunWithDebug(s *scenario.Scenario, weights queue.Weights, agents int, kerfSink metrics.DebugSink) (*Result, error) {
+	return RunWithOptions(s, weights, agents, Options{KerfDebug: kerfSink})
+}
+
+// RunWithOptions is the full-signature entry point. Run and RunWithDebug
+// are thin wrappers.
+func RunWithOptions(s *scenario.Scenario, weights queue.Weights, agents int, opts Options) (*Result, error) {
 	if s == nil {
 		return nil, fmt.Errorf("run: nil scenario")
 	}
@@ -87,10 +102,23 @@ func RunWithDebug(s *scenario.Scenario, weights queue.Weights, agents int, kerfS
 	}
 
 	// Generate one world; all four passes share it.
-	world, err := generator.Generate(s)
+	world, err := generator.GenerateWithRegistry(s, opts.Registry)
 	if err != nil {
 		return nil, fmt.Errorf("run: generate: %w", err)
 	}
+
+	// Tally merge-conflict bookkeeping over the generated world. The
+	// counters are the same for every policy pass (the four passes share
+	// the same world), so we compute them once here.
+	var mergesWithConflict, mergesHappyPath int
+	for _, b := range world.Beads {
+		if b.MergeConflict {
+			mergesWithConflict++
+		} else {
+			mergesHappyPath++
+		}
+	}
+	kerfSink := opts.KerfDebug
 
 	// Compute scenario and weights bytes + SHAs once. Scenario bytes come
 	// from the loader (raw input); if the scenario was constructed in-memory
@@ -122,6 +150,8 @@ func RunWithDebug(s *scenario.Scenario, weights queue.Weights, agents int, kerfS
 		if err != nil {
 			return nil, fmt.Errorf("run: policy %s: %w", p.Name(), err)
 		}
+		res.MergesWithConflict = mergesWithConflict
+		res.MergesHappyPath = mergesHappyPath
 		results[p.Name()] = res
 	}
 
