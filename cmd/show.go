@@ -15,7 +15,9 @@ import (
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/dep"
+	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/jig"
+	"github.com/gberns/kerf/internal/spec"
 )
 
 var showCmd = &cobra.Command{
@@ -104,6 +106,15 @@ func runShow(cmd *cobra.Command, args []string) error {
 	// counting every bead in the project.
 	if beadSummary := getBeadSummary(s.Project.ID, s.Codename, s.BeadFilter); beadSummary != "" {
 		fmt.Println(beadSummary)
+		fmt.Println()
+	}
+
+	// Attached beads block (Plan 009 / B7).
+	// Lists beads attached to this work via resolved filter, plus any
+	// pinned_beads, annotated with drift markers from the cached baseline.
+	// Silent no-op when the bead store is unavailable.
+	if block := getAttachedBeadsBlock(s); block != "" {
+		fmt.Println(block)
 		fmt.Println()
 	}
 
@@ -313,6 +324,294 @@ func getBeadSummary(projectID, codename string, perWork *beads.Filter) string {
 	}
 
 	return fmt.Sprintf("Beads: %d total, %d closed, %d open", total, closed, open)
+}
+
+// getAttachedBeadsBlock renders the "Attached beads (N open / M closed)" block
+// per specs/commands.md §`kerf show`. It includes:
+//   - Beads matching the work's resolved bead_filter.
+//   - Beads listed in spec.PinnedBeads (annotated "(pinned)" — surface even
+//     when they would not match the filter).
+//   - Drift markers (closed externally / reopened externally / new /
+//     deleted / changed) computed against the cached baseline snapshot.
+//
+// Returns "" when:
+//   - The bead store is unavailable (silent degrade).
+//   - The work has zero attached and zero pinned beads (the higher
+//     "Bead status" line above already covers the empty case).
+//
+// This function never advances the drift baseline.
+func getAttachedBeadsBlock(s *spec.SpecYAML) string {
+	toolName := beads.DefaultToolName
+	var projectFilter *beads.Filter
+	r, err := cmdutil.Resolver(s.Project.ID)
+	if err == nil {
+		if cfg, cerr := config.LoadProjectConfig(r.ProjectConfigPath()); cerr == nil && cfg != nil {
+			toolName = beads.ResolveToolName(cfg.Tools)
+			projectFilter = cfg.BeadFilter
+		}
+	}
+
+	// Silent no-op if the bead store is unavailable.
+	if !beads.IsAvailableNamed(toolName) {
+		return ""
+	}
+
+	all, err := beads.ListNamed(toolName)
+	if err != nil {
+		return ""
+	}
+
+	resolved := beads.Resolve(s.BeadFilter, projectFilter)
+	matched := beads.ForWorkWithFilter(all, s.Codename, resolved)
+
+	// Index current beads by ID for pin-overlay and drift lookup.
+	currentByID := make(map[string]beads.Bead, len(all))
+	for _, b := range all {
+		currentByID[b.ID] = b
+	}
+
+	// Build the dedup'd set, marking pinned membership.
+	pinned := make(map[string]bool, len(s.PinnedBeads))
+	for _, id := range s.PinnedBeads {
+		pinned[id] = true
+	}
+
+	seen := make(map[string]bool, len(matched)+len(s.PinnedBeads))
+	type row struct {
+		ID     string
+		Status string
+		Title  string
+		Pinned bool
+		Drift  string // empty if no marker
+	}
+	var rows []row
+
+	addRow := func(b beads.Bead) {
+		if seen[b.ID] {
+			return
+		}
+		seen[b.ID] = true
+		rows = append(rows, row{
+			ID:     b.ID,
+			Status: b.Status,
+			Title:  b.Title,
+			Pinned: pinned[b.ID],
+		})
+	}
+
+	for _, b := range matched {
+		addRow(b)
+	}
+	// Pinned beads that did not match the filter — surface them too.
+	for _, id := range s.PinnedBeads {
+		if b, ok := currentByID[id]; ok {
+			addRow(b)
+		}
+	}
+
+	// Read baseline + compute drift. Baseline absence is non-fatal:
+	// drift markers are simply omitted in that case (per spec).
+	closedSet := map[string]bool{
+		"closed":    true,
+		"done":      true,
+		"complete":  true,
+		"completed": true,
+	}
+	repoRoot := ""
+	if r != nil {
+		repoRoot = r.RepoRoot
+	}
+	cachePath := drift.CachePath(repoRoot)
+	baseline, hasBaseline, _ := drift.Read(cachePath)
+
+	if hasBaseline {
+		current := drift.Capture(all, nil)
+		diff := drift.Compute(baseline, current, closedSet)
+
+		markerFor := make(map[string]string)
+		for _, id := range diff.ClosedExternally {
+			markerFor[id] = "closed externally since last triage"
+		}
+		for _, id := range diff.ReopenedExternally {
+			markerFor[id] = "reopened externally since last triage"
+		}
+		for _, id := range diff.New {
+			markerFor[id] = "new since last triage"
+		}
+		for _, id := range diff.Changed {
+			// Distinguish relabel vs retitle vs dep-change by comparing
+			// the baseline record to the current bead. "relabeled" wins
+			// if labels differ; else "retitled" if title differs; else
+			// fall back to "changed".
+			b, present := currentByID[id]
+			base, basePresent := baseline.Beads[id]
+			switch {
+			case present && basePresent && !sameLabels(base.Labels, b.Labels):
+				markerFor[id] = "relabeled since last triage"
+			case present && basePresent && base.Title != b.Title:
+				markerFor[id] = "retitled since last triage"
+			default:
+				markerFor[id] = "changed since last triage"
+			}
+		}
+
+		// Apply markers to existing rows.
+		for i := range rows {
+			if m, ok := markerFor[rows[i].ID]; ok {
+				rows[i].Drift = m
+			}
+		}
+
+		// Deleted beads: present in baseline, absent from current. They
+		// still appear in the block (with their baseline title) and a
+		// "! deleted" marker — they only fall out when --ack advances
+		// the baseline.
+		//
+		// Per spec the deleted bead is shown only when it had been
+		// attached to this work (via the baseline's filter assignments)
+		// or is currently pinned. PinnedBeads handles the pin case
+		// (skipped above when the bead isn't in currentByID — restore
+		// that here).
+		for _, id := range diff.Deleted {
+			if seen[id] {
+				continue
+			}
+			// Was this deleted bead attached to this work in the baseline?
+			attached := false
+			if works, ok := baseline.FilterAssignments[id]; ok {
+				for _, w := range works {
+					if w == s.Codename {
+						attached = true
+						break
+					}
+				}
+			}
+			if !attached && !pinned[id] {
+				continue
+			}
+			baseRec := baseline.Beads[id]
+			rows = append(rows, row{
+				ID:     id,
+				Status: baseRec.Status,
+				Title:  baseRec.Title,
+				Pinned: pinned[id],
+				Drift:  "deleted since last triage",
+			})
+			seen[id] = true
+		}
+	}
+
+	if len(rows) == 0 {
+		return ""
+	}
+
+	// Sort: open beads first, then closed; within each group, by ID.
+	open := rows[:0:0]
+	closed := rows[:0:0]
+	for _, r := range rows {
+		if isClosedShowStatus(r.Status) {
+			closed = append(closed, r)
+		} else {
+			open = append(open, r)
+		}
+	}
+	sortRowsByID := func(rs []row) {
+		for i := 1; i < len(rs); i++ {
+			for j := i; j > 0 && rs[j-1].ID > rs[j].ID; j-- {
+				rs[j-1], rs[j] = rs[j], rs[j-1]
+			}
+		}
+	}
+	sortRowsByID(open)
+	sortRowsByID(closed)
+
+	// Compute column widths for stable alignment.
+	idW, statW, titleW := 0, 0, 0
+	all2 := append(append([]row{}, open...), closed...)
+	for _, r := range all2 {
+		if len(r.ID) > idW {
+			idW = len(r.ID)
+		}
+		if len(r.Status) > statW {
+			statW = len(r.Status)
+		}
+		if len(r.Title) > titleW {
+			titleW = len(r.Title)
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Attached beads (%d open / %d closed):\n", len(open), len(closed))
+	for _, r := range all2 {
+		fmt.Fprintf(&b, "  %-*s  %-*s  %-*s", idW, r.ID, statW, r.Status, titleW, r.Title)
+		if r.Pinned {
+			b.WriteString("  (pinned)")
+		}
+		if r.Drift != "" {
+			b.WriteString("  ! ")
+			b.WriteString(r.Drift)
+		}
+		b.WriteByte('\n')
+	}
+	// Trim trailing newline so the caller's fmt.Println() does not double-blank.
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// isClosedShowStatus is the closed-status predicate used by the attached
+// beads block. Mirrors internal/feed/cleanup.go isClosedStatus for the
+// open/closed split rule per specs/commands.md §`kerf show`.
+func isClosedShowStatus(s string) bool {
+	switch strings.ToLower(s) {
+	case "closed", "done", "complete", "completed":
+		return true
+	}
+	return false
+}
+
+// sameLabels returns true iff a and b contain the same elements in the
+// same order. The drift package normalizes label slices before hashing,
+// so baseline.Beads[id].Labels and normalize(current.Labels) are
+// directly comparable; we re-normalize current here for parity.
+func sameLabels(a, b []string) bool {
+	an := normalizeForCompare(a)
+	bn := normalizeForCompare(b)
+	if len(an) != len(bn) {
+		return false
+	}
+	for i := range an {
+		if an[i] != bn[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeForCompare returns a lower-cased, deduplicated, sorted copy of
+// labels for comparison parity with drift.Capture's normalization.
+func normalizeForCompare(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	// simple sort
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j-1] > out[j]; j-- {
+			out[j-1], out[j] = out[j], out[j-1]
+		}
+	}
+	return out
 }
 
 // statusProgression renders the status progression with a pointer to current.

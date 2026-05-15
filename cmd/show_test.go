@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gberns/kerf/internal/beads"
+	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/spec"
 	"github.com/gberns/kerf/internal/testutil"
 )
@@ -303,5 +305,203 @@ func TestShow_CaseSensitiveLabelMatching(t *testing.T) {
 	want := "Beads: 1 total, 0 closed, 1 open"
 	if got != want {
 		t.Errorf("getBeadSummary = %q, want %q (case-sensitive match must reject 'Subsystem:bridge')", got, want)
+	}
+}
+
+// ─── Attached beads block (Plan 009 / B7) ───────────────────────────────────
+
+// mkShowSpec builds a minimal *spec.SpecYAML sufficient for getAttachedBeadsBlock.
+func mkShowSpec(projectID, codename string, perWork *beads.Filter, pinned []string) *spec.SpecYAML {
+	return &spec.SpecYAML{
+		Codename:    codename,
+		Type:        "feature",
+		Status:      "implement",
+		Project:     spec.Project{ID: projectID},
+		Jig:         "implementation",
+		JigVersion:  1,
+		Created:     time.Now(),
+		Updated:     time.Now(),
+		BeadFilter:  perWork,
+		PinnedBeads: pinned,
+	}
+}
+
+// TestShow_AttachedBeads_BlockRenders verifies the basic block: three attached
+// beads (two open, one closed) → header counts match, all three lines present.
+// Plan 009 / B7.
+func TestShow_AttachedBeads_BlockRenders(t *testing.T) {
+	stubBr(t, `[
+		{"id":"hk-001","title":"wire retry","status":"open","labels":["work:demo"]},
+		{"id":"hk-002","title":"extract parser","status":"open","labels":["work:demo"]},
+		{"id":"hk-003","title":"scaffold adapter","status":"closed","labels":["work:demo"]}
+	]`)
+
+	s := mkShowSpec("show-attached-proj", "demo", nil, nil)
+	got := getAttachedBeadsBlock(s)
+
+	testutil.AssertStringContains(t, got, "Attached beads (2 open / 1 closed):")
+	testutil.AssertStringContains(t, got, "hk-001")
+	testutil.AssertStringContains(t, got, "wire retry")
+	testutil.AssertStringContains(t, got, "hk-002")
+	testutil.AssertStringContains(t, got, "extract parser")
+	testutil.AssertStringContains(t, got, "hk-003")
+	testutil.AssertStringContains(t, got, "scaffold adapter")
+	// Open before closed: hk-001 appears before hk-003.
+	if i1, i3 := strings.Index(got, "hk-001"), strings.Index(got, "hk-003"); i1 < 0 || i3 < 0 || i1 > i3 {
+		t.Errorf("open beads should sort before closed; got:\n%s", got)
+	}
+}
+
+// TestShow_AttachedBeads_PinnedAnnotated verifies that a pinned bead NOT
+// matching the filter still appears in the block, annotated "(pinned)".
+// Plan 009 / B7.
+func TestShow_AttachedBeads_PinnedAnnotated(t *testing.T) {
+	stubBr(t, `[
+		{"id":"hk-100","title":"matches filter","status":"open","labels":["work:pin-test"]},
+		{"id":"hk-200","title":"pinned but unmatched","status":"open","labels":["unrelated:label"]}
+	]`)
+
+	s := mkShowSpec("show-pinned-proj", "pin-test", nil, []string{"hk-200"})
+	got := getAttachedBeadsBlock(s)
+
+	testutil.AssertStringContains(t, got, "Attached beads (2 open / 0 closed):")
+	testutil.AssertStringContains(t, got, "hk-100")
+	testutil.AssertStringContains(t, got, "hk-200")
+	testutil.AssertStringContains(t, got, "pinned but unmatched")
+	testutil.AssertStringContains(t, got, "(pinned)")
+	// The pinned annotation must be on the hk-200 line.
+	lines := strings.Split(got, "\n")
+	for _, ln := range lines {
+		if strings.Contains(ln, "hk-200") && !strings.Contains(ln, "(pinned)") {
+			t.Errorf("hk-200 line must carry (pinned); got: %q", ln)
+		}
+		if strings.Contains(ln, "hk-100") && strings.Contains(ln, "(pinned)") {
+			t.Errorf("hk-100 (filter-matched, not in PinnedBeads) must NOT carry (pinned); got: %q", ln)
+		}
+	}
+}
+
+// TestShow_AttachedBeads_BeadToolUnavailable verifies that when `br` is not on
+// PATH, the block is omitted silently (no error, no panic, empty string).
+// Plan 009 / B7.
+func TestShow_AttachedBeads_BeadToolUnavailable(t *testing.T) {
+	empty := t.TempDir()
+	t.Setenv("PATH", empty)
+
+	s := mkShowSpec("show-nobr-proj", "any-work", nil, []string{"would-pin"})
+	got := getAttachedBeadsBlock(s)
+	if got != "" {
+		t.Errorf("expected empty block when br unavailable, got %q", got)
+	}
+}
+
+// TestShow_AttachedBeads_ClosedExternallyDriftMarker verifies that a bead which
+// is open in the baseline snapshot but closed in the current bead store renders
+// with `! closed externally since last triage`. Plan 009 / B7.
+//
+// Requires a git repo + project-identifier so drift.CachePath resolves to a
+// real path that drift.Read can find.
+func TestShow_AttachedBeads_ClosedExternallyDriftMarker(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := testutil.SetupGitRepo(t)
+	t.Chdir(repo)
+
+	projectID := "drift-proj"
+	if err := os.MkdirAll(filepath.Join(repo, ".kerf"), 0o755); err != nil {
+		t.Fatalf("mkdir .kerf: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".kerf", "project-identifier"), []byte(projectID), 0o644); err != nil {
+		t.Fatalf("write project-identifier: %v", err)
+	}
+
+	// Seed a baseline snapshot in which hk-901 is OPEN.
+	baseline := drift.Capture(
+		[]beads.Bead{
+			{ID: "hk-901", Title: "guard idempotency", Status: "open", Labels: []string{"work:bridge"}},
+		},
+		nil,
+	)
+	cachePath := filepath.Join(repo, ".kerf", "sync-cache.json")
+	if err := drift.Write(cachePath, baseline); err != nil {
+		t.Fatalf("drift.Write: %v", err)
+	}
+
+	// Current bead store: same bead but now CLOSED.
+	stubBr(t, `[
+		{"id":"hk-901","title":"guard idempotency","status":"closed","labels":["work:bridge"]}
+	]`)
+
+	s := mkShowSpec(projectID, "bridge", nil, nil)
+	got := getAttachedBeadsBlock(s)
+
+	testutil.AssertStringContains(t, got, "hk-901")
+	testutil.AssertStringContains(t, got, "! closed externally since last triage")
+	// Counts: closed=1, open=0.
+	testutil.AssertStringContains(t, got, "Attached beads (0 open / 1 closed):")
+}
+
+// TestShow_AttachedBeads_DeletedBeadStillRenders verifies that a bead present
+// in the baseline but absent from the current bead store still appears in the
+// block — using the baseline title — with a `! deleted since last triage`
+// marker. Beads only disappear from this block when --ack advances the
+// baseline. Plan 009 / B7.
+func TestShow_AttachedBeads_DeletedBeadStillRenders(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := testutil.SetupGitRepo(t)
+	t.Chdir(repo)
+
+	projectID := "drift-del-proj"
+	if err := os.MkdirAll(filepath.Join(repo, ".kerf"), 0o755); err != nil {
+		t.Fatalf("mkdir .kerf: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".kerf", "project-identifier"), []byte(projectID), 0o644); err != nil {
+		t.Fatalf("write project-identifier: %v", err)
+	}
+
+	// Baseline: two beads attached to work "gateway"; one will be deleted.
+	baseline := drift.Capture(
+		[]beads.Bead{
+			{ID: "hk-700", Title: "still here", Status: "open", Labels: []string{"work:gateway"}},
+			{ID: "hk-701", Title: "vanished bead", Status: "open", Labels: []string{"work:gateway"}},
+		},
+		map[string][]string{
+			"hk-700": {"gateway"},
+			"hk-701": {"gateway"},
+		},
+	)
+	if err := drift.Write(filepath.Join(repo, ".kerf", "sync-cache.json"), baseline); err != nil {
+		t.Fatalf("drift.Write: %v", err)
+	}
+
+	// Current store: hk-701 is gone.
+	stubBr(t, `[
+		{"id":"hk-700","title":"still here","status":"open","labels":["work:gateway"]}
+	]`)
+
+	s := mkShowSpec(projectID, "gateway", nil, nil)
+	got := getAttachedBeadsBlock(s)
+
+	testutil.AssertStringContains(t, got, "hk-700")
+	testutil.AssertStringContains(t, got, "hk-701")
+	testutil.AssertStringContains(t, got, "vanished bead")
+	testutil.AssertStringContains(t, got, "! deleted since last triage")
+}
+
+// TestShow_AttachedBeads_NoAttachments_OmitsBlock verifies that when the work
+// has zero attached beads and zero pinned beads, the block is omitted (the
+// `Bead status` line above already covers the empty case). Plan 009 / B7.
+func TestShow_AttachedBeads_NoAttachments_OmitsBlock(t *testing.T) {
+	stubBr(t, `[
+		{"id":"hk-x","title":"unrelated","status":"open","labels":["unrelated:label"]}
+	]`)
+
+	s := mkShowSpec("show-empty-proj", "lonely", nil, nil)
+	got := getAttachedBeadsBlock(s)
+	if got != "" {
+		t.Errorf("expected empty block when no beads attach to work, got %q", got)
 	}
 }
