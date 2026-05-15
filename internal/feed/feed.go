@@ -22,6 +22,17 @@ import (
 //
 // ArchivedOrFinalized contains codenames of works in archived/finalized
 // state — both bead and cleanup items targeting these are excluded.
+//
+// BeadToWork maps bead ID -> the list of work codenames whose resolved
+// bead_filter matches that bead (per specs/coordination.md §"Bead
+// Attachment"). The caller (cmd/next.go) builds this map by running the
+// resolved per-work filter over the bead store via
+// beads.ForWorkWithFilter and inverting the result. A bead that matches
+// no work is absent from the map; a bead that matches N works appears
+// with a slice of length N. BeadSource consults this map (NOT the
+// bead's Epic field) to attach beads to works — see Plan 008 / Bead 3
+// for rationale (the Epic field is not populated by the bd→br migration
+// and discarded the resolved filter).
 type Input struct {
 	Works               []*spec.SpecYAML
 	AllBeads            []beads.Bead
@@ -36,6 +47,10 @@ type Input struct {
 	WorkCreated         map[string]time.Time
 	BlockedWorks        map[string]bool
 	ArchivedOrFinalized map[string]bool
+	// BeadToWork is the bead.ID -> matching-work-codenames join, computed
+	// by the caller from each work's resolved bead_filter. See type-level
+	// doc above and BeadSource for multi-match emission semantics.
+	BeadToWork map[string][]string
 }
 
 // Detector produces a slice of Items from project state. Detectors are pure.
@@ -53,6 +68,22 @@ func (f DetectorFunc) Detect(in Input) []Item { return f(in) }
 // pair. A bead is ready when its status is not blocked, in-progress, or
 // complete. The bead's score is taken from its parent work's queue.Entry.
 //
+// Attachment join: BeadSource consults in.BeadToWork (built by the caller
+// from each work's resolved bead_filter) — NOT the bead's Epic field.
+// Multi-match semantics: a bead matching N works produces N items, one
+// per match, each carrying a distinct WorkCodename and the score of that
+// specific work. This is consistent with beads.Match semantics and lets
+// agents see the same bead under each work it might satisfy. A bead
+// absent from BeadToWork matches no work and yields no item here; such
+// beads are surfaced separately as the "unmatched" count in the
+// `kerf next` header.
+//
+// Emission order: BeadSource iterates in.AllBeads in input order, and for
+// each bead emits its matches in the order they appear in
+// BeadToWork[bead.ID]. Final ordering is established by Assemble (Score
+// desc). Stability across runs is the caller's responsibility (build
+// BeadToWork deterministically).
+//
 // Excluded automatically: beads whose target work is blocked, archived,
 // or finalized (Assemble enforces this via Exclude as well; BeadSource is
 // the canonical producer).
@@ -69,23 +100,26 @@ func BeadSource(in Input) []Item {
 		if !isReady(b) {
 			continue
 		}
-		work := b.Epic
-		score := scoreByWork[work]
-		id := b.ID
-		wc := work
-		var workPtr *string
-		if work != "" {
-			workPtr = &wc
+		matches := in.BeadToWork[b.ID]
+		if len(matches) == 0 {
+			// Unattached bead: no item emitted. Surfaced elsewhere
+			// (unmatched header count). See Plan 008 / Bead 3.
+			continue
 		}
-		out = append(out, Item{
-			Kind:         KindBead,
-			Score:        score,
-			Title:        b.Title,
-			Action:       "", // populated by renderer based on jig + status
-			WorkCodename: workPtr,
-			BeadID:       &id,
-			Reason:       "",
-		})
+		id := b.ID
+		for _, work := range matches {
+			wc := work
+			workPtr := &wc
+			out = append(out, Item{
+				Kind:         KindBead,
+				Score:        scoreByWork[work],
+				Title:        b.Title,
+				Action:       "", // populated by renderer based on jig + status
+				WorkCodename: workPtr,
+				BeadID:       &id,
+				Reason:       "",
+			})
+		}
 	}
 	return out
 }

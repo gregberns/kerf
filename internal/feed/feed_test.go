@@ -5,6 +5,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gberns/kerf/internal/beads"
+	"github.com/gberns/kerf/internal/queue"
+	"github.com/gberns/kerf/internal/spec"
 )
 
 func sp(s string) *string { return &s }
@@ -291,5 +295,112 @@ func TestBeadSource_FiltersByStatus(t *testing.T) {
 	}
 	if got := BeadSource(in); got != nil {
 		t.Errorf("nil beads should yield nil, got %+v", got)
+	}
+}
+
+// TestBeadSource_WithLabelFilter — a bead with no Epic field but a label
+// matching a work's resolved bead_filter must surface with the correct
+// work_codename. This is the B:F4 contract: BeadSource consults
+// Input.BeadToWork (the caller's resolved-filter join), not bead.Epic.
+func TestBeadSource_WithLabelFilter(t *testing.T) {
+	in := Input{
+		AllBeads: []beads.Bead{
+			{ID: "kerf-aaa", Title: "labelled", Status: "open", Epic: "" /* no epic */, Labels: []string{"work:token-refresh"}},
+		},
+		QueueEntries: []queue.Entry{{Codename: "token-refresh", Score: 7.5}},
+		BeadToWork: map[string][]string{
+			"kerf-aaa": {"token-refresh"},
+		},
+	}
+	items := BeadSource(in)
+	if len(items) != 1 {
+		t.Fatalf("want 1 item, got %d: %+v", len(items), items)
+	}
+	it := items[0]
+	if it.WorkCodename == nil || *it.WorkCodename != "token-refresh" {
+		t.Errorf("WorkCodename: want pointer to %q, got %v", "token-refresh", it.WorkCodename)
+	}
+	if it.BeadID == nil || *it.BeadID != "kerf-aaa" {
+		t.Errorf("BeadID: want pointer to %q, got %v", "kerf-aaa", it.BeadID)
+	}
+	if it.Score != 7.5 {
+		t.Errorf("Score: want 7.5 (from queue entry), got %v", it.Score)
+	}
+}
+
+// TestBeadSource_MultiMatch — a bead matching multiple works emits one
+// item per match, each with a distinct work_codename and the score of
+// that work.
+func TestBeadSource_MultiMatch(t *testing.T) {
+	in := Input{
+		AllBeads: []beads.Bead{
+			{ID: "kerf-multi", Title: "cross-cutting", Status: "open", Labels: []string{"work:alpha", "work:beta"}},
+		},
+		QueueEntries: []queue.Entry{
+			{Codename: "alpha", Score: 10.0},
+			{Codename: "beta", Score: 3.0},
+		},
+		BeadToWork: map[string][]string{
+			"kerf-multi": {"alpha", "beta"},
+		},
+	}
+	items := BeadSource(in)
+	if len(items) != 2 {
+		t.Fatalf("multi-match: want 2 items, got %d: %+v", len(items), items)
+	}
+	gotWorks := []string{*items[0].WorkCodename, *items[1].WorkCodename}
+	if gotWorks[0] != "alpha" || gotWorks[1] != "beta" {
+		t.Errorf("want emit order [alpha, beta], got %v", gotWorks)
+	}
+	if items[0].Score != 10.0 || items[1].Score != 3.0 {
+		t.Errorf("per-match scores should follow the matched work; got %v, %v", items[0].Score, items[1].Score)
+	}
+	// Both items reference the same bead ID, but pointer identity is not required.
+	if *items[0].BeadID != "kerf-multi" || *items[1].BeadID != "kerf-multi" {
+		t.Errorf("both items should reference kerf-multi; got %q, %q", *items[0].BeadID, *items[1].BeadID)
+	}
+}
+
+// TestBeadSource_UnattachedBeadDropped — a ready bead with no entry in
+// BeadToWork is not emitted (it surfaces elsewhere as the unmatched
+// header count).
+func TestBeadSource_UnattachedBeadDropped(t *testing.T) {
+	in := Input{
+		AllBeads: []beads.Bead{
+			{ID: "kerf-orphan", Title: "orphan", Status: "open", Epic: "ghost", Labels: []string{"misc"}},
+		},
+		// BeadToWork omitted: kerf-orphan matches no work.
+	}
+	if items := BeadSource(in); len(items) != 0 {
+		t.Errorf("unattached bead should not be emitted; got %+v", items)
+	}
+}
+
+// TestCleanup_NoSpuriousWorkNoAttachedBeads — a work whose resolved
+// filter matches at least one bead must NOT emit the
+// work_no_attached_beads cleanup. This guards the B:F4 regression: when
+// the bead store has matching beads but BeadSource was joining on
+// b.Epic="" (empty), the cleanup detector also using bead.Epic would
+// spuriously fire. The detector reads ForWorkWithFilter directly, so the
+// bug pre-dated B3, but the contract is sanity-checked here.
+func TestCleanup_NoSpuriousWorkNoAttachedBeads(t *testing.T) {
+	work := &spec.SpecYAML{
+		Codename:   "token-refresh",
+		Status:     "implement",
+		BeadFilter: &beads.Filter{Label: "work:{codename}"},
+	}
+	in := Input{
+		Works: []*spec.SpecYAML{work},
+		AllBeads: []beads.Bead{
+			{ID: "kerf-x", Title: "x", Status: "open", Labels: []string{"work:token-refresh"}},
+		},
+	}
+	for _, d := range NewCleanupDetectors(nil) {
+		items := d.Detect(in)
+		for _, it := range items {
+			if it.Title == "no attached beads" {
+				t.Errorf("spurious work_no_attached_beads emitted for work with matched bead: %+v", it)
+			}
+		}
 	}
 }
