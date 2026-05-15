@@ -213,11 +213,14 @@ func TestE2E_Plan006_WarningUnmatchedBeads(t *testing.T) {
 		if i > 0 {
 			sb.WriteString(",")
 		}
-		// Status "closed" keeps these out of the bead feed; they exist only
-		// to fuel the unmatched-bead warning.
+		// Status "open" — Plan 008 / Bead 6 (kerf-ohp): the unmatched
+		// detector counts the post-open-filter set, so unmatched beads
+		// must be open to register in the warning header. These beads
+		// have no matching work, so BeadSource does not list them; the
+		// header is the only signal.
 		sb.WriteString(`{"id":"leg-`)
 		sb.WriteByte(byte('a' + i))
-		sb.WriteString(`","title":"x","status":"closed","epic":"","labels":["legacy:thing"]}`)
+		sb.WriteString(`","title":"x","status":"open","epic":"","labels":["legacy:thing"]}`)
 	}
 	sb.WriteString("]")
 	stubBr(t, sb.String())
@@ -299,14 +302,15 @@ func TestE2E_Plan006_FilterFlagIncludeWarning(t *testing.T) {
 	writeSpecWithStatus(t, filepath.Join(projDir, "alpha", "spec.yaml"),
 		"alpha", projectID, "research")
 
-	// One ready bead + 12 unmatched (warning fires).
+	// One ready bead + 12 unmatched (warning fires). Unmatched beads
+	// must be open per Plan 008 / Bead 6 (post-open-filter count).
 	var sb strings.Builder
 	sb.WriteString("[")
 	sb.WriteString(`{"id":"x-1","title":"do","status":"open","epic":"alpha","labels":["work:alpha"]}`)
 	for i := 0; i < 12; i++ {
 		sb.WriteString(`,{"id":"leg-`)
 		sb.WriteByte(byte('a' + i))
-		sb.WriteString(`","title":"x","status":"closed","epic":"","labels":["legacy:thing"]}`)
+		sb.WriteString(`","title":"x","status":"open","epic":"","labels":["legacy:thing"]}`)
 	}
 	sb.WriteString("]")
 	stubBr(t, sb.String())
@@ -341,13 +345,14 @@ func TestE2E_Plan006_JSONNullContract(t *testing.T) {
 
 	// One ready bead + 12 unmatched legacy beads → produces both a bead item
 	// (work_codename + bead_id set) and a warning item (both null).
+	// Unmatched legacy beads must be open per Plan 008 / Bead 6.
 	var sb strings.Builder
 	sb.WriteString("[")
 	sb.WriteString(`{"id":"x-1","title":"do","status":"open","epic":"alpha","labels":["work:alpha"]}`)
 	for i := 0; i < 12; i++ {
 		sb.WriteString(`,{"id":"leg-`)
 		sb.WriteByte(byte('a' + i))
-		sb.WriteString(`","title":"x","status":"closed","epic":"","labels":["legacy:thing"]}`)
+		sb.WriteString(`","title":"x","status":"open","epic":"","labels":["legacy:thing"]}`)
 	}
 	sb.WriteString("]")
 	stubBr(t, sb.String())

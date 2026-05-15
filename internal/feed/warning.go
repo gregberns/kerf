@@ -50,8 +50,27 @@ func NewWarningDetectors(projectFilter *beads.Filter) []Detector {
 // of the bead store matches no work via any resolved filter. It surfaces
 // the most common label-prefix (everything up to and including the first
 // ':') among unmatched beads, to point the user at the misconfiguration.
+//
+// The detector counts unmatched beads from the post-open-filter set — that
+// is, only beads that would appear in the ranked feed (isReady true).
+// Closed / done / blocked / in-progress beads are excluded from the count
+// so the rendered header agrees with the listed items. See Plan 008 /
+// Bead 6 (kerf-ohp).
 func unmatchedBeadsDetector(in Input) []Item {
 	if len(in.AllBeads) == 0 {
+		return nil
+	}
+
+	// Restrict to the open / ready bead set — the same set the bead feed
+	// renders. This makes the unmatched count consistent with what the
+	// agent sees listed below the header.
+	openBeads := make([]beads.Bead, 0, len(in.AllBeads))
+	for _, b := range in.AllBeads {
+		if isReady(b) {
+			openBeads = append(openBeads, b)
+		}
+	}
+	if len(openBeads) == 0 {
 		return nil
 	}
 
@@ -69,11 +88,11 @@ func unmatchedBeadsDetector(in Input) []Item {
 		resolved = append(resolved, wf{codename: w.Codename, filter: f})
 	}
 
-	// Walk every bead; count those that match no work.
+	// Walk every open bead; count those that match no work.
 	unmatchedCount := 0
 	prefixCounts := map[string]int{}
-	total := len(in.AllBeads)
-	for _, b := range in.AllBeads {
+	total := len(openBeads)
+	for _, b := range openBeads {
 		matched := false
 		for _, wf := range resolved {
 			if wf.filter != nil && wf.filter.Match(b, wf.codename) {

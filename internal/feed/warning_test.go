@@ -163,6 +163,68 @@ func TestUnmatchedBeads_NineIsBelowAbsAndFrac(t *testing.T) {
 	}
 }
 
+// TestNext_UnmatchedHeader_MatchesListed — Plan 008 / Bead 6 (kerf-ohp).
+// After closing one previously-unmatched bead, the header count must drop
+// to reflect only open beads, matching what the ranked list shows. The
+// detector recomputes against the post-open-filter bead set, so closed
+// beads cannot inflate the count above the rendered list.
+func TestNext_UnmatchedHeader_MatchesListed(t *testing.T) {
+	// 10 unmatched beads with prefix "orphan:" — meets abs threshold.
+	mk := func() []beads.Bead {
+		out := make([]beads.Bead, 10)
+		for i := 0; i < 10; i++ {
+			out[i] = beads.Bead{
+				ID:     "id-" + string(rune('a'+i)),
+				Status: "open",
+				Labels: []string{"orphan:x"},
+			}
+		}
+		return out
+	}
+
+	// Baseline: all 10 unmatched + open → header reports 10.
+	in := Input{
+		Works:    []*spec.SpecYAML{workSpec("alpha", nil)},
+		AllBeads: mk(),
+	}
+	got := unmatchedBeadsDetector(in)
+	if len(got) != 1 {
+		t.Fatalf("baseline: want 1 warning, got %d", len(got))
+	}
+	if !strings.Contains(got[0].Reason, "10 beads match no work") {
+		t.Fatalf("baseline reason should report 10, got %q", got[0].Reason)
+	}
+
+	// Now simulate `bd close` on one previously-unmatched bead.
+	bds := mk()
+	bds[0].Status = "closed"
+	in2 := Input{
+		Works:    []*spec.SpecYAML{workSpec("alpha", nil)},
+		AllBeads: bds,
+	}
+	got2 := unmatchedBeadsDetector(in2)
+	// 9 unmatched open beads, total open = 9 → frac 100% fires.
+	if len(got2) != 1 {
+		t.Fatalf("after close: want 1 warning, got %d", len(got2))
+	}
+	if !strings.Contains(got2[0].Reason, "9 beads match no work") {
+		t.Errorf("after closing one unmatched bead, header count must drop to 9; got reason %q", got2[0].Reason)
+	}
+	// And cross-check against the listed set: BeadSource emits only beads
+	// that pass isReady AND match a work. Unmatched beads never list, so
+	// the rendered list of unmatched beads is implicitly empty — the
+	// header count is the only signal, and it must reflect open beads.
+	openUnmatched := 0
+	for _, b := range bds {
+		if isReady(b) {
+			openUnmatched++ // all open beads here are unmatched
+		}
+	}
+	if openUnmatched != 9 {
+		t.Fatalf("test setup invariant: openUnmatched=%d, want 9", openUnmatched)
+	}
+}
+
 // --- filter_case_mismatch detector ----------------------------------------
 
 func TestFilterCaseMismatch_FiresWhenLowerCaseWouldMatch(t *testing.T) {
