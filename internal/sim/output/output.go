@@ -107,6 +107,36 @@ func WriteRun(dir string, r Result) error {
 	return nil
 }
 
+// Summary is the on-disk shape of summary.json, parsed back from disk.
+// Exposed so consumers (e.g. `kerfsim diff`) can read run outputs without
+// re-deriving the schema.
+type Summary struct {
+	Full           metrics.Block `json:"full"`
+	Warmup         metrics.Block `json:"warmup"`
+	WarmupSkipped  bool          `json:"warmup_skipped"`
+	WallTicks      int64         `json:"wall_ticks"`
+	Agents         int           `json:"agents"`
+	ScenarioSHA256 string        `json:"scenario_sha256"`
+	WeightsSHA256  string        `json:"weights_sha256"`
+	StopReason     string        `json:"stop_reason"`
+}
+
+// ReadSummary parses summary.json from the run directory dir.
+//
+// Returns an error if dir/summary.json is missing or malformed.
+func ReadSummary(dir string) (*Summary, error) {
+	path := filepath.Join(dir, "summary.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	var s Summary
+	if err := json.Unmarshal(b, &s); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return &s, nil
+}
+
 // SummaryJSON returns the canonical summary.json bytes for r. Exposed for
 // callers that need to also write the summary to stdout (`--format=json`).
 func SummaryJSON(r Result) ([]byte, error) {
