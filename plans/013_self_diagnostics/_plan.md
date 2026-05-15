@@ -63,6 +63,8 @@ Initial detector set (each is independently shippable):
 
 Plan 012's per-phase distributions feed this directly.
 
+**Brittleness note (2026-05-15 catalog audit):** on small projects (kerf has only 52 beads), p95 and p99 are too close (555s vs 696s) for the p95-cross to be a useful trigger. Detector must combine with one of: (a) an absolute floor (e.g., min 600s task-work to fire), (b) effect-size threshold (≥2× project median), or (c) per-area distributions if the area has ≥20 beads. Default: floor + effect-size compound predicate.
+
 ### D5 — Sub-agent retry without reconciliation
 
 **Signal:** same bead id dispatched as two consecutive sub-agents in the same session, where the first produced no commit and the second produced one. Tells the project "we silently re-tried — was the first attempt's work lost?"
