@@ -1,6 +1,81 @@
 package beads
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// --- ParseFilterClause ------------------------------------------------------
+
+func TestParseFilterClause_Label(t *testing.T) {
+	f, err := ParseFilterClause("label=subsystem:bridge")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f.Label != "subsystem:bridge" || f.IDPrefix != "" || len(f.Any) != 0 {
+		t.Fatalf("unexpected filter: %+v", f)
+	}
+}
+
+func TestParseFilterClause_IDPrefix(t *testing.T) {
+	f, err := ParseFilterClause("id_prefix=hk-cb-")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f.IDPrefix != "hk-cb-" || f.Label != "" {
+		t.Fatalf("unexpected filter: %+v", f)
+	}
+}
+
+func TestParseFilterClause_ValueMayContainEquals(t *testing.T) {
+	f, err := ParseFilterClause("label=key=value")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f.Label != "key=value" {
+		t.Fatalf("expected value to retain trailing '=value', got %q", f.Label)
+	}
+}
+
+func TestParseFilterClause_Rejects(t *testing.T) {
+	cases := []struct {
+		in     string
+		errSub string
+	}{
+		{"", "empty input"},
+		{"label", "does not parse"},
+		{"all=foo", "unknown key"},
+		{"=value", "unknown key"},
+		{"label=", "empty value"},
+		{"   ", "empty input"},
+	}
+	for _, c := range cases {
+		_, err := ParseFilterClause(c.in)
+		if err == nil {
+			t.Errorf("expected error for %q", c.in)
+			continue
+		}
+		if !strings.Contains(err.Error(), c.errSub) {
+			t.Errorf("input %q: expected error containing %q, got %v", c.in, c.errSub, err)
+		}
+	}
+}
+
+func TestFilterClauseEquals(t *testing.T) {
+	a, _ := ParseFilterClause("label=foo")
+	b, _ := ParseFilterClause("label=foo")
+	if !FilterClauseEquals(a, b) {
+		t.Fatal("expected equal label clauses")
+	}
+	c, _ := ParseFilterClause("label=bar")
+	if FilterClauseEquals(a, c) {
+		t.Fatal("expected unequal label clauses")
+	}
+	d, _ := ParseFilterClause("id_prefix=foo")
+	if FilterClauseEquals(a, d) {
+		t.Fatal("expected label vs id_prefix to be unequal")
+	}
+}
 
 // --- Validate ---------------------------------------------------------------
 

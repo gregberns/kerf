@@ -2,8 +2,53 @@ package beads
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
+
+// ParseFilterClause parses a single-clause filter expression of the form
+// "label=<value>" or "id_prefix=<value>". The value may be empty-string-rejected
+// by the caller via Validate, but ParseFilterClause itself accepts a missing
+// "=" or unknown key as an error and rejects multi-clause forms (e.g. "all=").
+//
+// This lives in internal/beads (not internal/spec) because clause syntax is
+// a property of the matcher; co-locating the parser with Filter.Match
+// prevents callers from re-implementing it. Callers: cmd/new.go, cmd/work_edit.go,
+// internal/spec/mutate.go.
+func ParseFilterClause(s string) (*Filter, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, errors.New("filter clause: empty input; expected 'label=<value>' or 'id_prefix=<value>'")
+	}
+	idx := strings.IndexByte(s, '=')
+	if idx < 0 {
+		return nil, fmt.Errorf("filter clause: %q does not parse; expected 'label=<value>' or 'id_prefix=<value>'", s)
+	}
+	key := strings.TrimSpace(s[:idx])
+	value := s[idx+1:]
+	if value == "" {
+		return nil, fmt.Errorf("filter clause: %q has empty value; expected 'label=<value>' or 'id_prefix=<value>'", s)
+	}
+	switch key {
+	case "label":
+		return &Filter{Label: value}, nil
+	case "id_prefix":
+		return &Filter{IDPrefix: value}, nil
+	default:
+		return nil, fmt.Errorf("filter clause: unknown key %q; expected 'label' or 'id_prefix'", key)
+	}
+}
+
+// FilterClauseEquals reports whether two single-clause filters are
+// value-equal at the leaf level. It does not walk Any: a clause is, by
+// construction of ParseFilterClause, a single leaf. Used by mutators to
+// detect idempotent add/remove operations.
+func FilterClauseEquals(a, b *Filter) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Label == b.Label && a.IDPrefix == b.IDPrefix && len(a.Any) == 0 && len(b.Any) == 0
+}
 
 // Filter represents a resolved bead_filter from project.yaml or a work's
 // spec.yaml. It supports two leaf clause kinds — Label and IDPrefix — and a
