@@ -83,6 +83,9 @@ func runList() error {
 			specPath := filepath.Join(dir, "spec.yaml")
 			s, err := spec.Read(specPath)
 			if err != nil {
+				// Same rationale as readWorkEntry; archived works are
+				// surfaced via the same stderr channel.
+				fmt.Fprintf(os.Stderr, "warning: corrupt spec for '%s': %v (excluded from list)\n", cn, err)
 				continue
 			}
 			entries = append(entries, workEntry{
@@ -205,6 +208,11 @@ func readWorkEntry(r *storage.Resolver, codename string, archived bool) (workEnt
 	specPath := filepath.Join(dir, "spec.yaml")
 	s, err := spec.Read(specPath)
 	if err != nil {
+		// Surface rather than silently swallow — analogous to the
+		// `corrupt_spec` warning kerf next emits (Plan 008 / B10-code;
+		// specs/commands.md §"Warning kinds"). list has no warning
+		// channel, so we route to stderr and continue.
+		fmt.Fprintf(os.Stderr, "warning: corrupt spec for '%s': %v (excluded from list)\n", codename, err)
 		return workEntry{}, false
 	}
 	return workEntry{

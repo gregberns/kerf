@@ -56,6 +56,16 @@ implementation:
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write spec: %v", err)
 	}
+	// Ensure the project also has a project.yaml (post-Plan 008 / B10-code,
+	// `kerf next` emits a fatal `no_project_yaml` warning otherwise). Tests
+	// that explicitly want the warning override this by NOT calling this
+	// helper or by writing the file separately first.
+	projectYAML := filepath.Join(filepath.Dir(filepath.Dir(path)), "project.yaml")
+	if _, err := os.Stat(projectYAML); os.IsNotExist(err) {
+		if werr := os.WriteFile(projectYAML, []byte("jigs: []\n"), 0o644); werr != nil {
+			t.Fatalf("write project.yaml: %v", werr)
+		}
+	}
 }
 
 // writeProjectFilterYAML writes a minimal project.yaml carrying a label-based
@@ -418,7 +428,11 @@ func TestE2E_Plan006_EmptyFeedMessage(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	projectID := "empty-proj"
 
-	if err := os.MkdirAll(filepath.Join(tmp, ".kerf", "projects", projectID), 0o755); err != nil {
+	projDir := filepath.Join(tmp, ".kerf", "projects", projectID)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projDir, "project.yaml"), []byte("jigs: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

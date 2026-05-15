@@ -36,14 +36,64 @@ const (
 //   - filter_case_mismatch: project-wide check — when the project filter's
 //     literal prefix has zero case-sensitive matches but a case-insensitive
 //     variant would match, suggests a case-mismatch.
+//   - corrupt_spec: emits one warning per work whose spec.yaml could not be
+//     parsed during feed assembly (Plan 008 / B10-code; specs/commands.md
+//     §"Warning kinds" → `corrupt_spec`).
+//   - no_project_yaml: emits a single fatal warning when project.yaml is
+//     absent from both local-storage and bench paths
+//     (specs/commands.md §"Warning kinds" → `no_project_yaml`).
 //
-// Both detectors are project-level: WorkCodename and BeadID are nil and
+// All detectors are project-level: WorkCodename and BeadID are nil and
 // Score is 0. Warnings are never excluded by work state.
 func NewWarningDetectors(projectFilter *beads.Filter) []Detector {
 	return []Detector{
 		DetectorFunc(unmatchedBeadsDetector),
 		DetectorFunc(filterCaseMismatchDetector(projectFilter)),
+		DetectorFunc(corruptSpecDetector),
+		DetectorFunc(noProjectYAMLDetector),
 	}
+}
+
+// corruptSpecDetector emits one warning per entry in in.CorruptSpecs.
+// Field shapes follow specs/commands.md §"Warning kinds" → `corrupt_spec`.
+func corruptSpecDetector(in Input) []Item {
+	if len(in.CorruptSpecs) == 0 {
+		return nil
+	}
+	out := make([]Item, 0, len(in.CorruptSpecs))
+	for _, cs := range in.CorruptSpecs {
+		cn := cs.Codename
+		out = append(out, Item{
+			Kind:         KindWarning,
+			Score:        0,
+			Title:        fmt.Sprintf("Corrupt spec: %s", cn),
+			Action:       fmt.Sprintf("kerf show %s", cn),
+			Reason:       fmt.Sprintf("Could not parse spec.yaml for '%s': %s. Work excluded from this feed.", cn, cs.ParseError),
+			WorkCodename: nil,
+			BeadID:       nil,
+		})
+	}
+	return out
+}
+
+// noProjectYAMLDetector emits a single warning when in.NoProjectYAML is
+// true. Field shapes follow specs/commands.md §"Warning kinds"
+// → `no_project_yaml`. This warning is fatal: the caller suppresses the
+// feed listing and sets a non-zero exit status.
+func noProjectYAMLDetector(in Input) []Item {
+	if !in.NoProjectYAML {
+		return nil
+	}
+	pid := in.ProjectID
+	return []Item{{
+		Kind:         KindWarning,
+		Score:        0,
+		Title:        fmt.Sprintf("No project.yaml for '%s'", pid),
+		Action:       "kerf init",
+		Reason:       fmt.Sprintf("Project '%s' has no project.yaml. Run 'kerf init' to create one before using 'kerf next'.", pid),
+		WorkCodename: nil,
+		BeadID:       nil,
+	}}
 }
 
 // unmatchedBeadsDetector emits a single warning when a meaningful fraction

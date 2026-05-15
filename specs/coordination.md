@@ -383,3 +383,20 @@ kerf                              beads (br)
 ```
 
 The boundary is clean: kerf owns planning artifacts, beads owns execution state. The `kerf next` computation bridges both — it composes kerf's work-level information (areas, dependencies, priority signals) with the beads system's task-level information (readiness, completion state) to produce the ordered queue.
+
+## Feed-warning rules
+
+`kerf next` may surface warnings during feed assembly instead of silently skipping the offending input. Each warning kind is defined normatively in [commands.md](commands.md#warning-kinds) under `kerf next`. This table is the cross-cutting index — it names every kind, marks whether it is fatal to the feed, and points to its detector.
+
+| Kind | Fatal? | Detector lives in | Trigger summary |
+|------|--------|-------------------|-----------------|
+| `corrupt_spec` | No — the offending work is excluded, the feed is still emitted for the remaining works. | Spec loader inside `kerf next` feed assembly (per-work `spec.yaml` read). | A per-work `spec.yaml` cannot be parsed (malformed YAML, invalid timestamp, schema violation). Replaces the legacy silent drop. |
+| `no_project_yaml` | Yes — no feed is produced; the command exits non-zero. | Project resolver inside `kerf next`, before feed assembly. | The project id resolves but `project.yaml` is absent from both the local-storage and bench paths. Suggests `kerf init`. |
+
+Rules that apply to every warning kind:
+
+1. **Single source of truth.** Field shapes (`title`, `action`, `reason`) and message templates are specified once in [commands.md](commands.md#warning-kinds). This table only catalogues kinds; it does not redefine their fields.
+2. **Order.** Warnings are emitted in detection order, before the feed listing.
+3. **Fatality.** A fatal warning suppresses the feed listing for that invocation and sets a non-zero exit status. A non-fatal warning is informational; the feed listing still prints with the offending entries excluded.
+4. **No silent drops.** When feed assembly excludes a work for a structural reason (parse failure, missing required file), it must emit a warning of a documented kind. Adding a new exclusion path requires adding a new warning kind here and in commands.md.
+5. **Stability.** Kind names are stable strings — agents and downstream tools may match on them. Renaming a kind is a breaking change.

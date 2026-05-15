@@ -1588,6 +1588,49 @@ Filter flags apply to JSON output identically.
 
 Changes to this help text require a spec change.
 
+### Warning kinds
+
+`kerf next` is a read-only view that surfaces problems it encounters during feed assembly rather than failing the command. Each warning is a structured entry with three fields:
+
+- `title` — short single-line label suitable for the warning banner.
+- `action` — the suggested next command (or a hyphen if no command applies).
+- `reason` — a one- or two-line explanation, including the offending codename and any underlying error string.
+
+Detectors run during feed assembly; the feed (the actionable-work list) is still emitted alongside any warnings unless the warning kind is documented as fatal. The full set of warning kinds is defined here. The mirror table in [coordination.md](coordination.md#feed-warning-rules) lists each kind with its fatality and severity.
+
+#### `corrupt_spec`
+
+- **When it fires:** during step 2 (read all active works and their `spec.yaml` files), a per-work `spec.yaml` cannot be parsed — malformed YAML, an invalid `created_at` / status timestamp, a missing required field, or any other schema violation that prevents the work from being loaded.
+- **Effect on the feed:** the offending work is excluded from feed assembly. It is not silently dropped; the corrupt-spec warning replaces the silent skip that earlier versions performed.
+- **Fields:**
+  - `title`: `Corrupt spec: {codename}`
+  - `action`: `kerf show {codename}` (so the operator can see the parse error in context).
+  - `reason`: `Could not parse spec.yaml for '{codename}': {parse-error}. Work excluded from this feed.`
+- **Message shape (one warning per corrupt spec):**
+
+  ```
+  Warning: corrupt spec for '{codename}'.
+    {parse-error}
+    Work excluded from this feed. Run 'kerf show {codename}' to inspect.
+  ```
+
+#### `no_project_yaml`
+
+- **When it fires:** `kerf next` runs in a directory that resolves to a project id (via git remote, directory name, or `.kerf/project-identifier`) but no `project.yaml` exists at either the local-storage path (`{repo}/.kerf/project.yaml`) or the bench path (`~/.kerf/projects/{project-id}/project.yaml`). This is distinct from "no project resolvable" (which remains a hard error per the Errors table); the project is identifiable but never initialised.
+- **Effect on the feed:** fatal for this invocation. kerf does not assemble a feed without `project.yaml`, because jig configuration and `bead_filter` come from that file. Exit status is non-zero (see Errors).
+- **Fields:**
+  - `title`: `No project.yaml for '{project-id}'`
+  - `action`: `kerf init`
+  - `reason`: `Project '{project-id}' has no project.yaml. Run 'kerf init' to create one before using 'kerf next'.`
+- **Message shape:**
+
+  ```
+  Warning: no project.yaml for '{project-id}'.
+    Run 'kerf init' to initialise this project.
+  ```
+
+When multiple warnings fire on the same invocation, they are printed in the order they were detected, before the feed listing. The feed listing is omitted entirely when a fatal warning fires.
+
 ### Errors
 
 | Condition | Message |
@@ -1595,6 +1638,7 @@ Changes to this help text require a spec change.
 | No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
 | Unknown kind in `--only`/`--include`/`--kinds` | `Error: unknown item kind '{value}'. Known kinds: {list of kinds from the current build}.` |
 | Unknown value in `--format` | `Error: unknown format '{value}'. Supported: text, json.` |
+| `no_project_yaml` warning fires | The warning above is printed and the command exits non-zero with `Error: no project.yaml — run 'kerf init'.` |
 
 ---
 

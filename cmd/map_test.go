@@ -135,6 +135,56 @@ func TestMapCommand_Dependencies(t *testing.T) {
 	testutil.AssertStringContains(t, out, "beta -> alpha [research]")
 }
 
+// TestMap_CaseSensitiveLabelMatching verifies that `kerf map` attaches
+// beads to works via the spec-conformant case-sensitive matcher
+// (Plan 008 / B5; specs/coordination.md L232). A project bead_filter of
+// `subsystem:{codename}` must NOT match a label `Subsystem:bridge` — only
+// the exact-case `subsystem:bridge`. The rendered map line for the work
+// should show `1/2 beads`, not the case-insensitive count.
+func TestMap_CaseSensitiveLabelMatching(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	projectID := "case-map-proj"
+	benchDir := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(benchDir, "projects", projectID)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+
+	// Project-level bead_filter — case-sensitive matching is the
+	// spec-conformant rule (specs/coordination.md L232).
+	projectYAML := []byte("bead_filter:\n  label: \"subsystem:{codename}\"\n")
+	if err := os.WriteFile(filepath.Join(projDir, "project.yaml"), projectYAML, 0o644); err != nil {
+		t.Fatalf("write project.yaml: %v", err)
+	}
+
+	// One work; one bead with the exact-case label (open), one with the
+	// mixed-case label that must be rejected, one closed exact-case bead.
+	writeSpecWithAreas(t,
+		filepath.Join(projDir, "bridge", "spec.yaml"),
+		"bridge", projectID, "research", "Span the chasm", nil)
+
+	stubBr(t, `[
+		{"id":"b-match-open","status":"open","labels":["subsystem:bridge"]},
+		{"id":"b-match-closed","status":"closed","labels":["subsystem:bridge"]},
+		{"id":"b-case","status":"open","labels":["Subsystem:bridge"]}
+	]`)
+
+	out := captureOutput(t, func() {
+		projectFlag = projectID
+		defer func() { projectFlag = "" }()
+		mapCmd.RunE(mapCmd, []string{})
+	})
+
+	// Exact-case matching: 2 beads attach (1 done, 1 open). The
+	// mixed-case label is rejected.
+	testutil.AssertStringContains(t, out, "1/2 beads")
+	if containsString(out, "1/3 beads") {
+		t.Errorf("map rendered 1/3 beads — case-insensitive match leaked through; expected 1/2.\nOutput:\n%s", out)
+	}
+}
+
 // writeSpecWithAreas creates a minimal spec.yaml with areas and title.
 func writeSpecWithAreas(t *testing.T, path, codename, projectID, status, title string, areaList []string) {
 	t.Helper()
@@ -169,6 +219,14 @@ depends_on: []
 	os.MkdirAll(filepath.Dir(path), 0755)
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("writeSpecWithAreas: %v", err)
+	}
+	// Ensure the enclosing project has a project.yaml (post-Plan 008 /
+	// B10-code; specs/commands.md §"Warning kinds" → `no_project_yaml`).
+	projectYAML := filepath.Join(filepath.Dir(filepath.Dir(path)), "project.yaml")
+	if _, err := os.Stat(projectYAML); os.IsNotExist(err) {
+		if werr := os.WriteFile(projectYAML, []byte("jigs: []\n"), 0644); werr != nil {
+			t.Fatalf("write project.yaml: %v", werr)
+		}
 	}
 }
 

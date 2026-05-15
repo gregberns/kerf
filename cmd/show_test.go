@@ -122,7 +122,7 @@ func TestShowNonComposableJig(t *testing.T) {
 func TestGetBeadSummary_NoBr(t *testing.T) {
 	// br may or may not be installed in test env; if no beads exist for the
 	// (nonexistent) test project, the function returns empty string silently.
-	got := getBeadSummary("any-project")
+	got := getBeadSummary("any-project", "any-work", nil)
 	if got != "" {
 		t.Errorf("expected empty string when beads tool unavailable or no beads, got %q", got)
 	}
@@ -134,14 +134,17 @@ func TestGetBeadSummary_NoBr(t *testing.T) {
 // reach beads via internal/beads.ListNamed (no direct exec.Command shell-out
 // in cmd/show.go) — Plan 008 / Bead 1.
 func TestShow_BeadsAttached_RendersCounts(t *testing.T) {
+	// Beads carry the default filter label "work:<codename>"; the resolved
+	// per-work + project filter (nil/nil here) falls through to the built-in
+	// default, so all four match and are counted.
 	stubBr(t, `[
-		{"id":"x-1","status":"open","labels":[]},
-		{"id":"x-2","status":"closed","labels":[]},
-		{"id":"x-3","status":"done","labels":[]},
-		{"id":"x-4","status":"in-progress","labels":[]}
+		{"id":"x-1","status":"open","labels":["work:demo"]},
+		{"id":"x-2","status":"closed","labels":["work:demo"]},
+		{"id":"x-3","status":"done","labels":["work:demo"]},
+		{"id":"x-4","status":"in-progress","labels":["work:demo"]}
 	]`)
 
-	got := getBeadSummary("any-project")
+	got := getBeadSummary("any-project", "demo", nil)
 	// 4 total: 2 terminal (closed+done) + 2 non-terminal (open, in-progress)
 	want := "Beads: 4 total, 2 closed, 2 open"
 	if got != want {
@@ -194,6 +197,12 @@ func TestShow_WorkCodename_MultiMatch(t *testing.T) {
 	}
 	mkWork("alpha", "tag:shared")
 	mkWork("beta", "tag:shared")
+
+	// Project.yaml stub (post-Plan 008 / B10-code, `kerf next` emits a
+	// fatal `no_project_yaml` warning when absent).
+	if werr := os.WriteFile(filepath.Join(worksDir, "project.yaml"), []byte("jigs: []\n"), 0o644); werr != nil {
+		t.Fatalf("write project.yaml: %v", werr)
+	}
 
 	// Stub `br` so beads.List returns exactly one bead carrying both
 	// labels — no Epic, no per-work scoping in the bead itself.
@@ -252,8 +261,47 @@ func TestShow_BeadToolUnavailable_DegradesGracefully(t *testing.T) {
 	empty := t.TempDir()
 	t.Setenv("PATH", empty)
 
-	got := getBeadSummary("any-project")
+	got := getBeadSummary("any-project", "any-work", nil)
 	if got != "" {
 		t.Errorf("expected empty summary when br unavailable, got %q", got)
+	}
+}
+
+// TestShow_CaseSensitiveLabelMatching verifies that the spec-conformant
+// case-sensitive bead-attachment path is used by `kerf show` (Plan 008 / B5;
+// specs/coordination.md L232). A project bead_filter of
+// `subsystem:{codename}` must NOT match a label `Subsystem:bridge` — only
+// the exact-case `subsystem:bridge`.
+func TestShow_CaseSensitiveLabelMatching(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	projectID := "case-proj"
+	codename := "bridge"
+	benchDir := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(benchDir, "projects", projectID)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+
+	// Project-level bead_filter forces label "subsystem:{codename}".
+	projectYAML := []byte("bead_filter:\n  label: \"subsystem:{codename}\"\n")
+	if err := os.WriteFile(filepath.Join(projDir, "project.yaml"), projectYAML, 0o644); err != nil {
+		t.Fatalf("write project.yaml: %v", err)
+	}
+
+	// Stub br with three beads: one with the exact-case label, one with a
+	// mixed-case "Subsystem:bridge" label that must be rejected by the
+	// spec's case-sensitive rule, and one unrelated.
+	stubBr(t, `[
+		{"id":"b-match","status":"open","labels":["subsystem:bridge"]},
+		{"id":"b-case","status":"open","labels":["Subsystem:bridge"]},
+		{"id":"b-other","status":"closed","labels":["subsystem:other"]}
+	]`)
+
+	got := getBeadSummary(projectID, codename, nil)
+	want := "Beads: 1 total, 0 closed, 1 open"
+	if got != want {
+		t.Errorf("getBeadSummary = %q, want %q (case-sensitive match must reject 'Subsystem:bridge')", got, want)
 	}
 }

@@ -99,7 +99,10 @@ func runShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Bead status (best-effort via configured beads tool; default "br").
-	if beadSummary := getBeadSummary(s.Project.ID); beadSummary != "" {
+	// Per Plan 008 / B5: filter beads via the resolved per-work + project
+	// bead_filter (spec-conformant, case-sensitive matching) rather than
+	// counting every bead in the project.
+	if beadSummary := getBeadSummary(s.Project.ID, s.Codename, s.BeadFilter); beadSummary != "" {
 		fmt.Println(beadSummary)
 		fmt.Println()
 	}
@@ -263,17 +266,26 @@ func computePassStatus(statusValues []string, currentStatus, passStatus string) 
 }
 
 // getBeadSummary tries to read bead status via the configured beads CLI
-// (project.yaml `tools.tasks`, default `br`) and returns a summary string.
-// Returns empty string if the tool is unavailable or no beads exist.
+// (project.yaml `tools.tasks`, default `br`) and returns a summary string
+// for the beads attached to the given work via the resolved bead_filter.
+// Returns empty string if the tool is unavailable, the project config is
+// unreadable, or no beads match the filter.
 //
 // The argv shape used is the canonical `br` form
 // (`br list --format json --all --limit 0`); if the user has configured a
 // different binary, it must accept compatible flags.
-func getBeadSummary(projectID string) string {
+//
+// Bead attachment uses beads.ForWorkWithFilter with the spec-conformant
+// case-sensitive matcher (Plan 008 / B5; specs/coordination.md §"Bead
+// Attachment"). The filter is resolved per work via beads.Resolve(perWork,
+// project) — first-defined-wins, no merge.
+func getBeadSummary(projectID, codename string, perWork *beads.Filter) string {
 	toolName := beads.DefaultToolName
+	var projectFilter *beads.Filter
 	if r, err := cmdutil.Resolver(projectID); err == nil {
 		if cfg, err := config.LoadProjectConfig(r.ProjectConfigPath()); err == nil && cfg != nil {
 			toolName = beads.ResolveToolName(cfg.Tools)
+			projectFilter = cfg.BeadFilter
 		}
 	}
 
@@ -282,10 +294,16 @@ func getBeadSummary(projectID string) string {
 		return ""
 	}
 
-	total := len(bs)
+	resolved := beads.Resolve(perWork, projectFilter)
+	matched := beads.ForWorkWithFilter(bs, codename, resolved)
+	if len(matched) == 0 {
+		return ""
+	}
+
+	total := len(matched)
 	closed := 0
 	open := 0
-	for _, b := range bs {
+	for _, b := range matched {
 		switch strings.ToLower(b.Status) {
 		case "closed", "done", "complete":
 			closed++

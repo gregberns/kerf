@@ -519,5 +519,20 @@ func TestNext_FinalizedStatus_IsExcluded(t *testing.T) {
 // --- helpers ---------------------------------------------------------------
 
 func mkdirp(path string) error {
-	return os.MkdirAll(path, 0o755)
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return err
+	}
+	// Ensure the project dir always has a project.yaml so kerf next does
+	// not emit the fatal `no_project_yaml` warning (Plan 008 / B10-code;
+	// specs/commands.md §"Warning kinds"). Tests that want to exercise
+	// the warning create the project dir without using this helper.
+	if filepath.Base(filepath.Dir(path)) == "projects" {
+		py := filepath.Join(path, "project.yaml")
+		if _, err := os.Stat(py); os.IsNotExist(err) {
+			if werr := os.WriteFile(py, []byte("jigs: []\n"), 0o644); werr != nil {
+				return werr
+			}
+		}
+	}
+	return nil
 }

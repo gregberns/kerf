@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +18,16 @@ func TestE2E_CoordinationFlow(t *testing.T) {
 
 	projectFlag = projectID
 	t.Cleanup(func() { projectFlag = "" })
+
+	// Pre-seed project.yaml so `kerf next` doesn't emit the fatal
+	// `no_project_yaml` warning (Plan 008 / B10-code).
+	projDir := filepath.Join(tmp, ".kerf", "projects", projectID)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projDir, "project.yaml"), []byte("jigs: []\n"), 0o644); err != nil {
+		t.Fatalf("write project.yaml: %v", err)
+	}
 
 	// 1. Add areas via `kerf areas add`.
 	out := captureOutput(t, func() {

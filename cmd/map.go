@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/gberns/kerf/internal/areas"
 	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/cmdutil"
+	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/spec"
 	"github.com/gberns/kerf/internal/storage"
 )
@@ -39,6 +41,9 @@ type mapWork struct {
 	title    string
 	areas    []string
 	deps     []spec.Dependency
+	// Per-work bead_filter override (nil → fall back to project filter, then
+	// the built-in default via beads.Resolve).
+	beadFilter *beads.Filter
 	// bead progress — negative means unavailable
 	beadsDone  int
 	beadsTotal int
@@ -74,6 +79,11 @@ func runMap() error {
 		specPath := filepath.Join(dir, "spec.yaml")
 		s, err := spec.Read(specPath)
 		if err != nil {
+			// Surface rather than silently swallow — analogous to the
+			// `corrupt_spec` warning kerf next emits (Plan 008 /
+			// B10-code; specs/commands.md §"Warning kinds"). map has
+			// no warning channel, so we route to stderr and continue.
+			fmt.Fprintf(os.Stderr, "warning: corrupt spec for '%s': %v (excluded from map)\n", cn, err)
 			continue
 		}
 		title := ""
@@ -87,17 +97,27 @@ func runMap() error {
 			title:      title,
 			areas:      s.Areas,
 			deps:       s.DependsOn,
+			beadFilter: s.BeadFilter,
 			beadsDone:  -1, // not yet loaded
 			beadsTotal: -1,
 		})
 	}
 
-	// Optionally load bead data.
+	// Load project bead_filter once so each work resolves filter precedence
+	// (per-work → project → default) via beads.Resolve.
+	var projectFilter *beads.Filter
+	if cfg, err := config.LoadProjectConfig(r.ProjectConfigPath()); err == nil && cfg != nil {
+		projectFilter = cfg.BeadFilter
+	}
+
+	// Optionally load bead data. Spec-conformant case-sensitive matching via
+	// beads.ForWorkWithFilter (Plan 008 / B5; specs/coordination.md L232).
 	if beads.IsAvailable() {
 		allBeads, _ := beads.List()
 		if len(allBeads) > 0 {
 			for i := range works {
-				wb := beads.ForWork(allBeads, works[i].codename)
+				resolved := beads.Resolve(works[i].beadFilter, projectFilter)
+				wb := beads.ForWorkWithFilter(allBeads, works[i].codename, resolved)
 				if len(wb) > 0 {
 					done := 0
 					for _, b := range wb {

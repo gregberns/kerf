@@ -313,10 +313,12 @@ func TestFilterCaseMismatch_HandlesAnyUnion(t *testing.T) {
 
 // --- constructor ----------------------------------------------------------
 
-func TestNewWarningDetectors_ReturnsBoth(t *testing.T) {
+func TestNewWarningDetectors_ReturnsAll(t *testing.T) {
+	// v1 detectors (Plan 006/B5): unmatched_beads, filter_case_mismatch.
+	// Plan 008/B10-code adds corrupt_spec and no_project_yaml.
 	ds := NewWarningDetectors(&beads.Filter{Label: "work:{codename}"})
-	if len(ds) != 2 {
-		t.Fatalf("want 2 detectors, got %d", len(ds))
+	if len(ds) != 4 {
+		t.Fatalf("want 4 detectors, got %d", len(ds))
 	}
 }
 
@@ -335,5 +337,103 @@ func TestNewWarningDetectors_HealthyStateProducesNoWarnings(t *testing.T) {
 		if got := d.Detect(in); len(got) != 0 {
 			t.Errorf("healthy state produced warning: %+v", got)
 		}
+	}
+}
+
+// --- corrupt_spec detector (Plan 008 / B10-code) --------------------------
+
+// TestWarning_CorruptSpec_Surfaces verifies that the corrupt_spec detector
+// emits one warning per CorruptSpec entry, with the spec-defined field
+// shapes (specs/commands.md §"Warning kinds" → `corrupt_spec`).
+func TestWarning_CorruptSpec_Surfaces(t *testing.T) {
+	in := Input{
+		CorruptSpecs: []CorruptSpec{
+			{Codename: "bridge", ParseError: "yaml: line 3: mapping values are not allowed in this context"},
+			{Codename: "tunnel", ParseError: "invalid created_at timestamp"},
+		},
+	}
+	got := corruptSpecDetector(in)
+	if len(got) != 2 {
+		t.Fatalf("want 2 warnings, got %d", len(got))
+	}
+	w := got[0]
+	if w.Kind != KindWarning {
+		t.Errorf("kind = %s, want warning", w.Kind)
+	}
+	if w.Score != 0 {
+		t.Errorf("score = %v, want 0", w.Score)
+	}
+	if w.Title != "Corrupt spec: bridge" {
+		t.Errorf("title = %q, want %q", w.Title, "Corrupt spec: bridge")
+	}
+	if w.Action != "kerf show bridge" {
+		t.Errorf("action = %q, want %q", w.Action, "kerf show bridge")
+	}
+	if !strings.Contains(w.Reason, "bridge") {
+		t.Errorf("reason missing codename: %q", w.Reason)
+	}
+	if !strings.Contains(w.Reason, "yaml: line 3") {
+		t.Errorf("reason missing parse-error: %q", w.Reason)
+	}
+	if !strings.Contains(w.Reason, "excluded from this feed") {
+		t.Errorf("reason missing exclusion note: %q", w.Reason)
+	}
+	if w.WorkCodename != nil {
+		t.Errorf("WorkCodename = %v, want nil (project-level)", *w.WorkCodename)
+	}
+	if w.BeadID != nil {
+		t.Errorf("BeadID = %v, want nil (project-level)", *w.BeadID)
+	}
+	// Second entry — independent shape.
+	if got[1].Title != "Corrupt spec: tunnel" {
+		t.Errorf("title[1] = %q, want %q", got[1].Title, "Corrupt spec: tunnel")
+	}
+}
+
+// TestWarning_CorruptSpec_NoOpWhenEmpty: no CorruptSpec entries → no warnings.
+func TestWarning_CorruptSpec_NoOpWhenEmpty(t *testing.T) {
+	in := Input{CorruptSpecs: nil}
+	if got := corruptSpecDetector(in); len(got) != 0 {
+		t.Errorf("want 0 warnings, got %d", len(got))
+	}
+}
+
+// --- no_project_yaml detector (Plan 008 / B10-code) -----------------------
+
+// TestWarning_NoProjectYaml_Surfaces verifies that when Input.NoProjectYAML
+// is true, the detector emits exactly one warning with the spec-defined
+// fields (specs/commands.md §"Warning kinds" → `no_project_yaml`).
+func TestWarning_NoProjectYaml_Surfaces(t *testing.T) {
+	in := Input{
+		ProjectID:     "kerf-demo",
+		NoProjectYAML: true,
+	}
+	got := noProjectYAMLDetector(in)
+	if len(got) != 1 {
+		t.Fatalf("want 1 warning, got %d", len(got))
+	}
+	w := got[0]
+	if w.Kind != KindWarning {
+		t.Errorf("kind = %s, want warning", w.Kind)
+	}
+	if w.Title != "No project.yaml for 'kerf-demo'" {
+		t.Errorf("title = %q", w.Title)
+	}
+	if w.Action != "kerf init" {
+		t.Errorf("action = %q, want %q", w.Action, "kerf init")
+	}
+	if !strings.Contains(w.Reason, "kerf-demo") || !strings.Contains(w.Reason, "kerf init") {
+		t.Errorf("reason = %q (missing project id or remedy)", w.Reason)
+	}
+	if w.WorkCodename != nil || w.BeadID != nil {
+		t.Errorf("expected project-level warning (no WorkCodename/BeadID)")
+	}
+}
+
+// TestWarning_NoProjectYaml_NoOpWhenFalse: NoProjectYAML false → no warning.
+func TestWarning_NoProjectYaml_NoOpWhenFalse(t *testing.T) {
+	in := Input{ProjectID: "kerf-demo", NoProjectYAML: false}
+	if got := noProjectYAMLDetector(in); len(got) != 0 {
+		t.Errorf("want 0 warnings, got %d", len(got))
 	}
 }

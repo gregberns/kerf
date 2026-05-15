@@ -9,8 +9,10 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -123,6 +125,16 @@ func runNext(cmd *cobra.Command) error {
 		return err
 	}
 
+	// --- Detect missing project.yaml (no_project_yaml warning) -----------
+	// Per specs/commands.md §"kerf next" §"Warning kinds" →
+	// `no_project_yaml`: when the project resolves but project.yaml is
+	// absent, emit a fatal warning and suppress feed assembly. This
+	// replaces a previously silent zero-config feed.
+	noProjectYAML := false
+	if _, statErr := os.Stat(r.ProjectConfigPath()); statErr != nil && os.IsNotExist(statErr) {
+		noProjectYAML = true
+	}
+
 	// --- Load works ------------------------------------------------------
 	codenames, err := r.ListWorks()
 	if err != nil {
@@ -131,9 +143,17 @@ func runNext(cmd *cobra.Command) error {
 	works := make([]*spec.SpecYAML, 0, len(codenames))
 	workCreated := make(map[string]time.Time, len(codenames))
 	archivedOrFinalized := make(map[string]bool)
+	// Collect per-work spec.yaml parse failures; surfaced as `corrupt_spec`
+	// warnings rather than silently skipped (Plan 008 / B10-code;
+	// specs/commands.md §"Warning kinds" → `corrupt_spec`).
+	var corruptSpecs []feed.CorruptSpec
 	for _, cn := range codenames {
 		s, rerr := spec.Read(filepath.Join(r.WorkDir(cn), "spec.yaml"))
 		if rerr != nil {
+			corruptSpecs = append(corruptSpecs, feed.CorruptSpec{
+				Codename:   cn,
+				ParseError: rerr.Error(),
+			})
 			continue
 		}
 		works = append(works, s)
@@ -250,6 +270,8 @@ func runNext(cmd *cobra.Command) error {
 		BlockedWorks:        blocked,
 		ArchivedOrFinalized: archivedOrFinalized,
 		BeadToWork:          beadToWork,
+		CorruptSpecs:        corruptSpecs,
+		NoProjectYAML:       noProjectYAML,
 	}
 
 	// --- Run sources + detectors -----------------------------------------
@@ -273,7 +295,24 @@ func runNext(cmd *cobra.Command) error {
 	}
 
 	// --- Render ----------------------------------------------------------
+	// Fatal warning handling per specs/commands.md §"Warning kinds" and
+	// §"Errors": when `no_project_yaml` fires, suppress the feed listing
+	// and exit non-zero with the documented error message. The warning
+	// itself is printed first.
 	out := cmd.OutOrStdout()
+	if noProjectYAML {
+		main = nil
+		if format == "json" {
+			if jerr := renderNextJSON(out, main, warnings); jerr != nil {
+				return jerr
+			}
+		} else {
+			if rerr := renderNextText(out, main, warnings); rerr != nil {
+				return rerr
+			}
+		}
+		return errors.New("no project.yaml — run 'kerf init'.")
+	}
 	switch format {
 	case "json":
 		return renderNextJSON(out, main, warnings)

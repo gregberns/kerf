@@ -51,6 +51,30 @@ type Input struct {
 	// by the caller from each work's resolved bead_filter. See type-level
 	// doc above and BeadSource for multi-match emission semantics.
 	BeadToWork map[string][]string
+
+	// CorruptSpecs lists per-work spec.yaml files that failed to parse
+	// during feed assembly. Populated by cmd/next.go's work-loading loop
+	// (replacing the legacy silent-skip). The `corrupt_spec` warning
+	// detector emits one warning per entry. Per specs/commands.md §"kerf
+	// next" §"Warning kinds" → `corrupt_spec`.
+	CorruptSpecs []CorruptSpec
+
+	// NoProjectYAML is true when the project resolves but project.yaml is
+	// absent from both local-storage and bench paths. Populated by
+	// cmd/next.go. The `no_project_yaml` warning detector emits a single
+	// fatal warning; the caller is responsible for suppressing feed
+	// rendering and setting a non-zero exit per specs/commands.md
+	// §"Warning kinds" → `no_project_yaml`.
+	NoProjectYAML bool
+}
+
+// CorruptSpec records a per-work spec.yaml that failed to parse.
+// Codename is the directory-derived codename (since the spec itself could
+// not be parsed); ParseError is the underlying error string surfaced in
+// the warning's reason field.
+type CorruptSpec struct {
+	Codename   string
+	ParseError string
 }
 
 // Detector produces a slice of Items from project state. Detectors are pure.
