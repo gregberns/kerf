@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gberns/kerf/internal/beads"
+	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/queue"
 	"github.com/gberns/kerf/internal/spec"
 )
@@ -373,6 +374,153 @@ func TestBeadSource_UnattachedBeadDropped(t *testing.T) {
 	}
 	if items := BeadSource(in); len(items) != 0 {
 		t.Errorf("unattached bead should not be emitted; got %+v", items)
+	}
+}
+
+// --- ResolvePins + BeadSource end-to-end (Plan 009 / Bead 5) -----------
+
+// TestResolvePins_OverridesMultiMatch — a bead that matches works A and
+// C via filter, pinned to A, ends up attached to A only. BeadSource then
+// emits a single item under A.
+func TestResolvePins_OverridesMultiMatch(t *testing.T) {
+	beadToWork := map[string][]string{
+		"kerf-b": {"alpha", "charlie"},
+	}
+	pins := map[string]string{
+		"kerf-b": "alpha",
+	}
+	resolved := ResolvePins(beadToWork, pins)
+	if got := resolved["kerf-b"]; len(got) != 1 || got[0] != "alpha" {
+		t.Fatalf("ResolvePins: want [alpha], got %v", got)
+	}
+
+	in := Input{
+		AllBeads: []beads.Bead{
+			{ID: "kerf-b", Title: "pinned", Status: "open"},
+		},
+		QueueEntries: []queue.Entry{
+			{Codename: "alpha", Score: 10.0},
+			{Codename: "charlie", Score: 3.0},
+		},
+		BeadToWork:     resolved,
+		PinAssignments: pins,
+	}
+	items := BeadSource(in)
+	if len(items) != 1 {
+		t.Fatalf("want 1 item after pin override, got %d: %+v", len(items), items)
+	}
+	if items[0].WorkCodename == nil || *items[0].WorkCodename != "alpha" {
+		t.Errorf("pinned bead should attach only to alpha, got %v", items[0].WorkCodename)
+	}
+	if items[0].Score != 10.0 {
+		t.Errorf("score should reflect the pinning work (alpha=10), got %v", items[0].Score)
+	}
+}
+
+// TestResolvePins_SurfacesUnmatched — a bead pinned to A but absent from
+// the filter-resolved BeadToWork (i.e. no filter caught it) MUST appear
+// under A. This is the whole point of pins: catch beads the filter does
+// not.
+func TestResolvePins_SurfacesUnmatched(t *testing.T) {
+	beadToWork := map[string][]string{} // no filter match for kerf-orphan
+	pins := map[string]string{
+		"kerf-orphan": "alpha",
+	}
+	resolved := ResolvePins(beadToWork, pins)
+	if got := resolved["kerf-orphan"]; len(got) != 1 || got[0] != "alpha" {
+		t.Fatalf("ResolvePins: want [alpha] for unmatched-but-pinned bead, got %v", got)
+	}
+
+	in := Input{
+		AllBeads: []beads.Bead{
+			{ID: "kerf-orphan", Title: "orphan", Status: "open"},
+		},
+		QueueEntries:   []queue.Entry{{Codename: "alpha", Score: 7.0}},
+		BeadToWork:     resolved,
+		PinAssignments: pins,
+	}
+	items := BeadSource(in)
+	if len(items) != 1 {
+		t.Fatalf("pinned-but-unmatched bead should surface under owner, got %d items: %+v", len(items), items)
+	}
+	if items[0].WorkCodename == nil || *items[0].WorkCodename != "alpha" {
+		t.Errorf("WorkCodename: want alpha, got %v", items[0].WorkCodename)
+	}
+}
+
+// TestResolvePins_PassesThroughUnpinned — beads not in PinAssignments
+// keep their filter-resolved attachment unchanged, and ResolvePins must
+// return a defensive copy (mutating the result does not mutate the
+// input map).
+func TestResolvePins_PassesThroughUnpinned(t *testing.T) {
+	beadToWork := map[string][]string{
+		"kerf-x": {"alpha", "beta"},
+		"kerf-y": {"gamma"},
+	}
+	pins := map[string]string{
+		"kerf-x": "alpha", // pinned, narrows
+		// kerf-y untouched
+	}
+	resolved := ResolvePins(beadToWork, pins)
+	if got := resolved["kerf-y"]; len(got) != 1 || got[0] != "gamma" {
+		t.Errorf("unpinned bead should pass through; got %v", got)
+	}
+	// Mutating returned slice must not bleed into the original.
+	resolved["kerf-y"][0] = "mutated"
+	if beadToWork["kerf-y"][0] != "gamma" {
+		t.Errorf("ResolvePins should return defensive copies; original was mutated")
+	}
+}
+
+// TestResolvePins_EmptyInputs — both inputs nil/empty: returns a
+// non-nil empty map (caller can use it as feed.Input.BeadToWork).
+func TestResolvePins_EmptyInputs(t *testing.T) {
+	got := ResolvePins(nil, nil)
+	if got == nil {
+		t.Fatalf("ResolvePins should return a non-nil map even for nil inputs")
+	}
+	if len(got) != 0 {
+		t.Errorf("want empty map, got %v", got)
+	}
+}
+
+// TestResolvePins_EmptyOwnerIgnored — defensive: an empty-string owner
+// in PinAssignments is meaningless. ResolvePins drops it rather than
+// emit a bead attached to an empty codename.
+func TestResolvePins_EmptyOwnerIgnored(t *testing.T) {
+	beadToWork := map[string][]string{"kerf-a": {"alpha"}}
+	pins := map[string]string{"kerf-b": ""}
+	resolved := ResolvePins(beadToWork, pins)
+	if _, present := resolved["kerf-b"]; present {
+		t.Errorf("empty owner should be dropped; got %v", resolved["kerf-b"])
+	}
+	// Unrelated entries untouched.
+	if got := resolved["kerf-a"]; len(got) != 1 || got[0] != "alpha" {
+		t.Errorf("unrelated entry mangled; got %v", got)
+	}
+}
+
+// TestInput_DriftResultPassthrough — a populated DriftResult does not
+// affect BeadSource emission. The field is consumed by warning
+// detectors (Plan 009 / Bead 4) and the next-headline (Plan 009 /
+// Bead 11b), not by the bead/cleanup paths.
+func TestInput_DriftResultPassthrough(t *testing.T) {
+	in := Input{
+		AllBeads: []beads.Bead{
+			{ID: "kerf-a", Title: "regular", Status: "open"},
+		},
+		QueueEntries: []queue.Entry{{Codename: "alpha", Score: 5.0}},
+		BeadToWork: map[string][]string{
+			"kerf-a": {"alpha"},
+		},
+		DriftResult: drift.Diff{
+			New:              []string{"kerf-new-1", "kerf-new-2"},
+			ClosedExternally: []string{"kerf-c-1"},
+		},
+	}
+	items := BeadSource(in)
+	if len(items) != 1 || *items[0].BeadID != "kerf-a" {
+		t.Errorf("DriftResult should not influence BeadSource; got %+v", items)
 	}
 }
 

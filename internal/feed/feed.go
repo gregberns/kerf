@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gberns/kerf/internal/beads"
+	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/queue"
 	"github.com/gberns/kerf/internal/spec"
 )
@@ -66,6 +67,37 @@ type Input struct {
 	// rendering and setting a non-zero exit per specs/commands.md
 	// §"Warning kinds" → `no_project_yaml`.
 	NoProjectYAML bool
+
+	// DriftResult is the categorized diff between the current bead-store
+	// snapshot and the cached baseline (`.kerf/sync-cache.json`). The
+	// caller (cmd/next.go, cmd/triage.go) populates this by calling
+	// drift.Capture on the current store, drift.Read on the cache path,
+	// and drift.Compute on the two snapshots, per
+	// specs/coordination.md §"Drift detection".
+	//
+	// DriftResult is a pass-through field for B5: it does not influence
+	// BeadSource or the cleanup/exclusion paths. The `external_drift`
+	// warning detector (Plan 009 / Bead 4) reads this field and emits
+	// per-category warnings; the drift-summary headline in `kerf next`
+	// (Plan 009 / Bead 11b) reads the same field. A zero-value Diff
+	// (empty cache, first-run baseline) yields no warnings.
+	DriftResult drift.Diff
+
+	// PinAssignments is the bead-ID → owning-work-codename map built by
+	// the caller by scanning every active work's spec.yaml PinnedBeads
+	// list. Single-owner: a bead ID may appear in at most one work's
+	// PinnedBeads across the project (specs/coordination.md §"Single-
+	// owner invariant"). The caller MUST detect two-owner conflicts
+	// while building this map and emit a `pin_conflict` warning (kind
+	// owned by warning.go / Plan 009 / Bead 4); ResolvePins itself sees
+	// only the already-collapsed map.
+	//
+	// PinAssignments is consumed by ResolvePins, which mutates the
+	// caller's BeadToWork BEFORE it is stored on Input. It is retained
+	// on Input so downstream detectors (e.g. the multi_matched
+	// detector in Plan 009 / Bead 4) can know which beads were pinned
+	// and exclude them from multi-match reports.
+	PinAssignments map[string]string
 }
 
 // CorruptSpec records a per-work spec.yaml that failed to parse.
@@ -111,6 +143,12 @@ func (f DetectorFunc) Detect(in Input) []Item { return f(in) }
 // Excluded automatically: beads whose target work is blocked, archived,
 // or finalized (Assemble enforces this via Exclude as well; BeadSource is
 // the canonical producer).
+//
+// Pin layer. BeadSource is unchanged in shape by the pin layer: it still
+// reads in.BeadToWork. The caller MUST apply ResolvePins to its
+// filter-resolved BeadToWork BEFORE constructing the Input — see
+// ResolvePins (pin.go) and specs/coordination.md §"Pin Layer". Applying
+// pins inside Assemble is too late; items have already been emitted.
 func BeadSource(in Input) []Item {
 	if len(in.AllBeads) == 0 {
 		return nil
