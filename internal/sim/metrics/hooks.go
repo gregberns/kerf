@@ -34,7 +34,24 @@ var _ loop.Hooks = (*LoopHooks)(nil)
 type LoopHooks struct {
 	C     *Collector
 	Store *store.Store
+	// Debug is an optional sink for the structured Dispatch/Arrival
+	// streams. When non-nil, the adapter forwards every arrival and
+	// dispatch record to Debug in addition to the Collector. Used by
+	// `kerfsim run --debug-dispatch` for B14 diagnostics.
+	Debug DebugSink
+	// warmupCutoffHint is the conservative cutoff used to populate
+	// in_warmup in the debug stream. Set by SetWarmupCutoffHint before
+	// the run starts; zero disables the in_warmup tag.
+	warmupCutoffHint int64
 }
+
+// SetWarmupCutoffHint installs a conservative warmup-cutoff used to flag
+// debug-dispatch records with in_warmup. The hint is typically the
+// `floor(0.1 * ticks_cap)` upper bound; the spec's true cutoff is the
+// minimum of that and `floor(0.1 * wall_ticks)`, which the runtime cannot
+// know until the run ends. Callers that want the true window can recompute
+// it post-hoc from the JSONL header.
+func (h *LoopHooks) SetWarmupCutoffHint(cut int64) { h.warmupCutoffHint = cut }
 
 // NewLoopHooks constructs a LoopHooks adapter. Both arguments are required.
 func NewLoopHooks(c *Collector, s *store.Store) *LoopHooks {
@@ -51,11 +68,21 @@ func (h *LoopHooks) OnEvent(e event.Event) {
 // loop carries only the bead ID and work codename across the seam.
 func (h *LoopHooks) OnArrival(beadID string, work string, tick int64) {
 	isRework := h.lookupIsRework(beadID)
-	h.C.RecordArrival(ArrivalInfo{
-		Tick:     tick,
-		BeadID:   beadID,
-		IsRework: isRework,
-	})
+	var deps []string
+	if st := h.Store.Lookup(beadID); st != nil {
+		deps = append([]string(nil), st.DependsOn...)
+	}
+	info := ArrivalInfo{
+		Tick:      tick,
+		BeadID:    beadID,
+		WorkCode:  work,
+		IsRework:  isRework,
+		DependsOn: deps,
+	}
+	h.C.RecordArrival(info)
+	if h.Debug != nil {
+		h.Debug.Arrival(info)
+	}
 }
 
 // OnDispatch fires when the loop has just marked a bead in-progress for
@@ -79,17 +106,65 @@ func (h *LoopHooks) OnDispatch(agentID int, beadID string, tick int64) {
 	area := h.areaFor(st.WorkCode)
 
 	hadOlderRework := h.olderReworkEligible(beadID, st.ArrivedAt)
+	unmet := h.unmetDeps(st.DependsOn)
 
-	h.C.RecordDispatch(DispatchInfo{
+	info := DispatchInfo{
 		Tick:           tick,
 		AgentID:        agentID,
 		BeadID:         beadID,
 		Area:           area,
+		WorkCode:       st.WorkCode,
 		IsRework:       isRework,
 		IsNewWork:      !isRework,
 		ArrivalTick:    st.ArrivedAt,
 		HadOlderRework: hadOlderRework,
-	})
+		UnmetDeps:      unmet,
+	}
+	h.C.RecordDispatch(info)
+	if h.Debug != nil {
+		// in_warmup uses 0.1*TicksCap as a conservative upper bound (the
+		// true cutoff = min(0.1*ticks, 0.1*wall_ticks) which can only
+		// be smaller). This is the right direction for B14 diagnosis:
+		// if a dispatch is NOT in this conservative window, it is
+		// definitely not in the actual warmup window either.
+		inWarmup := h.inConservativeWarmup(tick)
+		h.Debug.Dispatch(info, inWarmup)
+	}
+}
+
+// unmetDeps returns the subset of deps whose corresponding bead is not
+// closed in the store. An unknown dep is treated as unmet — this mirrors
+// production queue semantics and matches what olderReworkEligible / the
+// kerf policy use to gate eligibility.
+func (h *LoopHooks) unmetDeps(deps []string) []string {
+	if len(deps) == 0 {
+		return nil
+	}
+	out := make([]string, 0)
+	for _, d := range deps {
+		st := h.Store.Lookup(d)
+		if st == nil || st.Status != store.StatusClosed {
+			out = append(out, d)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// inConservativeWarmup returns true if tick falls within the warmup-window
+// upper bound derived from TicksCap alone (the runtime wall_ticks is
+// unknown until run-end; using TicksCap yields the widest possible window
+// per spec's min() definition).
+//
+// The cutoff is read off the Debug sink's last Header() call. If no header
+// was emitted yet, the function returns false.
+func (h *LoopHooks) inConservativeWarmup(tick int64) bool {
+	if h.warmupCutoffHint <= 0 {
+		return false
+	}
+	return tick <= h.warmupCutoffHint
 }
 
 // OnComplete fires when the loop has marked a bead closed. We look up the

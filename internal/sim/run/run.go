@@ -65,6 +65,15 @@ type Result struct {
 // invocations of Run return Results whose four output.Result fields are
 // deep-equal.
 func Run(s *scenario.Scenario, weights queue.Weights, agents int) (*Result, error) {
+	return RunWithDebug(s, weights, agents, nil)
+}
+
+// RunWithDebug mirrors Run but routes a metrics.DebugSink into the kerf
+// policy pass. The sink (when non-nil) observes the structured Arrival and
+// Dispatch streams for the kerf-policy run only — baselines do not emit
+// debug records, since the B14 diagnostic is about the simulator itself,
+// not policy behavior.
+func RunWithDebug(s *scenario.Scenario, weights queue.Weights, agents int, kerfSink metrics.DebugSink) (*Result, error) {
 	if s == nil {
 		return nil, fmt.Errorf("run: nil scenario")
 	}
@@ -105,7 +114,11 @@ func Run(s *scenario.Scenario, weights queue.Weights, agents int) (*Result, erro
 
 	results := make(map[string]output.Result, len(policies))
 	for _, p := range policies {
-		res, err := runOne(s, world, p, agents, scenarioBytes, scenarioSHA, weightsBytes, weightsSHA)
+		var sink metrics.DebugSink
+		if p.Name() == "kerf" {
+			sink = kerfSink
+		}
+		res, err := runOne(s, world, p, agents, scenarioBytes, scenarioSHA, weightsBytes, weightsSHA, sink)
 		if err != nil {
 			return nil, fmt.Errorf("run: policy %s: %w", p.Name(), err)
 		}
@@ -133,6 +146,7 @@ func runOne(
 	scenarioSHA string,
 	weightsBytes []byte,
 	weightsSHA string,
+	debugSink metrics.DebugSink,
 ) (output.Result, error) {
 	st := store.From(world)
 
@@ -146,6 +160,16 @@ func runOne(
 		Deadline7d: s.Ticks,
 	})
 	metricHooks := metrics.NewLoopHooks(col, st)
+	if debugSink != nil {
+		metricHooks.Debug = debugSink
+		// Conservative warmup-cutoff hint: floor(0.1 * ticks). True
+		// runtime cutoff = min(this, floor(0.1*wall_ticks)); using
+		// ticks alone produces the widest possible window, which is
+		// the safe direction for the B14 "warmup-swallowed?" check.
+		cut := s.Ticks / 10
+		metricHooks.SetWarmupCutoffHint(cut)
+		debugSink.Header(scenarioSHA, cut, s.Ticks, agents)
+	}
 
 	// Recording hooks wrap the metric adapter so the orchestrator can also
 	// build the output.Event stream.

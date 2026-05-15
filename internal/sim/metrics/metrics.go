@@ -47,15 +47,21 @@ type Config struct {
 // (dependencies met, not in-progress) with a lower arrival tick than the
 // selected bead. Ties on arrival tick are broken by bead_id ascending — the
 // caller is responsible for applying that tie-break before setting this flag.
+//
+// WorkCode and UnmetDeps are populated by the LoopHooks adapter for the
+// benefit of the optional DebugSink stream (B14). They are not consumed by
+// the Collector itself.
 type DispatchInfo struct {
 	Tick           int64
 	AgentID        int
 	BeadID         string
 	Area           string
+	WorkCode       string
 	IsRework       bool
 	IsNewWork      bool
 	ArrivalTick    int64
 	HadOlderRework bool
+	UnmetDeps      []string
 }
 
 // CompleteInfo carries the structured payload for a completion record.
@@ -72,10 +78,29 @@ type CompleteInfo struct {
 }
 
 // ArrivalInfo carries the structured payload for an arrival record.
+//
+// WorkCode and DependsOn are populated by the LoopHooks adapter for the
+// benefit of the optional DebugSink stream (B14). They are not consumed by
+// the Collector itself.
 type ArrivalInfo struct {
-	Tick     int64
-	BeadID   string
-	IsRework bool
+	Tick      int64
+	BeadID    string
+	WorkCode  string
+	IsRework  bool
+	DependsOn []string
+}
+
+// DebugSink is an optional observer for the dispatch + arrival streams,
+// used by `kerfsim run --debug-dispatch` to externalize per-event JSONL for
+// diagnosing rework-metric anomalies (Plan 008 B14).
+//
+// All three methods are called from the same goroutine that drives the
+// metrics collector. The Collector itself does not depend on DebugSink;
+// the LoopHooks adapter routes events to it when non-nil.
+type DebugSink interface {
+	Header(scenarioSHA string, warmupCutoff int64, ticksCap int64, agents int)
+	Arrival(a ArrivalInfo)
+	Dispatch(d DispatchInfo, inWarmup bool)
 }
 
 // Block holds one view (full or warmup) of the computed metrics.

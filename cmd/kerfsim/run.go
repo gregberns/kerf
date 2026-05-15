@@ -35,14 +35,15 @@ import (
 // runOpts is the flag-bag for the `run` subcommand. Kept small and explicit
 // so the wiring stays linear.
 type runOpts struct {
-	weightsPath string
-	seed        int64
-	seedSet     bool
-	runs        int
-	outDir      string
-	quiet       bool
-	verbose     bool
-	format      string
+	weightsPath   string
+	seed          int64
+	seedSet       bool
+	runs          int
+	outDir        string
+	quiet         bool
+	verbose       bool
+	format        string
+	debugDispatch string
 }
 
 // policyNames is the canonical on-disk subdirectory name for each policy.
@@ -77,6 +78,7 @@ written under its own subdirectory.`,
 	cmd.Flags().BoolVar(&opts.quiet, "quiet", false, "Suppress all stdout (exit code only)")
 	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "Stream events to stdout after the run")
 	cmd.Flags().StringVar(&opts.format, "format", "text", "Output format: text or json")
+	cmd.Flags().StringVar(&opts.debugDispatch, "debug-dispatch", "", "Write per-arrival and per-dispatch JSONL for the kerf policy to this path (B14 diagnostic). Only valid with --runs=1.")
 	return cmd
 }
 
@@ -166,7 +168,23 @@ func runOneSeed(stdout io.Writer, sc *scenario.Scenario, weights queue.Weights, 
 			truncate(filepath.Base(dir), 24), seed, sc.Ticks, sc.Agents)
 	}
 
-	result, err := run.Run(sc, weights, sc.Agents)
+	var sink *jsonlDebugSink
+	if opts.debugDispatch != "" {
+		s, err := newJSONLDebugSink(opts.debugDispatch)
+		if err != nil {
+			return fmt.Errorf("--debug-dispatch: %w", err)
+		}
+		defer s.Close()
+		sink = s
+	}
+
+	var result *run.Result
+	var err error
+	if sink != nil {
+		result, err = run.RunWithDebug(sc, weights, sc.Agents, sink)
+	} else {
+		result, err = run.Run(sc, weights, sc.Agents)
+	}
 	if err != nil {
 		return err
 	}

@@ -11,6 +11,46 @@ import (
 	"github.com/gberns/kerf/internal/sim/scenario"
 )
 
+// saturatedReworkScenario constructs a scenario with intentionally tight
+// agent saturation and a high rework arrival rate, so the queue is
+// expected to hold at least one rework and one new-work bead concurrently
+// for many ticks. Used by TestRun_BaselineRandom_ProducesInversions (B14
+// regression).
+//
+// The shape: 1 work, 200 initial beads, 2 agents, very short median
+// duration, and a 10%/tick rework spawn. Under random ordering, the agent
+// dispatches uniformly across the eligible set, so with a rework bead in
+// the queue alongside new-work beads, the probability that random picks a
+// new-work bead is high → priority_inversions must accumulate.
+func saturatedReworkScenario(t *testing.T) *scenario.Scenario {
+	t.Helper()
+	med := 5.0
+	s := &scenario.Scenario{
+		Seed:   42,
+		Ticks:  2000,
+		Agents: 2,
+		Works: []scenario.Work{{
+			Codename:  "a",
+			Areas:     []string{"x"},
+			Deps:      nil,
+			BeadCount: 200,
+		}},
+		BeadArrivals: scenario.BeadArrivals{Generator: &scenario.Generator{
+			ReworkRatePerTick: 0.1,
+			TargetWorks:       []string{"a"},
+		}},
+		AgentModel: scenario.AgentModel{Duration: scenario.Duration{
+			Kind:        scenario.DurationKindLogNormal,
+			MedianTicks: &med,
+			Sigma:       0.5,
+		}},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("scenario invalid: %v", err)
+	}
+	return s
+}
+
 // findRepoRoot walks up from the test's working directory until it finds the
 // repo root (the directory containing go.mod). Used to locate the canned
 // scenario files without hard-coding a relative path.
@@ -167,6 +207,56 @@ func TestRun_MutationIsolation(t *testing.T) {
 	randDispatches := dispatchSequence(res.Random.Events)
 	if reflect.DeepEqual(kerfDispatches, randDispatches) {
 		t.Errorf("kerf and random produced identical dispatch sequences — isolation or policy logic suspect")
+	}
+}
+
+// TestRun_BaselineRandom_ProducesInversions is the B14 regression signal:
+// on a saturated scenario where the queue concurrently holds rework and
+// new-work beads, the metric pipeline must report nonzero rework wait
+// times.
+//
+// Background (plans/008_exploratory_testing/sim_scenarios/diagnosis.md):
+// the canned and Plan-008 synthetic scenarios reported
+// priority_inversions = 0 and rework_p{50,95}_wait = 0 across every
+// policy. The diagnosis was twofold:
+//
+//   1. Under-saturation: scenarios ran with agent_idle_pct ≥ 0.79, so
+//      rework arrivals landed on already-idle agents and were dispatched
+//      in the same tick — yielding zero wait by construction. A saturated
+//      scenario (≤ 0.01 idle) does record real wait times, proving the
+//      metric pipeline is correct.
+//
+//   2. priority_inversions has a latent semantic issue independent of
+//      saturation: the spec defines "older" by arrival tick, but
+//      generator-rework arrives strictly AFTER initial new-work beads
+//      (which all arrive at tick 0), so a rework bead can never be
+//      "older" than an initial new-work bead by this definition. This
+//      makes the metric structurally unreachable when initial beads
+//      dominate. Tracked as a follow-up bead (see diagnosis.md).
+//
+// This test asserts the wait pipeline (which is fully functional) on a
+// saturated shape. priority_inversions is intentionally NOT asserted —
+// the follow-up bead owns that question.
+func TestRun_BaselineRandom_ProducesInversions(t *testing.T) {
+	s := saturatedReworkScenario(t)
+	res, err := Run(s, queue.DefaultWeights(), 0)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// Saturation precondition: the test only signals correctly when the
+	// scenario actually saturates agents. Fail loudly if not.
+	if res.Random.Full.AgentIdlePct > 0.2 {
+		t.Fatalf("test precondition violated: agent_idle_pct=%.3f > 0.2 — scenario is not saturated, test cannot diagnose the metric",
+			res.Random.Full.AgentIdlePct)
+	}
+	// Under a saturated random baseline, rework beads necessarily wait
+	// in queue. Zero rework wait here would indicate the wait pipeline
+	// is broken — re-open B14.
+	if res.Random.Full.ReworkP95Wait == 0 {
+		t.Errorf("random.rework_p95_wait = 0 on saturated scenario; rework arrivals appear to never wait — metric pipeline regression")
+	}
+	if res.Random.Full.ReworkP50Wait == 0 {
+		t.Errorf("random.rework_p50_wait = 0 on saturated scenario; majority of rework arrivals appear to never wait — metric pipeline regression")
 	}
 }
 
