@@ -5,11 +5,11 @@
 //
 // Subcommands:
 //
+//	kerfsim run <scenario>               execute a scenario, write run dir
 //	kerfsim diff <runA-dir> <runB-dir>   compare two run outputs
 //
-// Future beads will add `run` and `sweep`. This binary intentionally hosts
-// only what is currently implemented; missing subcommands are reported as
-// "unknown command" by cobra.
+// `kerfsim sweep` is reserved for Phase 2; missing subcommands are reported
+// as "unknown command" by cobra.
 //
 // Spec: specs/simulator.md §CLI.
 package main
@@ -29,6 +29,7 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.AddCommand(newRunCmd())
 	root.AddCommand(newDiffCmd())
 	return root
 }
