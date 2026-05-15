@@ -162,11 +162,20 @@ func runNext(cmd *cobra.Command) error {
 		allBeads, _ = beads.List()
 	}
 
-	// --- Build bead summaries per work (for queue scoring) ---------------
+	// --- Build bead summaries per work + bead→work join map --------------
+	// The join map (feed.Input.BeadToWork) is what feed.BeadSource consults
+	// to attach beads to works. A bead matching N works appears with a
+	// slice of length N — multi-match emits N items in BeadSource (Plan
+	// 008 / Bead 3). Works are iterated in their slice order so the per-
+	// bead match slice is deterministic across runs.
 	beadsByWork := make(map[string]beads.EpicSummary)
+	beadToWork := make(map[string][]string)
 	for _, w := range works {
 		resolvedFilter := beads.Resolve(w.BeadFilter, projectFilter)
 		wb := beads.ForWorkWithFilter(allBeads, w.Codename, resolvedFilter)
+		for _, b := range wb {
+			beadToWork[b.ID] = append(beadToWork[b.ID], w.Codename)
+		}
 		if len(wb) == 0 {
 			continue
 		}
@@ -233,6 +242,7 @@ func runNext(cmd *cobra.Command) error {
 		WorkCreated:         workCreated,
 		BlockedWorks:        blocked,
 		ArchivedOrFinalized: archivedOrFinalized,
+		BeadToWork:          beadToWork,
 	}
 
 	// --- Run sources + detectors -----------------------------------------

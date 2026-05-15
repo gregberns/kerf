@@ -1,10 +1,15 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/gberns/kerf/internal/beads"
+	"github.com/gberns/kerf/internal/spec"
 	"github.com/gberns/kerf/internal/testutil"
 )
 
@@ -141,6 +146,101 @@ func TestShow_BeadsAttached_RendersCounts(t *testing.T) {
 	want := "Beads: 4 total, 2 closed, 2 open"
 	if got != want {
 		t.Errorf("getBeadSummary = %q, want %q", got, want)
+	}
+}
+
+// TestShow_WorkCodename_MultiMatch — JSON contract test asserting that
+// when a single bead matches the resolved bead_filters of multiple works,
+// `kerf next --format=json` emits one record per (bead, work) pair, each
+// with a distinct non-null `work_codename`. Exercises the B:F4 fix at
+// the caller boundary (cmd/next.go → feed.BeadSource), not only in the
+// internal/feed unit tests. See Plan 008 / Bead 3.
+func TestShow_WorkCodename_MultiMatch(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	projectID := "multimatch-proj"
+	// Bench-mode layout: WorksDir() == BenchPath/projects/<id> (works
+	// live directly under the project dir, no "works/" subdir).
+	worksDir := filepath.Join(tmp, ".kerf", "projects", projectID)
+	if err := os.MkdirAll(worksDir, 0o755); err != nil {
+		t.Fatalf("works dir: %v", err)
+	}
+
+	// Two works, each with a label-based filter that targets a shared
+	// label on the same bead. The bead is NOT scoped to either work via
+	// Epic (that field is empty) — attachment must come purely from the
+	// resolved filter join (Plan 008 / Bead 3).
+	mkWork := func(codename, label string) {
+		dir := filepath.Join(worksDir, codename)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", codename, err)
+		}
+		s := &spec.SpecYAML{
+			Codename:     codename,
+			Type:         "feature",
+			Project:      spec.Project{ID: projectID},
+			Jig:          "implementation",
+			JigVersion:   1,
+			Status:       "implement",
+			StatusValues: []string{"breakdown", "dispatch", "implement", "review", "squared"},
+			Created:      time.Now(),
+			Updated:      time.Now(),
+			BeadFilter:   &beads.Filter{Label: label},
+		}
+		if err := spec.Write(filepath.Join(dir, "spec.yaml"), s); err != nil {
+			t.Fatalf("write spec %s: %v", codename, err)
+		}
+	}
+	mkWork("alpha", "tag:shared")
+	mkWork("beta", "tag:shared")
+
+	// Stub `br` so beads.List returns exactly one bead carrying both
+	// labels — no Epic, no per-work scoping in the bead itself.
+	stubBr(t, `[
+		{"id":"kerf-multi","title":"shared bead","status":"open","epic":"","labels":["tag:shared"]}
+	]`)
+
+	resetNextFlags()
+	nextFormat = "json"
+	t.Cleanup(resetNextFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
+	}
+
+	var items []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &items); err != nil {
+		t.Fatalf("decode JSON: %v\nraw: %s", err, buf.String())
+	}
+
+	// Collect bead items for kerf-multi and their work_codename values.
+	got := map[string]bool{}
+	for _, it := range items {
+		if it["kind"] != "bead" {
+			continue
+		}
+		if id, _ := it["bead_id"].(string); id != "kerf-multi" {
+			continue
+		}
+		wc, ok := it["work_codename"].(string)
+		if !ok {
+			t.Errorf("bead item must have non-null work_codename; got %+v", it)
+			continue
+		}
+		got[wc] = true
+	}
+
+	if !got["alpha"] || !got["beta"] {
+		t.Errorf("kerf-multi must appear under both alpha and beta; got %v\nraw: %s", got, buf.String())
+	}
+	if len(got) != 2 {
+		t.Errorf("multi-match should emit exactly 2 items for kerf-multi; got %d distinct work_codenames: %v", len(got), got)
 	}
 }
 
