@@ -316,8 +316,7 @@ Every `kerfsim run` also runs the scenario under fixed baseline policies. Withou
   - Tiebreakers: `bead_id` ascending.
 - `fifo-work` — oldest work first, then any available bead from it.
   - Seed source: deterministic; no randomness.
-  - Ordering key: `(work_created_tick, arrival_tick)` ascending.
-  - Tiebreakers: `(work_codename, bead_id)` ascending.
+  - Ordering: works are ordered by `work_created_tick` ascending, with `work_codename` ascending as tiebreaker. Within the selected work, beads are ordered by `arrival_tick` ascending, with `bead_id` ascending as tiebreaker.
 
 ### Phase 2
 
