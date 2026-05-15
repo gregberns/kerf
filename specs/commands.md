@@ -1152,7 +1152,7 @@ This is the entry point for adopting kerf in any project. The user runs `kerf in
 ### Syntax
 
 ```
-kerf init [--jig <plan|spec>]
+kerf init [--jig <plan|spec>] [--force]
 ```
 
 ### Arguments and Flags
@@ -1160,17 +1160,19 @@ kerf init [--jig <plan|spec>]
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `--jig` | No | None | Set the default workflow. Must be `plan` or `spec`. If omitted and `default_jig` is not configured, a note is printed instructing the user to choose. |
+| `--force` | No | `false` | Re-run init even when `project.yaml` already exists. See "Re-running on an existing project" below. |
 
 ### Behavior
 
 1. Verify the current directory is inside a git repository. Error if not.
 2. Ensure the bench (`~/.kerf/`) exists. Create if missing.
 3. Resolve the project ID (same derivation as `kerf new` — from git remote or directory name).
-4. If `.kerf/project-identifier` does not exist, create it and print the derived ID.
-5. If `--jig` is provided, set `default_jig` in config and print confirmation.
-6. If `--jig` is not provided and `default_jig` is not set, print a note with the two options (`kerf config default_jig plan` and `kerf config default_jig spec`).
-7. **Prompt the user to select active jigs** for the project. Present the available jigs (from the jig library) and allow the user to choose which ones to activate. For composable jigs (e.g., `implementation`), also prompt for which passes to include.
-8. **Auto-detect `bead_filter`.** Reads the bead store using kerf's existing bead-read path (the same one `kerf next` uses). If the bead tool is unavailable, silently skip auto-detect — the built-in default (`label: "work:{codename}"`) applies. Otherwise:
+4. **Detect existing `project.yaml`.** Look for `project.yaml` at the resolved location (either `{repo}/.kerf/project.yaml` under local storage, or `~/.kerf/projects/{project-id}/project.yaml` under bench storage). If it exists, follow the re-run rule in "Re-running on an existing project" below before continuing.
+5. If `.kerf/project-identifier` does not exist, create it and print the derived ID.
+6. If `--jig` is provided, set `default_jig` in config and print confirmation.
+7. If `--jig` is not provided and `default_jig` is not set, print a note with the two options (`kerf config default_jig plan` and `kerf config default_jig spec`).
+8. **Prompt the user to select active jigs** for the project. Present the available jigs (from the jig library) and allow the user to choose which ones to activate. For composable jigs (e.g., `implementation`), also prompt for which passes to include.
+9. **Auto-detect `bead_filter`.** Reads the bead store using kerf's existing bead-read path (the same one `kerf next` uses). If the bead tool is unavailable, silently skip auto-detect — the built-in default (`label: "work:{codename}"`) applies. Otherwise:
    1. Collect existing work codenames from `~/.kerf/projects/{project-id}/` (or the bench equivalent under local storage).
    2. If zero codenames exist, skip auto-detect; init proceeds without setting `bead_filter`.
    3. List label prefixes that appear in the bead store with at least 3 beads. For each prefix `P:`, compute `match_score = (beads matching some codename via "P:{codename}") / (total beads with prefix "P:")`. Pick the highest `match_score` above 0.5.
@@ -1183,8 +1185,30 @@ kerf init [--jig <plan|spec>]
    6. The chosen filter is written into `project.yaml`. It is always editable later via the standard config files. See [coordination.md](coordination.md#bead-attachment).
    7. If the bead store is empty or unreachable, skip detection silently — the built-in default applies.
    8. If kerf is invoked non-interactively (stdin not a TTY), auto-detect runs but does not prompt; if a confident candidate exists it is written, otherwise no `bead_filter` is set.
-9. **Create `project.yaml`** with the selected jig and pass configuration, plus the chosen `bead_filter` (if any). If `.kerf/config.yaml` already declares `storage: local`, write it to `{repo}/.kerf/project.yaml` and create the bench symlink at `~/.kerf/projects/{project-id}` pointing at `{repo}/.kerf/works/`. Otherwise write it to `~/.kerf/projects/{project-id}/project.yaml`. See [architecture.md](architecture.md) for the `project.yaml` schema and storage modes.
-10. **Run `kerf setup`** to generate agent-facing instructions from the project's active jigs. The setup output is included in the init output (see Output below).
+10. **Create `project.yaml`** with the selected jig and pass configuration, plus the chosen `bead_filter` (if any). If `.kerf/config.yaml` already declares `storage: local`, write it to `{repo}/.kerf/project.yaml` and create the bench symlink at `~/.kerf/projects/{project-id}` pointing at `{repo}/.kerf/works/`. Otherwise write it to `~/.kerf/projects/{project-id}/project.yaml`. See [architecture.md](architecture.md) for the `project.yaml` schema and storage modes.
+11. **Run `kerf setup`** to generate agent-facing instructions from the project's active jigs. The setup output is included in the init output (see Output below).
+
+### Re-running on an existing project
+
+`kerf init` is idempotent. When run in a project that already has `project.yaml`, the default behaviour is **skip with informative output**: kerf detects the existing file, prints a summary of the current configuration, and does **not** overwrite it. This preserves any user-edited fields — most importantly a hand-set `bead_filter` — and avoids re-prompting the agent through interactive jig selection on every accidental re-run.
+
+The detection and dispatch rules:
+
+1. **Existing `project.yaml`, no `--force`** — kerf prints the resolved path, the active jigs (with their passes for composable jigs), and the current `bead_filter` (or "built-in default" if unset). It then **skips** steps 8–10 (jig prompts, bead-filter auto-detection, `project.yaml` write). Steps that are safe to re-apply still run:
+   - `.kerf/project-identifier` is created if missing (step 5).
+   - `--jig` still updates `default_jig` in `~/.kerf/config.yaml` if provided (step 6).
+   - `kerf setup` still runs (step 11) so the agent gets fresh, current instructions.
+   - Exit status is 0. The output ends with a hint: `Use 'kerf init --force' to overwrite project.yaml, or edit it directly.`
+
+2. **Existing `project.yaml`, with `--force`** — kerf prints a warning naming the file it is about to overwrite, then re-runs the full init flow (steps 8–10) as if no `project.yaml` were present:
+   - Interactive jig selection runs again.
+   - Bead-filter auto-detection runs again. If a `bead_filter` was previously set in `project.yaml`, kerf includes its literal value as a default in the auto-detect prompt so the user can keep it with a single keystroke; non-interactively (no TTY), the previously-set `bead_filter` is **preserved** verbatim — `--force` does not silently discard a user-set filter when there is no human to confirm a replacement.
+   - The resulting `project.yaml` overwrites the existing file.
+   - `--force` is the only way to overwrite via `kerf init`. There is no `--merge` mode in v1; users who want to add a single field edit `project.yaml` directly.
+
+3. **No existing `project.yaml`** — `--force` is a no-op; behaviour is identical to a fresh init.
+
+The `.kerf/project-identifier` file is not considered part of "already initialised" for this rule — kerf will recreate it if missing even on a skip-path re-run, because its absence breaks project resolution for every other command.
 
 ### Output
 
@@ -1209,6 +1233,8 @@ The instructions are agent-agnostic. kerf does not know or reference any specifi
 |-----------|---------|
 | Not in a git repository | `Error: not in a git repository. kerf requires a git repo.` |
 | `--jig` value not `plan` or `spec` | `Error: --jig must be 'plan' or 'spec', got '{value}'.` |
+| Existing `project.yaml` detected, no `--force` | Not an error. kerf prints `project.yaml already exists at {path} — skipping re-initialisation. Use 'kerf init --force' to overwrite, or edit the file directly.` and exits 0 after running the safe-to-repeat steps (project-identifier creation, `--jig` update, `kerf setup`). |
+| `--force` passed but `project.yaml` could not be read for the pre-overwrite summary | `Error: --force requested but existing project.yaml at {path} is unreadable: {details}. Move or delete the file manually before re-running.` |
 
 ---
 
