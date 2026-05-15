@@ -38,23 +38,23 @@ plans/              # Change proposals. Each is a folder.
 - Plans may include source material in `source/`
 - Plan names are sequential: `001_init`, `002_add_foo`, etc.
 
+## Working Style
+
+- **Keep moving.** You have a task list — work through it. Don't stop to ask "should I continue?" — the answer is yes. Only ask the user when you are genuinely blocked on a decision they alone can make, and ask it in one sentence with concrete options.
+- **Delegate by default.** For multi-file work, exploration, review, or anything parallelizable, spawn 5–10 sub-agents instead of doing it in the main thread. Orchestrator role > implementer role.
+- **Plain English, always.** When you mention an internal name (bead ID, plan number, B-code, package path), translate it the first time: `kerf-mgg (B7 — the "next runs last" cleanup bead)`. The user shouldn't have to grep to follow you.
+- **Compact output.** Default to <50 lines. Use bullets, not paragraphs. A menu of 4 options beats a 2,000-word essay. If you want to write more, ask first.
+- **Review gate is not optional.** Before merging any bead, a separate reviewer agent must approve it. Skipping this has burned us. (See `.claude/commands/implement-beads.md`.)
+
 ## Implementation Rules
 
-1. Read the spec before writing code
-2. Implement what the spec says — nothing more, nothing less
-3. If the spec doesn't cover an edge case, update the spec first
-4. Tests verify spec compliance, not just code correctness
-5. Do not add behaviors, features, or config not in a spec
+1. Read the spec before writing code. Implement what it says — no more, no less.
+2. If a spec gap blocks you: update the spec first, then code. The spec wins.
+3. Tests verify spec compliance, not just that code runs.
 
-## Agent Orchestration
+## Orchestration
 
-- **Orchestrator agents** coordinate and review. They delegate implementation to worker agents. Orchestrators preserve context for critical decisions.
-- **Worker agents** receive narrow, well-defined tasks with explicit spec references. They implement and report back.
-- After implementation, verify code matches spec.
-- If code and spec disagree, the spec wins.
-
-### Procedures (in `.claude/commands/`)
-
-1. **`plan-implementation`** — Break specs into beads, review the breakdown with 3 agents, create dependency graph. Do this before writing any code.
-2. **`implement-beads`** — The per-bead execution loop: dispatch one bead, wait, review output against spec, give feedback if needed, clear context, send next bead. Never skip the review gate.
-3. **`spawn-workers`** — ntm + agent-mail reference for spawning and managing parallel workers.
+Three procedures in `.claude/commands/`:
+- **`plan-implementation`** — break specs into beads, get 3 critique agents, build dep graph. Before any code.
+- **`implement-beads`** — per-bead loop: dispatch → implementer commits → reviewer approves → merge → clear → next.
+- **`spawn-workers`** — ntm + agent-mail reference.

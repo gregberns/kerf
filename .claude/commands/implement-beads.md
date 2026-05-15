@@ -251,29 +251,11 @@ When all beads in a layer are done and merged to main:
 5. Check `bd ready` — next layer's beads should now be unblocked
 6. Redistribute agent pairs across the new layer's beads
 
-## Step 4: Worker Assignment Strategy
+## Step 4: Sizing
 
-### Sizing the pool
-- Each parallel stream needs 2 agents (implementer + reviewer)
-- 3 streams = 6 agents + 1 controller = 7 panes
-- Scale to available resources; 2-3 streams is typical
-
-### Balancing load
-- Assign roughly equal-complexity beads per stream
-- Large beads (many deliverables) get a stream to themselves
-- Small beads go one at a time (never chain)
-
-### Thematic grouping
-Group related beads on the same stream when possible — even across context clears, the worktree retains the code:
-- Data types: spec types, config types
-- Engines: bench, snapshot, session
-- Commands: group by theme (lifecycle, verification, management)
-
-### Reviewer rotation
-Consider rotating reviewers between streams at layer boundaries. Fresh eyes catch different things than a reviewer who's been on the same code area.
-
-### File ownership
-With worktrees, parallel streams CAN safely modify overlapping files — merge handles it. But prefer non-overlapping assignments to minimize merge conflicts. If two beads in the same layer heavily modify the same files, serialize them on one stream.
+- 2–3 parallel streams is the sweet spot. Each stream = 1 implementer + 1 reviewer on the same worktree.
+- One bead per prompt. Never chain. `/clear` between beads.
+- Prefer non-overlapping files across streams; merge handles overlap but conflicts cost time.
 
 ## Step 5: Completion
 
@@ -300,22 +282,3 @@ git worktree prune
 
 Update TASKS.md to mark the implementation phase complete.
 
-## Anti-Patterns
-
-**Controller reviews code** — The controller dispatches and merges. It does not read diffs or assess spec compliance. That's the reviewer's job. Controller involvement in review is a bottleneck and a single point of failure.
-
-**No reviewer** — Implementer self-reviews and closes the bead. This is fire-and-forget with extra steps. A separate reviewer agent catches spec deviations, missing tests, and drift that the implementer is blind to.
-
-**No worktree isolation** — All workers writing to the same checkout. One worker's uncommitted changes corrupt another's build. Always use worktrees.
-
-**Chained beads** — Sending "do A, then B, then C" in one prompt. Context accumulates, later beads get worse output, and you can't review A before B starts.
-
-**No context clear** — Sending the next bead without `/clear`. The worker's context fills with irrelevant prior-bead details, degrading output quality and wasting tokens.
-
-**Trusting bd close** — A worker closing a bead doesn't mean the bead is done correctly. The reviewer's APPROVED message is the real acceptance gate.
-
-**Merging without testing** — Always run `go build` and `go test` on the merged result before proceeding. A bead that passes in isolation can break when merged with other beads' changes.
-
-**Endless review loops** — If 3 rounds of feedback don't converge, the problem is usually an ambiguous spec, not bad code. Escalate to the controller to clarify the spec before more iterations.
-
-**tmux capture-pane** — Returns stale buffer snapshots. Use `ntm logs` for reliable output capture.
