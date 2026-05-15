@@ -18,7 +18,10 @@ import (
 	"github.com/gberns/kerf/internal/storage"
 )
 
-var initJigFlag string
+var (
+	initJigFlag   string
+	initForceFlag bool
+)
 
 var initCmd = &cobra.Command{
 	Use:   "init",
@@ -37,6 +40,7 @@ gitignore, etc. kerf doesn't know or care what agent you're using.`,
 
 func init() {
 	initCmd.Flags().StringVar(&initJigFlag, "jig", "", "Set default workflow: plan or spec")
+	initCmd.Flags().BoolVar(&initForceFlag, "force", false, "Re-run init even when project.yaml already exists")
 	rootCmd.AddCommand(initCmd)
 }
 
@@ -97,19 +101,62 @@ func runInit() error {
 		fmt.Println("  kerf config default_jig spec   # Best for new/spec-driven projects")
 	}
 
-	// Create project.yaml with all available jigs. If the repo already declares
-	// storage: local, write project.yaml inside the repo and create the bench
-	// symlink so the project is fully wired up.
+	// Resolve storage so we know where project.yaml should live (local vs bench).
 	resolver, err := storage.NewResolver(benchPath, projectID, gitRoot)
 	if err != nil {
 		return fmt.Errorf("resolving storage mode: %w", err)
 	}
-
-	// Step 8 (specs/commands.md §"kerf init"): auto-detect bead_filter.
-	// Best-effort: errors here never fail init.
-	detectedFilter := detectBeadFilter(resolver, os.Stdin, os.Stdout)
-
 	projCfgPath := resolver.ProjectConfigPath()
+
+	// Step 4 (specs/commands.md §"kerf init"): detect existing project.yaml and
+	// dispatch per the re-run rule.
+	var existingCfg *config.ProjectConfig
+	if _, statErr := os.Stat(projCfgPath); statErr == nil {
+		existingCfg, err = config.LoadProjectConfig(projCfgPath)
+		if err != nil {
+			if initForceFlag {
+				return fmt.Errorf("--force requested but existing project.yaml at %s is unreadable: %v. Move or delete the file manually before re-running.", projCfgPath, err)
+			}
+			// Without --force we still want to be informative but cannot
+			// summarise; fall through to the skip-path with what we have.
+			existingCfg = nil
+		}
+	}
+
+	if existingCfg != nil && !initForceFlag {
+		// Skip-with-informative-output path. Steps 8–10 are skipped; the
+		// safe-to-repeat steps (project-identifier, --jig, kerf setup) already
+		// ran above or run below.
+		printExistingProjectSummary(projCfgPath, existingCfg)
+
+		// Print bootstrap and run kerf setup (steps 11 and the agent
+		// instructions are safe to re-emit).
+		fmt.Print(bootstrapInstructions(projectID, cfg.EffectiveDefaultJig()))
+		fmt.Println()
+		if err := runSetup(); err != nil {
+			fmt.Printf("Note: could not generate setup instructions: %v\n", err)
+		}
+		fmt.Println()
+		fmt.Println("Use 'kerf init --force' to overwrite project.yaml, or edit it directly.")
+		return nil
+	}
+
+	// --force overwrite path or fresh init.
+	if existingCfg != nil && initForceFlag {
+		fmt.Printf("WARNING: overwriting existing project.yaml at %s\n", projCfgPath)
+	}
+
+	// Step 9 (specs/commands.md §"kerf init"): auto-detect bead_filter.
+	// Best-effort: errors here never fail init. When --force is re-running over
+	// an existing config we seed the detection with the prior filter so that
+	// (a) non-interactively the existing filter is preserved verbatim, and
+	// (b) interactively the previous value is offered as the default answer.
+	var priorFilter *beads.Filter
+	if existingCfg != nil {
+		priorFilter = existingCfg.BeadFilter
+	}
+	detectedFilter := detectBeadFilter(resolver, os.Stdin, os.Stdout, priorFilter)
+
 	if err := createDefaultProjectConfig(projCfgPath, detectedFilter); err != nil {
 		return fmt.Errorf("creating project.yaml: %w", err)
 	}
@@ -201,30 +248,41 @@ func isInteractiveStdin(in *os.File) bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
-// detectBeadFilter implements specs/commands.md §"kerf init" step 8.
+// detectBeadFilter implements specs/commands.md §"kerf init" step 9.
 // Returns a *beads.Filter when a confident candidate is found and accepted (or
 // auto-applied non-interactively), or nil to leave bead_filter unset.
 // Failures degrade silently — init must always succeed.
-func detectBeadFilter(resolver *storage.Resolver, stdin *os.File, stdout io.Writer) *beads.Filter {
-	if !beads.IsAvailable() {
-		return nil
-	}
+//
+// priorFilter (when non-nil) carries the user's existing bead_filter from a
+// pre-existing project.yaml. In a --force re-init it is used so that:
+//   - non-interactively, the prior filter is preserved verbatim (no silent
+//     replacement), and
+//   - interactively, the prior literal is offered as the default response in
+//     the confirmation prompt.
+func detectBeadFilter(resolver *storage.Resolver, stdin *os.File, stdout io.Writer, priorFilter *beads.Filter) *beads.Filter {
+	interactive := isInteractiveStdin(stdin)
 
-	codenames, err := resolver.ListWorks()
-	if err != nil || len(codenames) == 0 {
-		// No existing works → cannot correlate label prefixes with codenames.
-		// Per spec: skip auto-detect entirely, do not prompt.
-		return nil
+	if !beads.IsAvailable() {
+		// Tool missing: cannot detect. Preserve any prior filter rather than
+		// silently dropping it on a --force re-run.
+		return priorFilter
 	}
 
 	all, err := beads.List()
 	if err != nil || len(all) == 0 {
-		// Bead store empty or unreachable → silent skip.
-		return nil
+		// Bead store empty or unreachable → silent skip; preserve prior.
+		return priorFilter
 	}
 
+	codenames, _ := resolver.ListWorks()
+	// Per spec step 9.2: with zero codenames we cannot correlate prefixes with
+	// works. Non-interactively we preserve the prior filter (or leave unset);
+	// interactively we still offer the user the top-by-count fallback so a
+	// fresh project (no works yet) can pick a prefix at init time. This is the
+	// repair for the A:F3 regression: previously, an empty works directory
+	// returned silently, so detection never fired even when the store had a
+	// dominant prefix.
 	prefix, score, top := beads.DetectFilterPrefix(all, codenames)
-	interactive := isInteractiveStdin(stdin)
 
 	if prefix != "" {
 		filter := &beads.Filter{Label: prefix + ":{codename}"}
@@ -234,21 +292,48 @@ func detectBeadFilter(resolver *storage.Resolver, stdin *os.File, stdout io.Writ
 			return filter
 		}
 		fmt.Fprintf(stdout, "Detected: %d%% of beads use `%s:*` labels.\n", int(score*100+0.5), prefix)
+		if priorFilter != nil && priorFilter.Label != "" && priorFilter.Label != filter.Label {
+			fmt.Fprintf(stdout, "Current project bead_filter is `%s`. Replace with `%s:{codename}`? [y/N] ", priorFilter.Label, prefix)
+			if confirmNoDefault(stdin) {
+				return filter
+			}
+			return priorFilter
+		}
 		fmt.Fprintf(stdout, "Set project-wide bead_filter to `%s:{codename}`? [Y/n] ", prefix)
 		if confirmYesDefault(stdin) {
 			return filter
 		}
-		return nil
+		return priorFilter
 	}
 
-	// No confident candidate. Non-interactive: write nothing.
+	// No confident candidate. Non-interactive: preserve any prior filter.
 	if !interactive {
-		return nil
+		return priorFilter
 	}
 	if len(top) == 0 {
-		return nil
+		return priorFilter
 	}
-	return promptFallbackPrefix(top, stdin, stdout)
+	chosen := promptFallbackPrefix(top, stdin, stdout)
+	if chosen == nil {
+		return priorFilter
+	}
+	return chosen
+}
+
+// confirmNoDefault reads a line from stdin and returns true only for explicit
+// "y" / "yes" answers; "", "n", "no" all return false. Used when the safer
+// default is to NOT replace an existing value.
+func confirmNoDefault(stdin *os.File) bool {
+	if stdin == nil {
+		return false
+	}
+	reader := bufio.NewReader(stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil && line == "" {
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "y" || answer == "yes"
 }
 
 // confirmYesDefault reads a line from stdin and returns true for "", "y", "Y",
@@ -305,6 +390,29 @@ func promptFallbackPrefix(top []beads.PrefixCount, stdin *os.File, stdout io.Wri
 	}
 	// "skip" or anything unrecognized → no filter.
 	return nil
+}
+
+// printExistingProjectSummary prints the resolved project.yaml path, the
+// active jigs (with passes for composable jigs), and the current bead_filter
+// (or "built-in default" if unset). Used on the skip-with-informative-output
+// path when kerf init detects an existing project.yaml without --force.
+func printExistingProjectSummary(path string, cfg *config.ProjectConfig) {
+	fmt.Printf("project.yaml already exists at %s — skipping re-initialisation.\n", path)
+	if len(cfg.Jigs) > 0 {
+		fmt.Printf("  Active jigs: %s\n", strings.Join(cfg.Jigs, ", "))
+	} else {
+		fmt.Println("  Active jigs: (none)")
+	}
+	for _, j := range cfg.Jigs {
+		if passes, ok := cfg.Passes[j]; ok && len(passes) > 0 {
+			fmt.Printf("    %s passes: %s\n", j, strings.Join(passes, ", "))
+		}
+	}
+	if cfg.BeadFilter != nil && cfg.BeadFilter.Label != "" {
+		fmt.Printf("  bead_filter: label=%s\n", cfg.BeadFilter.Label)
+	} else {
+		fmt.Println("  bead_filter: (built-in default)")
+	}
 }
 
 func bootstrapInstructions(projectID string, defaultJig string) string {

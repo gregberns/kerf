@@ -70,7 +70,7 @@ func TestDetectBeadFilter_BrUnavailable(t *testing.T) {
 
 	r := makeResolverWithWorks(t, []string{"auth"})
 	var out bytes.Buffer
-	got := detectBeadFilter(r, nonTTYStdin(t), &out)
+	got := detectBeadFilter(r, nonTTYStdin(t), &out, nil)
 	if got != nil {
 		t.Errorf("expected nil filter when br unavailable, got %+v", got)
 	}
@@ -80,7 +80,7 @@ func TestDetectBeadFilter_NoCodenames(t *testing.T) {
 	stubBr(t, `[{"id":"x-1","labels":["subsystem:auth"]}]`)
 	r := makeResolverWithWorks(t, nil)
 	var out bytes.Buffer
-	got := detectBeadFilter(r, nonTTYStdin(t), &out)
+	got := detectBeadFilter(r, nonTTYStdin(t), &out, nil)
 	if got != nil {
 		t.Errorf("expected nil filter when no codenames exist, got %+v", got)
 	}
@@ -90,7 +90,7 @@ func TestDetectBeadFilter_EmptyStore(t *testing.T) {
 	stubBr(t, `[]`)
 	r := makeResolverWithWorks(t, []string{"auth"})
 	var out bytes.Buffer
-	got := detectBeadFilter(r, nonTTYStdin(t), &out)
+	got := detectBeadFilter(r, nonTTYStdin(t), &out, nil)
 	if got != nil {
 		t.Errorf("expected nil filter for empty store, got %+v", got)
 	}
@@ -106,7 +106,7 @@ func TestDetectBeadFilter_NonInteractive_ConfidentCandidate(t *testing.T) {
 	]`)
 	r := makeResolverWithWorks(t, []string{"auth", "db", "api", "ui"})
 	var out bytes.Buffer
-	got := detectBeadFilter(r, nonTTYStdin(t), &out)
+	got := detectBeadFilter(r, nonTTYStdin(t), &out, nil)
 	if got == nil || got.Label != "subsystem:{codename}" {
 		t.Fatalf("expected subsystem:{codename}, got %+v, out=%q", got, out.String())
 	}
@@ -127,7 +127,7 @@ func TestDetectBeadFilter_NonInteractive_NoConfidentCandidate(t *testing.T) {
 	]`)
 	r := makeResolverWithWorks(t, []string{"unrelated"})
 	var out bytes.Buffer
-	got := detectBeadFilter(r, nonTTYStdin(t), &out)
+	got := detectBeadFilter(r, nonTTYStdin(t), &out, nil)
 	if got != nil {
 		t.Errorf("expected nil (no confident candidate, non-interactive), got %+v", got)
 	}
@@ -177,6 +177,9 @@ func TestInit_WritesDetectedBeadFilter(t *testing.T) {
 	os.Stdin = nonTTYStdin(t)
 	defer func() { os.Stdin = origStdin }()
 
+	// Re-init must use --force now that init skips when project.yaml exists.
+	initForceFlag = true
+	defer func() { initForceFlag = false }()
 	captureOutput(t, func() {
 		if err := initCmd.RunE(initCmd, []string{}); err != nil {
 			t.Fatalf("second init: %v", err)
