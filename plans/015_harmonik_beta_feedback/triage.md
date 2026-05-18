@@ -40,6 +40,10 @@ Each item:
 - **Desired:** Detector samples the current `.beads/issues.jsonl` and reports the actual top label prefix with a count, or stays silent if confidence is low.
 - **Disposition:** new-plan 016. Flag: appears possibly fixed — verify.
 
+  **Verdict:** still-live.
+  **Evidence:** `internal/beads/heuristic.go:41-155` (`DetectFilterPrefix`) and `cmd/init.go:262-321` (`detectBeadFilter`) last touched by commit `88542e0` (2026-05-15 10:29), which predates the 12:36 user observation. No commits to either file since. Detector still scores prefixes by `(beads with P:<known-codename>) / (beads with any P:*)`, prints `Detected: N% of beads use \`P:*\` labels.` whenever a prefix scores above 0.5 — there is no silence path when the count is low or the corpus contradicts the prior. Code unchanged since 2026-05-15.
+  **Action:** keep existing routing — new-plan 016 (init UX overhaul) remains the home for the fix. "Possibly fixed" marker removed.
+
 ### 1.4 `kerf init` claims `Set default_jig: spec` but project.yaml doesn't carry it
 - **Severity:** MAJOR
 - **Problem:** Init's stdout asserts a setting that doesn't land in the on-disk file.
@@ -160,11 +164,19 @@ Each item:
 - **Desired:** Suggester prefers `codename:` and `spec:` prefixes; refuses to seed new works from cross-cutting label families.
 - **Disposition:** new-plan 018 (triage rework).
 
+  **Verdict:** still-live.
+  **Evidence:** `cmd/triage.go:451-481` (`triageSuggestUntriaged`) picks the first label containing `:` (no prefix-family ranking) and emits `kerf new <value> --bead-filter 'label=...'` whenever no codename loosely matches. No commits to `cmd/triage.go` since `a78df33` (2026-05-15 11:34). Source feedback line 463 ("did not encounter repetitive triage suggestions") was about repetition / dedup, not about the cross-cutting-tag seeding bug; the underlying suggester logic is unchanged.
+  **Action:** keep existing routing — new-plan 018 remains the home for the fix.
+
 ### 4.2 Suggester ignores archive state
 - **Severity:** MAJOR
 - **Problem:** `kerf new imrest` suggested even though `imrest` is archived under `~/.kerf/archive/`.
 - **Desired:** Suggester checks archive; emits "(archived — consider unarchive or re-pin)" instead.
 - **Disposition:** new-plan 018.
+
+  **Verdict:** still-live.
+  **Evidence:** `cmd/triage.go:451-481` does not consult archive state at all. `internal/feed/cleanup.go:41-51,84` shows archive awareness exists for cleanup items via `feed.Inputs.ArchivedOrFinalized`, but that map is never threaded into `triageSuggestUntriaged`. Code unchanged since 2026-05-15.
+  **Action:** keep existing routing — new-plan 018 remains the home for the fix.
 
 ### 4.3 `kerf triage --ack` re-prints the full triage report
 - **Severity:** MAJOR
@@ -255,6 +267,11 @@ Each item:
 ---
 
 ## Theme 7 — Spec-jig pass loop (review-gate / file conventions)
+
+**Section verdict (re: "possibly-not-re-exercised" marker):** still-live.
+**Evidence:** `internal/jig/builtin/spec.md` last touched by commit `dd89e34` (2026-05-14) — unchanged since the feedback was captured. Lines 111, 171, 219, 261, 303 still say "spawn a review sub-agent" with no fallback path (7.1, 7.3). Pass-3 instructions at line 135 still direct sub-agents to author files (7.2). No `kerf review` command exists in `cmd/` (7.3). No per-pass `*.md.template` files under `internal/jig/builtin/` (7.4). `cmd/show.go` was not touched since 2026-05-15 — review-criteria duplication (7.6) and pass output-filename surfacing (7.5) unchanged. `04-design/` directory pre-creation on status advance: no commits to `cmd/status.go` after 2026-05-15 (7.7). No new commits to `internal/jig/` since 2026-05-14.
+**Action:** keep existing routing — all 7.x sub-items continue to point at new-plan 020.
+
 
 ### 7.1 Reviewer-sub-agent assumes Agent tool availability
 - **Severity:** MAJOR
@@ -402,8 +419,13 @@ Each item:
 
 ---
 
-## Possibly-already-fixed markers
+## Possibly-already-fixed markers — resolved 2026-05-18
 
-- **1.3** (stale `kerf:*` detector) — surfaced 2026-05-15, no re-test in the 2026-05-18 entry. Verify before action.
-- **4.x** (triage suggestion noise) — 2026-05-18 entry explicitly notes "Did not encounter: repetitive triage suggestions … may have been resolved by an intermediate kerf release." Verify which sub-items (4.1, 4.2) are still live.
-- **7.x** (jig pass instructions) — the 2026-05-18 session did not re-exercise pass-1/2/3/4; assume still live unless tested.
+All three "verify before action" flags below were investigated against the current `main` (HEAD `d814f46`). Findings:
+
+- **1.3** (stale `kerf:*` detector) — **still-live.** `cmd/init.go` + `internal/beads/heuristic.go` last touched 2026-05-15 10:29 (commit `88542e0`), before the 12:36 user observation. No silence path for low-confidence detections. See inline verdict block under 1.3.
+- **4.1** (cross-cutting-tag suggestion) — **still-live.** `cmd/triage.go:451-481` unchanged since 2026-05-15. The 2026-05-18 source note (`Did not encounter: repetitive triage suggestions`) was about repetition / dedup, not the suggester's prefix-family selection. See inline verdict block under 4.1.
+- **4.2** (archive-aware suggestions) — **still-live.** `cmd/triage.go` does not consult archive state. See inline verdict block under 4.2.
+- **7.x** (spec-jig pass loop) — **still-live.** `internal/jig/builtin/spec.md` last touched 2026-05-14 (commit `dd89e34`). All six sub-items verified unchanged. See section verdict at the top of Theme 7.
+
+No items were demoted to `dropped (fixed in <commit>)`. All "verify" flags above have been resolved; the inline `Flag: appears possibly fixed — verify.` line on 1.3 remains as historical record alongside the verdict.
