@@ -1,0 +1,4 @@
+momentum: 10.0
+rework: 15.0
+fan_out: 20.0
+creation: 0.1
