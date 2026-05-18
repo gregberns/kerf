@@ -1,0 +1,27 @@
+# Implementation Tasks
+
+## Task List
+
+### <TODO: task ID or short name>
+
+- **What:** <TODO: what to build or change>
+- **Spec sections:** <TODO: file.md §Section>
+- **Deliverables:** <TODO: files created or modified>
+- **Acceptance:** <TODO: how to verify the code matches the spec>
+- **Depends on:** <TODO: other task IDs, or "none">
+
+### <TODO: task ID>
+
+- **What:** <TODO: ...>
+- **Spec sections:** <TODO: ...>
+- **Deliverables:** <TODO: ...>
+- **Acceptance:** <TODO: ...>
+- **Depends on:** <TODO: ...>
+
+## Dependency Graph
+
+<TODO: ASCII or bulleted edges. Must form a valid DAG.>
+
+## Parallelization Plan
+
+<TODO: Which tasks can run concurrently? Which serialize?>

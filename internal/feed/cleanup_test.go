@@ -63,8 +63,13 @@ func TestCleanup_NoAttachedBeads_FiresWhenZero(t *testing.T) {
 	if got.Action == "" {
 		t.Errorf("action should be populated")
 	}
-	if got.Reason != "resolved bead_filter matches zero beads in the store" {
+	// Work has no per-work bead_filter declared (mkWork sets none) so the
+	// rank-label classifier (Plan 019 / B2) tags this case as `unwired`.
+	if got.Reason != "no bead_filter declared on spec.yaml" {
 		t.Errorf("reason = %q", got.Reason)
+	}
+	if got.RankLabel != "unwired" {
+		t.Errorf("rank_label = %q, want unwired (no bead_filter on spec.yaml)", got.RankLabel)
 	}
 	if got.WorkCodename == nil || *got.WorkCodename != "alpha" {
 		t.Errorf("work_codename = %v, want alpha", got.WorkCodename)
@@ -74,6 +79,32 @@ func TestCleanup_NoAttachedBeads_FiresWhenZero(t *testing.T) {
 	}
 	if got.Score != 12.5 {
 		t.Errorf("score = %v, want 12.5 (parent-work score)", got.Score)
+	}
+}
+
+// TestCleanup_NoAttachedBeads_RankLabelEmpty exercises the second of the two
+// observable rank-label states (Plan 019 / B2): a work whose per-work
+// bead_filter is declared and parses cleanly but resolves to zero matches in
+// the current bead store. The classifier should label this `empty`, not
+// `unwired`, so the agent reads it as "wired but no beads yet" rather than
+// "needs bootstrapping."
+func TestCleanup_NoAttachedBeads_RankLabelEmpty(t *testing.T) {
+	w := mkWork("alpha", "research", []string{"research", "ready"})
+	w.BeadFilter = &beads.Filter{Label: "subsystem:nonexistent"}
+	in := Input{
+		Works:    []*spec.SpecYAML{w},
+		AllBeads: []beads.Bead{mkBead("k-1", "", "open", "subsystem:other")},
+	}
+	noAttach, _ := runCleanup(in, nil)
+	if len(noAttach) != 1 {
+		t.Fatalf("expected 1 no-attach item, got %d", len(noAttach))
+	}
+	got := noAttach[0]
+	if got.RankLabel != "empty" {
+		t.Errorf("rank_label = %q, want empty (bead_filter declared, zero matches)", got.RankLabel)
+	}
+	if got.Reason != "resolved bead_filter matches zero beads in the store" {
+		t.Errorf("reason = %q", got.Reason)
 	}
 }
 

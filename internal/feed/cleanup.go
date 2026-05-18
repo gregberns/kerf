@@ -57,14 +57,32 @@ func detectWorkNoAttachedBeads(in Input, projectFilter *beads.Filter) []Item {
 			continue
 		}
 		wc := codename
+		// Rank-label classification per specs/coordination.md §"Rank Labels
+		// for Zero-Match Works" (Plan 019 / B2):
+		//   - unwired: no per-work bead_filter key authored on spec.yaml.
+		//   - empty:   per-work bead_filter present and parsed, but resolves
+		//              to zero matches.
+		//   - broken:  filter present but malformed. spec.Read rejects
+		//              malformed filters at parse time, so this state is not
+		//              observable here today; per Plan 019 open question 5
+		//              it collapses into "empty" until parser support lands.
+		rankLabel := "empty"
+		reason := "resolved bead_filter matches zero beads in the store"
+		action := "edit spec.yaml bead_filter or check the project filter"
+		if w.BeadFilter == nil {
+			rankLabel = "unwired"
+			reason = "no bead_filter declared on spec.yaml"
+			action = "kerf work edit " + codename + " --bead-filter-add '<clause>'"
+		}
 		out = append(out, Item{
 			Kind:         KindCleanup,
 			Score:        scoreByWork[codename],
 			Title:        "no attached beads",
-			Action:       "edit spec.yaml bead_filter or check the project filter",
+			Action:       action,
 			WorkCodename: &wc,
 			BeadID:       nil,
-			Reason:       "resolved bead_filter matches zero beads in the store",
+			Reason:       reason,
+			RankLabel:    rankLabel,
 		})
 	}
 	return out

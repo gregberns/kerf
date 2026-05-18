@@ -185,9 +185,21 @@ func runNext(cmd *cobra.Command) error {
 	}
 
 	// --- Load beads ------------------------------------------------------
+	// Honor project.yaml tools.tasks (default "br"). When the configured tool
+	// is on PATH but invocation fails (bad store, JSON error), surface the
+	// concrete error rather than silently returning zero beads — silent zero
+	// was the misconfiguration trap behind plan 021.
 	var allBeads []beads.Bead
-	if beads.IsAvailable() {
-		allBeads, _ = beads.List()
+	toolName := beads.DefaultToolName
+	if projCfg != nil {
+		toolName = beads.ResolveToolName(projCfg.Tools)
+	}
+	if beads.IsAvailableNamed(toolName) {
+		bs, berr := beads.ListNamed(toolName)
+		if berr != nil {
+			return fmt.Errorf("loading beads: %w", berr)
+		}
+		allBeads = bs
 	}
 
 	// --- Build bead summaries per work + bead→work join map --------------
@@ -565,7 +577,16 @@ func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSumm
 			if reason == "" {
 				reason = it.Title
 			}
-			fmt.Fprintf(out, "%d. clean  %s   %s\n", i+1, wc, reason)
+			// Rank label drives the leading word per specs/commands.md
+			// §"kerf next" warning-block vocabulary (Plan 019 / B2):
+			// empty / unwired / broken. Items without a rank label fall
+			// back to "cleanup"; in practice only the
+			// work_no_attached_beads detector sets a label today.
+			label := it.RankLabel
+			if label == "" {
+				label = "cleanup"
+			}
+			fmt.Fprintf(out, "%d. %-7s %s   %s\n", i+1, label, wc, reason)
 			if it.Action != "" {
 				fmt.Fprintf(out, "          %s\n", it.Action)
 			}

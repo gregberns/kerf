@@ -1,0 +1,19 @@
+# Change Design — <TODO: spec area>
+
+## Current State
+
+<TODO: What the spec says now. For a new spec, write "new file — no current state.">
+
+## Target State
+
+<TODO: What the spec should say after the change. Be specific about sections, content, structure. This is the description of the change, not the final spec text.>
+
+## Rationale
+
+<TODO: Why this change is needed. Which requirements from 02-components.md it satisfies. How research findings informed the design.>
+
+## Requirements Traceability
+
+| Requirement (from 02-components.md) | Addressed by (section of Target State) |
+|---|---|
+| <TODO: requirement> | <TODO: section> |

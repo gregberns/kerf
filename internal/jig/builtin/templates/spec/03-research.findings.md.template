@@ -1,0 +1,29 @@
+# Research Findings — <TODO: component / spec area>
+
+## Research Questions
+
+1. <TODO: question>
+2. <TODO: question>
+3. <TODO: question>
+
+## Findings
+
+### <TODO: question 1 restated>
+
+<TODO: Evidence-backed answer. Cite spec sections and source material.>
+
+### <TODO: question 2 restated>
+
+<TODO: ...>
+
+## Patterns to Follow
+
+<TODO: Existing conventions in the spec corpus this change should align with.>
+
+## Risks and Conflicts
+
+<TODO: Where the proposed change conflicts with existing content, or where existing patterns are ambiguous.>
+
+## Open Decisions
+
+<TODO: Items the parent must surface to the user before Change Design.>

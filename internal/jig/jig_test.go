@@ -1087,6 +1087,96 @@ func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsCheck(s, substr))
 }
 
+func TestSpecJigTemplates(t *testing.T) {
+	want := []string{
+		"01-problem-space.md.template",
+		"02-components.md.template",
+		"03-research.findings.md.template",
+		"04-design.component-design.md.template",
+		"05-spec-drafts.component.md.template",
+		"05-changelog.md.template",
+		"06-integration.md.template",
+		"07-tasks.md.template",
+	}
+
+	names, err := ListTemplates("spec")
+	if err != nil {
+		t.Fatalf("ListTemplates(spec): %v", err)
+	}
+	got := make(map[string]bool, len(names))
+	for _, n := range names {
+		got[n] = true
+	}
+	for _, w := range want {
+		if !got[w] {
+			t.Errorf("missing template %q", w)
+		}
+	}
+
+	for _, w := range want {
+		data, err := TemplateFor("spec", w)
+		if err != nil {
+			t.Errorf("TemplateFor(spec, %q): %v", w, err)
+			continue
+		}
+		if len(data) == 0 {
+			t.Errorf("template %q is empty", w)
+		}
+		if !containsCheck(string(data), "<TODO:") {
+			t.Errorf("template %q lacks <TODO:> markers", w)
+		}
+	}
+}
+
+func TestTemplateForPassSpec(t *testing.T) {
+	jig, _, err := Resolve("spec", "")
+	if err != nil {
+		t.Fatalf("Resolve(spec): %v", err)
+	}
+
+	cases := []struct {
+		status   string
+		wantFile string
+	}{
+		{"problem-space", "01-problem-space.md.template"},
+		{"decompose", "02-components.md.template"},
+		{"research", "03-research.findings.md.template"},
+		{"change-design", "04-design.component-design.md.template"},
+		{"spec-draft", "05-spec-drafts.component.md.template"},
+		{"integration", "06-integration.md.template"},
+		{"tasks", "07-tasks.md.template"},
+	}
+
+	for _, tc := range cases {
+		pass := jig.PassForStatus(tc.status)
+		if pass == nil {
+			t.Errorf("no pass for status %q", tc.status)
+			continue
+		}
+		data, err := TemplateForPass("spec", pass)
+		if err != nil {
+			t.Errorf("TemplateForPass(spec, %s): %v", tc.status, err)
+			continue
+		}
+		if len(data) == 0 {
+			t.Errorf("template for %s empty", tc.status)
+		}
+		// Also confirm the basename mapping is deterministic.
+		if got := templateBasenameForOutput(pass.Output[0]); got != tc.wantFile {
+			t.Errorf("templateBasenameForOutput(%q) = %q, want %q", pass.Output[0], got, tc.wantFile)
+		}
+	}
+
+	// Terminal "ready" pass has no output → should return os.ErrNotExist.
+	readyPass := jig.PassForStatus("ready")
+	if readyPass == nil {
+		t.Fatal("no pass for status ready")
+	}
+	if _, err := TemplateForPass("spec", readyPass); err == nil {
+		t.Errorf("TemplateForPass(spec, ready) succeeded, want error")
+	}
+}
+
 func containsCheck(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {

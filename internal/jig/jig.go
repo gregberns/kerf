@@ -14,6 +14,9 @@ import (
 //go:embed builtin/*.md
 var builtinFS embed.FS
 
+//go:embed builtin/templates
+var templatesFS embed.FS
+
 // JigDefinition represents a parsed jig file.
 type JigDefinition struct {
 	Name          string   `yaml:"name"`
@@ -354,6 +357,76 @@ func ReadBuiltinRaw(name string) ([]byte, error) {
 		return nil, fmt.Errorf("built-in jig %q not found", name)
 	}
 	return builtinFS.ReadFile("builtin/" + j.Name + ".md")
+}
+
+// TemplateFor returns the template body for the given jig name and template
+// basename (e.g., "01-problem-space.md.template"). It returns os.ErrNotExist
+// if the jig has no template by that name.
+func TemplateFor(jigName, templateName string) ([]byte, error) {
+	path := "builtin/templates/" + jigName + "/" + templateName
+	data, err := templatesFS.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("template %q for jig %q: %w", templateName, jigName, err)
+	}
+	return data, nil
+}
+
+// TemplateForPass returns the template body for a given jig name and pass index
+// (1-based). The mapping follows the convention in specs/jig-spec.md: pass N's
+// template is named NN-<slug>.md.template where the slug is derived from the
+// pass's first output path with directory separators replaced by dots. If the
+// pass has no template (e.g., terminal "ready" pass), os.ErrNotExist is returned.
+func TemplateForPass(jigName string, pass *Pass) ([]byte, error) {
+	if pass == nil || len(pass.Output) == 0 {
+		return nil, os.ErrNotExist
+	}
+	name := templateBasenameForOutput(pass.Output[0])
+	if name == "" {
+		return nil, os.ErrNotExist
+	}
+	return TemplateFor(jigName, name)
+}
+
+// templateBasenameForOutput turns a pass output path like
+// "03-research/{component}/findings.md" into "03-research.findings.md.template"
+// by removing {component} segments and joining the remaining path components
+// with dots.
+func templateBasenameForOutput(output string) string {
+	parts := strings.Split(output, "/")
+	var keep []string
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if p == "{component}" {
+			// Drop pure {component} directory segments entirely.
+			continue
+		}
+		// Within other segments, replace embedded {component} with the literal
+		// "component" so the template basename is stable on disk.
+		keep = append(keep, strings.ReplaceAll(p, "{component}", "component"))
+	}
+	if len(keep) == 0 {
+		return ""
+	}
+	return strings.Join(keep, ".") + ".template"
+}
+
+// ListTemplates returns the names of all template files shipped for the given
+// jig (e.g., "01-problem-space.md.template").
+func ListTemplates(jigName string) ([]string, error) {
+	entries, err := templatesFS.ReadDir("builtin/templates/" + jigName)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	return names, nil
 }
 
 // SaveToUser writes a jig file to the user's jigs directory.

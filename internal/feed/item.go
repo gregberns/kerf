@@ -57,4 +57,14 @@ type Item struct {
 	WorkCodename *string `json:"work_codename"`
 	BeadID       *string `json:"bead_id"`
 	Reason       string  `json:"reason"`
+
+	// RankLabel carries the rank-label vocabulary defined in
+	// specs/coordination.md §"Rank Labels for Zero-Match Works":
+	// "empty", "unwired", or "broken". Populated only for cleanup items
+	// emitted by the work_no_attached_beads detector; empty string for all
+	// other items. Per Plan 019 / B2 and Plan 019 open question 5, the
+	// "broken" state collapses into "empty" while spec.Read still rejects
+	// malformed bead_filter values at parse time — the field is preserved
+	// so the third label becomes available when parser support lands.
+	RankLabel string `json:"rank_label,omitempty"`
 }

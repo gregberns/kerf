@@ -1,0 +1,25 @@
+# Problem Space
+
+## Summary
+
+<TODO: One paragraph: what is changing in the system and why.>
+
+## Goals
+
+<TODO: Bulleted list. Each goal is a concrete statement about what should be true about the specs after the change.>
+
+## Non-Goals
+
+<TODO: Bulleted list. Explicit out-of-scope items.>
+
+## Constraints
+
+<TODO: Backwards-compatibility requirements, interactions with other spec areas, things that must not change.>
+
+## Success Criteria
+
+<TODO: Concrete, verifiable statements about the post-change spec state. "The jig-system spec defines a review pattern" — not "improve review.">
+
+## Affected Spec Areas (preliminary)
+
+<TODO: Bulleted list of spec files likely affected. This is the starting point for Decompose.>
