@@ -189,7 +189,7 @@ func TestBeadFilterCoverageDetector_Yellow_AllWired_AllEmpty(t *testing.T) {
 // Other works are wired with literal filters that resolve to zero (which
 // would normally produce an "empty" row too — this test isolates the
 // unwired branch by using a single work).
-func TestBeadFilterCoverageDetector_Yellow_OneUnwired(t *testing.T) {
+func TestBeadFilterCoverageDetector_Red_OneUnwired(t *testing.T) {
 	ctx, r := newBeadFilterCovCtx(t)
 	withBeadLoader(t, nil)
 	// One unwired work, no other works.
@@ -202,8 +202,8 @@ func TestBeadFilterCoverageDetector_Yellow_OneUnwired(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("want 1 finding; got %d: %+v", len(got), got)
 	}
-	if got[0].Severity != Yellow {
-		t.Errorf("severity = %q, want yellow", got[0].Severity)
+	if got[0].Severity != Red {
+		t.Errorf("severity = %q, want red (unwired blocks normal use per spec)", got[0].Severity)
 	}
 	if !strings.Contains(got[0].Summary, "unwired") {
 		t.Errorf("summary missing 'unwired': %q", got[0].Summary)
@@ -219,8 +219,8 @@ func TestBeadFilterCoverageDetector_Yellow_OneUnwired(t *testing.T) {
 	}
 }
 
-// Mixed: one unwired + one empty → two yellow rows (unwired first).
-func TestBeadFilterCoverageDetector_Yellow_MixedUnwiredAndEmpty(t *testing.T) {
+// Mixed: one unwired (red) + one empty (yellow).
+func TestBeadFilterCoverageDetector_MixedUnwiredAndEmpty(t *testing.T) {
 	ctx, r := newBeadFilterCovCtx(t)
 	withBeadLoader(t, nil)
 	writeSpec(t, r, "alpha", "")                                        // unwired
@@ -236,12 +236,13 @@ func TestBeadFilterCoverageDetector_Yellow_MixedUnwiredAndEmpty(t *testing.T) {
 	if !strings.Contains(got[0].Summary, "unwired") {
 		t.Errorf("first finding summary should mention 'unwired'; got %q", got[0].Summary)
 	}
+	if got[0].Severity != Red {
+		t.Errorf("unwired finding severity = %q, want red", got[0].Severity)
+	}
 	if !strings.Contains(got[1].Summary, "empty filter") {
 		t.Errorf("second finding summary should mention 'empty filter'; got %q", got[1].Summary)
 	}
-	for _, f := range got {
-		if f.Severity != Yellow {
-			t.Errorf("finding %q: severity = %q, want yellow", f.Summary, f.Severity)
-		}
+	if got[1].Severity != Yellow {
+		t.Errorf("empty finding severity = %q, want yellow", got[1].Severity)
 	}
 }
