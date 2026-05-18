@@ -146,7 +146,7 @@ func runRun(stdout io.Writer, scenarioArg string, opts *runOpts) error {
 	// Load the fitted-distribution registry. A missing file is non-fatal;
 	// scenarios that use kind=from_distribution will surface a clearer
 	// "distribution not found" error downstream.
-	reg, err := duration.LoadRegistry(duration.DefaultRegistryPath)
+	reg, err := duration.LoadDefault()
 	if err != nil {
 		return fmt.Errorf("load fitted distributions: %w", err)
 	}
