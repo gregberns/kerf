@@ -20,6 +20,8 @@ import (
 	"github.com/gberns/kerf/internal/spec"
 )
 
+var showCompactFlag bool
+
 var showCmd = &cobra.Command{
 	Use:   "show <codename>",
 	Short: "Display full details for a work",
@@ -28,6 +30,7 @@ var showCmd = &cobra.Command{
 }
 
 func init() {
+	showCmd.Flags().BoolVar(&showCompactFlag, "compact", false, "One-line-per-section summary: status, next-pass name, file count, last-session marker")
 	rootCmd.AddCommand(showCmd)
 }
 
@@ -48,6 +51,10 @@ func runShow(cmd *cobra.Command, args []string) error {
 	bp, _ := bench.BenchPath()
 	jigsDir := filepath.Join(bp, "jigs")
 	jigDef, _, _ := jig.Resolve(s.Jig, jigsDir)
+
+	if showCompactFlag {
+		return runShowCompact(s, workDir, jigDef)
+	}
 
 	// Metadata
 	fmt.Printf("Work: %s\n", s.Codename)
@@ -85,6 +92,17 @@ func runShow(cmd *cobra.Command, args []string) error {
 				fmt.Println(instructions)
 				fmt.Println()
 			}
+		}
+
+		// Pass-output list — one stable line per pass identifying the canonical
+		// output filename(s) per specs/jig-system.md §"Surfacing Pass Filenames"
+		// and specs/commands.md §`kerf show` ("Pass N: <name> → Output: ...").
+		if lines := renderPassOutputLines(jigDef); len(lines) > 0 {
+			fmt.Println("Passes:")
+			for _, ln := range lines {
+				fmt.Println("  " + ln)
+			}
+			fmt.Println()
 		}
 
 		// Pass status for composable jigs
@@ -656,6 +674,90 @@ func normalizeForCompare(in []string) []string {
 		}
 	}
 	return out
+}
+
+// renderPassOutputLines builds one stable line per declared pass of the form
+//
+//	Pass N: <name> → Output: <path>
+//
+// per specs/jig-system.md §"Surfacing Pass Filenames" and specs/commands.md
+// §`kerf show`. Passes with multiple outputs render comma-joined. Passes that
+// declare no output (process passes like Dispatch/Implement/Complete) render
+// with `Output: (none)` so the line is always emitted — agents can see the
+// full pass list at a glance.
+func renderPassOutputLines(j *jig.JigDefinition) []string {
+	if j == nil || len(j.Passes) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(j.Passes))
+	for i, p := range j.Passes {
+		var outputs string
+		if len(p.Output) == 0 {
+			outputs = "(none)"
+		} else {
+			outputs = strings.Join(p.Output, ", ")
+		}
+		out = append(out, fmt.Sprintf("Pass %d: %s → Output: %s", i+1, p.Name, outputs))
+	}
+	return out
+}
+
+// runShowCompact prints the four-line compact summary plus the bead-filter slot
+// per specs/commands.md §`kerf show` "--compact output":
+//
+//	{codename}  status: {current-status} → next: {next-pass-name}
+//	bead_filter: {value or (none)}
+//	files:       {n} in work directory
+//	last session: {relative-time} ({active|ended})
+//
+// Errors and command-line resolution behave identically to the full form;
+// only the rendering is collapsed.
+func runShowCompact(s *spec.SpecYAML, workDir string, jigDef *jig.JigDefinition) error {
+	// Next-pass name: the pass *after* the current status's pass. When the
+	// work is at or past the terminal status, fall back to "(terminal)".
+	next := "(terminal)"
+	if jigDef != nil {
+		for i, p := range jigDef.Passes {
+			if p.Status == s.Status {
+				if i+1 < len(jigDef.Passes) {
+					next = jigDef.Passes[i+1].Name
+				}
+				break
+			}
+		}
+	}
+	fmt.Printf("%s  status: %s → next: %s\n", s.Codename, s.Status, next)
+	fmt.Printf("bead_filter: %s\n", renderBeadFilterSlot(s.BeadFilter))
+
+	// File count: non-recursive count of entries in the work directory,
+	// excluding .history/ to mirror the verbose file tree's exclusion.
+	n := 0
+	if entries, err := os.ReadDir(workDir); err == nil {
+		for _, e := range entries {
+			if e.Name() == ".history" {
+				continue
+			}
+			n++
+		}
+	}
+	fmt.Printf("files:       %d in work directory\n", n)
+
+	// Last-session marker: most recent entry in s.Sessions, with active/ended
+	// derived from s.ActiveSession.
+	if len(s.Sessions) == 0 {
+		fmt.Println("last session: (none)")
+	} else {
+		last := s.Sessions[len(s.Sessions)-1]
+		rel := formatRelativeTime(last.Started)
+		state := "ended"
+		if s.ActiveSession != nil {
+			if (last.ID != nil && *last.ID == *s.ActiveSession) || (last.ID == nil && *s.ActiveSession == "anonymous") {
+				state = "active"
+			}
+		}
+		fmt.Printf("last session: %s (%s)\n", rel, state)
+	}
+	return nil
 }
 
 // statusProgression renders the status progression with a pointer to current.

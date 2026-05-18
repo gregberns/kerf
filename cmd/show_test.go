@@ -491,6 +491,123 @@ func TestShow_AttachedBeads_DeletedBeadStillRenders(t *testing.T) {
 	testutil.AssertStringContains(t, got, "! deleted since last triage")
 }
 
+// ─── --compact + Pass N → Output rendering (Plan 020 / kerf-85a) ──────────
+
+// TestShow_PassOutputLines_RenderedInDefault verifies that the default render
+// emits one `Pass N: <name> → Output: NN-<file>.md` line per declared pass,
+// per specs/jig-system.md §"Surfacing Pass Filenames" and specs/commands.md
+// §`kerf show`. Process passes with no `output:` declared render `(none)`.
+func TestShow_PassOutputLines_RenderedInDefault(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	proj := "show-pass-lines-proj"
+
+	captureOutput(t, func() {
+		projectFlag = proj
+		newJigFlag = "implementation"
+		newTitle = "Pass lines render"
+		newType = ""
+		defer func() { projectFlag = ""; newJigFlag = ""; newTitle = "" }()
+		newCmd.RunE(newCmd, []string{"pass-lines"})
+	})
+
+	out := captureOutput(t, func() {
+		projectFlag = proj
+		defer func() { projectFlag = "" }()
+		showCmd.RunE(showCmd, []string{"pass-lines"})
+	})
+
+	// One line per pass in the implementation jig.
+	testutil.AssertStringContains(t, out, "Passes:")
+	testutil.AssertStringContains(t, out, "Pass 1: Breakdown → Output: 01-breakdown.md")
+	testutil.AssertStringContains(t, out, "Pass 2: Dispatch → Output: 02-dispatch.md")
+	// Process pass with no declared output → (none).
+	testutil.AssertStringContains(t, out, "Pass 3: Implement → Output: (none)")
+	testutil.AssertStringContains(t, out, "Pass 4: Verify → Output: 03-verify.md")
+}
+
+// TestShow_Compact_RendersFourLinesPlusBeadFilter verifies the --compact
+// rendering per specs/commands.md §`kerf show` "--compact output". Output:
+//
+//	{codename}  status: {current} → next: {next-pass}
+//	bead_filter: {value or (none)}
+//	files:       {n} in work directory
+//	last session: ...
+func TestShow_Compact_RendersFourLinesPlusBeadFilter(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	proj := "show-compact-proj"
+
+	captureOutput(t, func() {
+		projectFlag = proj
+		newJigFlag = "implementation"
+		newTitle = "Compact render"
+		newType = ""
+		defer func() { projectFlag = ""; newJigFlag = ""; newTitle = "" }()
+		newCmd.RunE(newCmd, []string{"compact-demo"})
+	})
+
+	out := captureOutput(t, func() {
+		projectFlag = proj
+		showCompactFlag = true
+		defer func() { projectFlag = ""; showCompactFlag = false }()
+		showCmd.RunE(showCmd, []string{"compact-demo"})
+	})
+
+	// First line: codename, current status, next-pass name.
+	testutil.AssertStringContains(t, out, "compact-demo  status: breakdown → next: Dispatch")
+	// bead_filter slot must always be rendered (kerf-3ac contract); no
+	// bead_filter was set on creation, so the literal reads "(none)".
+	testutil.AssertStringContains(t, out, "bead_filter: (none)")
+	testutil.AssertStringContains(t, out, "files:")
+	testutil.AssertStringContains(t, out, "in work directory")
+	testutil.AssertStringContains(t, out, "last session:")
+
+	// Compact form must omit the verbose sections.
+	if strings.Contains(out, "Passes:") {
+		t.Errorf("compact form must omit per-pass output list; got:\n%s", out)
+	}
+	if strings.Contains(out, "Files:") {
+		t.Errorf("compact form must omit the verbose Files: tree; got:\n%s", out)
+	}
+	if strings.Contains(out, "Pass status:") {
+		t.Errorf("compact form must omit Pass status block; got:\n%s", out)
+	}
+}
+
+// TestShow_Compact_PreservesBeadFilterLine verifies that when a work has an
+// explicit bead_filter, the --compact rendering surfaces the literal value
+// (not "(none)"). Guards against regressing kerf-3ac's always-emit contract.
+func TestShow_Compact_PreservesBeadFilterLine(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	proj := "show-compact-filter-proj"
+
+	captureOutput(t, func() {
+		projectFlag = proj
+		newJigFlag = "implementation"
+		newTitle = "Filter render"
+		newType = ""
+		newBeadFilter = "label=subsystem:bridge"
+		defer func() {
+			projectFlag = ""
+			newJigFlag = ""
+			newTitle = ""
+			newBeadFilter = ""
+		}()
+		newCmd.RunE(newCmd, []string{"filter-demo"})
+	})
+
+	out := captureOutput(t, func() {
+		projectFlag = proj
+		showCompactFlag = true
+		defer func() { projectFlag = ""; showCompactFlag = false }()
+		showCmd.RunE(showCmd, []string{"filter-demo"})
+	})
+
+	testutil.AssertStringContains(t, out, "bead_filter: label=subsystem:bridge")
+}
+
 // TestShow_AttachedBeads_NoAttachments_OmitsBlock verifies that when the work
 // has zero attached beads and zero pinned beads, the block is omitted (the
 // `Bead status` line above already covers the empty case). Plan 009 / B7.
