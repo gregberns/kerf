@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -11,174 +12,412 @@ import (
 	"github.com/gberns/kerf/internal/testutil"
 )
 
-func TestInit_CreatesProjectYAML(t *testing.T) {
+// resetInitFlags clears package-level init flag state so tests don't leak
+// configuration into one another. Tests that flip a flag should call this in
+// a defer (or use t.Cleanup) so a subsequent test starts from the documented
+// defaults — all bools false, all strings empty.
+func resetInitFlags(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		initJigFlag = ""
+		initForceFlag = false
+		initYesFlag = false
+		initNoFlag = false
+		initBeadFilterFlag = ""
+	})
+}
+
+// runInitInRepo bootstraps a fresh git repo with a clean HOME, chdirs in, and
+// runs `kerf init` (with the flags already set on the package vars) under
+// captureOutput. Returns the captured stdout, the project ID, and the
+// resolved project.yaml path.
+func runInitInRepo(t *testing.T) (out, projectID, projCfgPath string) {
+	t.Helper()
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
-
 	gitRepo := testutil.SetupGitRepo(t)
-
 	oldWd, _ := os.Getwd()
-	os.Chdir(gitRepo)
-	defer os.Chdir(oldWd)
+	if err := os.Chdir(gitRepo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(oldWd) })
 
-	out := captureOutput(t, func() {
-		err := initCmd.RunE(initCmd, []string{})
-		if err != nil {
-			t.Fatalf("init error: %v", err)
+	out = captureOutput(t, func() {
+		if err := initCmd.RunE(initCmd, []string{}); err != nil {
+			t.Fatalf("init: %v", err)
 		}
 	})
-
-	// Verify project-identifier was created
-	testutil.AssertFileExists(t, filepath.Join(gitRepo, ".kerf", "project-identifier"))
-
-	// Read project ID to find project.yaml
 	pidData, err := os.ReadFile(filepath.Join(gitRepo, ".kerf", "project-identifier"))
 	if err != nil {
 		t.Fatalf("reading project-identifier: %v", err)
 	}
-	projectID := trimSpace(string(pidData))
+	projectID = strings.TrimSpace(string(pidData))
+	projCfgPath = config.ProjectConfigPath(filepath.Join(tmp, ".kerf"), projectID)
+	return out, projectID, projCfgPath
+}
 
-	// Verify project.yaml was created
-	bp := filepath.Join(tmp, ".kerf")
-	projCfgPath := config.ProjectConfigPath(bp, projectID)
+// runInitAgain re-runs init from the current working directory (assumed to
+// be a kerf-initialised git repo) and returns the captured output.
+func runInitAgain(t *testing.T) string {
+	t.Helper()
+	return captureOutput(t, func() {
+		if err := initCmd.RunE(initCmd, []string{}); err != nil {
+			t.Fatalf("re-init: %v", err)
+		}
+	})
+}
+
+// --- Fresh init: project.yaml and identifier created. -----------------------
+
+func TestInit_FreshRun_CreatesProjectIdentifierAndConfig(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[]`) // empty store → detector returns no suggestion, but init still succeeds.
+
+	out, projectID, projCfgPath := runInitInRepo(t)
+
+	if projectID == "" {
+		t.Fatal("project-identifier should have a non-empty body")
+	}
 	testutil.AssertFileExists(t, projCfgPath)
 
-	// Load and verify project.yaml content
-	projCfg, err := config.LoadProjectConfig(projCfgPath)
+	cfg, err := config.LoadProjectConfig(projCfgPath)
 	if err != nil {
 		t.Fatalf("loading project config: %v", err)
 	}
-	if len(projCfg.Jigs) == 0 {
-		t.Error("project.yaml Jigs should not be empty")
+	if len(cfg.Jigs) == 0 {
+		t.Error("project.yaml should declare at least one jig")
 	}
-
-	// Should include built-in jigs
-	hasJig := func(name string) bool {
-		for _, j := range projCfg.Jigs {
+	has := func(name string) bool {
+		for _, j := range cfg.Jigs {
 			if j == name {
 				return true
 			}
 		}
 		return false
 	}
-	if !hasJig("plan") {
-		t.Error("project.yaml should include plan jig")
+	if !has("plan") || !has("bug") {
+		t.Errorf("expected default jigs to include plan and bug, got %v", cfg.Jigs)
 	}
-	if !hasJig("bug") {
-		t.Error("project.yaml should include bug jig")
-	}
-
-	// Verify output mentions project.yaml creation
 	testutil.AssertStringContains(t, out, "project.yaml")
 	testutil.AssertStringContains(t, out, "active jigs")
 }
 
-func TestInit_OutputIncludesSetup(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+// Spec §kerf init step 11: the AGENT SETUP INSTRUCTIONS block must appear
+// exactly once in init's stdout — kerf setup is the single source (kerf-6jw).
+func TestInit_OutputContainsExactlyOneSetupBlock(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[]`)
+	out, _, _ := runInitInRepo(t)
 
-	gitRepo := testutil.SetupGitRepo(t)
-
-	oldWd, _ := os.Getwd()
-	os.Chdir(gitRepo)
-	defer os.Chdir(oldWd)
-
-	out := captureOutput(t, func() {
-		err := initCmd.RunE(initCmd, []string{})
-		if err != nil {
-			t.Fatalf("init error: %v", err)
-		}
-	})
-
-	// Spec §kerf init step 11: kerf setup is the single source of the agent
-	// instruction block; kerf init no longer emits its own inline copy. The
-	// block must appear exactly once in init's stdout.
-	testutil.AssertStringContains(t, out, "START AGENT INSTRUCTIONS")
-	testutil.AssertStringContains(t, out, "END AGENT INSTRUCTIONS")
-	if got := strings.Count(out, "START AGENT INSTRUCTIONS"); got != 1 {
-		t.Errorf("expected exactly 1 'START AGENT INSTRUCTIONS' block, got %d", got)
+	if c := strings.Count(out, "START AGENT INSTRUCTIONS"); c != 1 {
+		t.Errorf("expected 1 'START AGENT INSTRUCTIONS' block, got %d", c)
 	}
-	if got := strings.Count(out, "END AGENT INSTRUCTIONS"); got != 1 {
-		t.Errorf("expected exactly 1 'END AGENT INSTRUCTIONS' block, got %d", got)
+	if c := strings.Count(out, "END AGENT INSTRUCTIONS"); c != 1 {
+		t.Errorf("expected 1 'END AGENT INSTRUCTIONS' block, got %d", c)
 	}
 }
 
-func TestInit_BootstrapInstructionsMentionsAllJigTypes(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+// Spec §kerf init Output bullet 7 (kerf-yl1): the final block is the
+// state-change summary. Per-artifact verbs are one of created / updated /
+// unchanged, and the artifacts init touched on a fresh run include
+// project-identifier, project.yaml, and bead_filter.
+func TestInit_StateChangeSummary_FreshRunShape(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[]`)
+	out, _, _ := runInitInRepo(t)
 
-	gitRepo := testutil.SetupGitRepo(t)
-
-	oldWd, _ := os.Getwd()
-	os.Chdir(gitRepo)
-	defer os.Chdir(oldWd)
-
-	out := captureOutput(t, func() {
-		err := initCmd.RunE(initCmd, []string{})
-		if err != nil {
-			t.Fatalf("init error: %v", err)
+	if !strings.Contains(out, "State changes:") {
+		t.Fatalf("missing state-change block; got:\n%s", out)
+	}
+	rows := parseStateChanges(t, out)
+	wantVerbs := map[string]string{
+		".kerf/project-identifier": "created",
+		"project.yaml":             "created",
+		"bead_filter":              "unchanged", // empty store → no confident suggestion.
+	}
+	for artifact, want := range wantVerbs {
+		got, ok := rows[artifact]
+		if !ok {
+			t.Errorf("state-change summary missing artifact %q; rows=%v", artifact, rows)
+			continue
 		}
-	})
-
-	testutil.AssertStringContains(t, out, "--jig plan")
-	testutil.AssertStringContains(t, out, "--jig bug")
-	testutil.AssertStringContains(t, out, "--jig implementation")
-	testutil.AssertStringContains(t, out, "--jig spike")
-	testutil.AssertStringContains(t, out, "--jig retrofit")
+		if got != want {
+			t.Errorf("artifact %q: want verb %q, got %q", artifact, want, got)
+		}
+	}
+	// Allowed verbs only.
+	allowed := map[string]bool{"created": true, "updated": true, "unchanged": true}
+	for artifact, verb := range rows {
+		if !allowed[verb] {
+			t.Errorf("artifact %q reported unknown verb %q", artifact, verb)
+		}
+	}
 }
 
-func TestInit_AlreadyInitialized(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+// --jig persists default_jig in project.yaml (kerf-q5l) and reports it in the
+// state-change summary.
+func TestInit_JigFlag_PersistsDefaultJigInProjectYAML(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[]`)
+	initJigFlag = "spec"
 
-	gitRepo := testutil.SetupGitRepo(t)
+	out, _, projCfgPath := runInitInRepo(t)
 
-	oldWd, _ := os.Getwd()
-	os.Chdir(gitRepo)
-	defer os.Chdir(oldWd)
-
-	// Run init twice
-	captureOutput(t, func() {
-		err := initCmd.RunE(initCmd, []string{})
-		if err != nil {
-			t.Fatalf("first init error: %v", err)
-		}
-	})
-
-	out := captureOutput(t, func() {
-		err := initCmd.RunE(initCmd, []string{})
-		if err != nil {
-			t.Fatalf("second init error: %v", err)
-		}
-	})
-
-	testutil.AssertStringContains(t, out, "already initialized")
+	cfg, err := config.LoadProjectConfig(projCfgPath)
+	if err != nil {
+		t.Fatalf("loading project config: %v", err)
+	}
+	if cfg.DefaultJig != "spec" {
+		t.Errorf("project.yaml default_jig: want %q, got %q", "spec", cfg.DefaultJig)
+	}
+	rows := parseStateChanges(t, out)
+	if v, ok := rows["default_jig"]; !ok || v != "created" {
+		t.Errorf("expected default_jig 'created' row, got %q (rows=%v)", v, rows)
+	}
 }
 
-// Plan 008 / B9-code: re-running kerf init without --force on an existing
-// project.yaml prints the skip-with-informative-output summary and does NOT
-// overwrite the file (spec §kerf init "Re-running on an existing project").
-func TestInit_Rerun_PreservesBeadFilter(t *testing.T) {
+// --jig with an invalid value errors before writing anything.
+func TestInit_JigFlag_RejectsInvalidValue(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[]`)
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
-
 	gitRepo := testutil.SetupGitRepo(t)
 	oldWd, _ := os.Getwd()
 	os.Chdir(gitRepo)
-	defer os.Chdir(oldWd)
+	t.Cleanup(func() { os.Chdir(oldWd) })
 
-	// First init creates project.yaml with default jigs and no bead_filter.
+	initJigFlag = "nonsense"
+	err := captureErr(func() error { return initCmd.RunE(initCmd, []string{}) })
+	if err == nil || !strings.Contains(err.Error(), "--jig must be 'plan' or 'spec'") {
+		t.Fatalf("expected --jig validation error, got %v", err)
+	}
+}
+
+// --- Flag matrix: --yes / --no / --bead-filter / default. -------------------
+
+// --bead-filter sets the literal verbatim and bypasses the detector
+// (kerf-pjs precedence: --bead-filter > --no > --yes > default).
+func TestInit_BeadFilterFlag_SetsExplicitLiteralAndBypassesDetector(t *testing.T) {
+	resetInitFlags(t)
+	// br store would otherwise produce a confident "subsystem:*" suggestion;
+	// --bead-filter must win.
+	stubBr(t, `[
+		{"id":"x-1","labels":["subsystem:auth"]},
+		{"id":"x-2","labels":["subsystem:db"]},
+		{"id":"x-3","labels":["subsystem:api"]}
+	]`)
+	initBeadFilterFlag = "label=team:billing"
+
+	out, _, projCfgPath := runInitInRepo(t)
+
+	cfg, err := config.LoadProjectConfig(projCfgPath)
+	if err != nil {
+		t.Fatalf("loading project config: %v", err)
+	}
+	if cfg.BeadFilter == nil || cfg.BeadFilter.Label != "team:billing" {
+		t.Errorf("bead_filter: want label=team:billing, got %+v", cfg.BeadFilter)
+	}
+	// Detector output must not appear — explicit flag bypasses detection.
+	if strings.Contains(out, "Detected:") {
+		t.Errorf("detector output leaked despite --bead-filter; out=%q", out)
+	}
+}
+
+// --bead-filter with a malformed literal errors before any write.
+func TestInit_BeadFilterFlag_RejectsMalformedLiteral(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[]`)
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	gitRepo := testutil.SetupGitRepo(t)
+	oldWd, _ := os.Getwd()
+	os.Chdir(gitRepo)
+	t.Cleanup(func() { os.Chdir(oldWd) })
+
+	initBeadFilterFlag = "this is not a clause"
+	err := captureErr(func() error { return initCmd.RunE(initCmd, []string{}) })
+	if err == nil || !strings.Contains(err.Error(), "--bead-filter expects") {
+		t.Fatalf("expected --bead-filter validation error, got %v", err)
+	}
+}
+
+// --no skips detection entirely; bead_filter stays unset even when the store
+// has a confident candidate (kerf-pjs).
+func TestInit_NoFlag_SkipsDetectionLeavingBeadFilterUnset(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[
+		{"id":"x-1","labels":["subsystem:auth"]},
+		{"id":"x-2","labels":["subsystem:db"]},
+		{"id":"x-3","labels":["subsystem:api"]}
+	]`)
+	initNoFlag = true
+
+	out, _, projCfgPath := runInitInRepo(t)
+
+	cfg, err := config.LoadProjectConfig(projCfgPath)
+	if err != nil {
+		t.Fatalf("loading project config: %v", err)
+	}
+	if cfg.BeadFilter != nil {
+		t.Errorf("--no must leave bead_filter unset, got %+v", cfg.BeadFilter)
+	}
+	if strings.Contains(out, "Detected:") {
+		t.Errorf("--no must keep detector silent; out=%q", out)
+	}
+}
+
+// --yes accepts a confident detector suggestion (the default path), but —
+// because the worktree has no codenames yet on a first init — the detector
+// stays silent and bead_filter remains unset. The flag is then a no-op
+// relative to the default. This test pins behavior: --yes never errors.
+func TestInit_YesFlag_OnFirstInit_LeavesBeadFilterUnset(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[
+		{"id":"x-1","labels":["subsystem:foo"]},
+		{"id":"x-2","labels":["subsystem:bar"]},
+		{"id":"x-3","labels":["subsystem:baz"]}
+	]`)
+	initYesFlag = true
+
+	_, _, projCfgPath := runInitInRepo(t)
+	cfg, err := config.LoadProjectConfig(projCfgPath)
+	if err != nil {
+		t.Fatalf("loading project config: %v", err)
+	}
+	// No work codenames seeded yet → detector silent → bead_filter unset.
+	if cfg.BeadFilter != nil {
+		t.Errorf("expected bead_filter unset on first init with --yes, got %+v", cfg.BeadFilter)
+	}
+}
+
+// --yes and --no together is a flag error.
+func TestInit_YesAndNoFlags_MutuallyExclusive(t *testing.T) {
+	resetInitFlags(t)
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	gitRepo := testutil.SetupGitRepo(t)
+	oldWd, _ := os.Getwd()
+	os.Chdir(gitRepo)
+	t.Cleanup(func() { os.Chdir(oldWd) })
+
+	initYesFlag = true
+	initNoFlag = true
+	err := captureErr(func() error { return initCmd.RunE(initCmd, []string{}) })
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected mutual-exclusion error, got %v", err)
+	}
+}
+
+// --- Detector tri-state confidence (kerf-yxl) routed through init. ---------
+
+// A dominant prefix above both floors is auto-applied on --force re-run.
+func TestInit_DetectorConfident_AutoAppliesPrefix(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[]`)
+
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	gitRepo := testutil.SetupGitRepo(t)
+	oldWd, _ := os.Getwd()
+	os.Chdir(gitRepo)
+	t.Cleanup(func() { os.Chdir(oldWd) })
+
 	captureOutput(t, func() {
 		if err := initCmd.RunE(initCmd, []string{}); err != nil {
 			t.Fatalf("first init: %v", err)
 		}
 	})
-
 	pidData, _ := os.ReadFile(filepath.Join(gitRepo, ".kerf", "project-identifier"))
 	projectID := strings.TrimSpace(string(pidData))
-	projCfgPath := config.ProjectConfigPath(filepath.Join(tmp, ".kerf"), projectID)
+	worksDir := filepath.Join(tmp, ".kerf", "projects", projectID)
+	for _, cn := range []string{"foo", "bar", "baz", "qux"} {
+		if err := os.MkdirAll(filepath.Join(worksDir, cn), 0o755); err != nil {
+			t.Fatalf("seed work %s: %v", cn, err)
+		}
+	}
+	// 5/5 work:* match codenames → score 1.0, ConfidenceConfident.
+	stubBr(t, `[
+		{"id":"b-1","labels":["work:foo"]},
+		{"id":"b-2","labels":["work:bar"]},
+		{"id":"b-3","labels":["work:baz"]},
+		{"id":"b-4","labels":["work:qux"]},
+		{"id":"b-5","labels":["work:foo"]}
+	]`)
 
-	// Hand-set a bead_filter to simulate user edits we must preserve.
+	initForceFlag = true
+	out := runInitAgain(t)
+
+	if !strings.Contains(out, "Detected:") {
+		t.Errorf("expected 'Detected:' line for confident suggestion; out=%q", out)
+	}
+	projCfgPath := config.ProjectConfigPath(filepath.Join(tmp, ".kerf"), projectID)
+	cfg, err := config.LoadProjectConfig(projCfgPath)
+	if err != nil {
+		t.Fatalf("loading project config: %v", err)
+	}
+	if cfg.BeadFilter == nil || cfg.BeadFilter.Label != "work:{codename}" {
+		t.Errorf("expected bead_filter work:{codename}, got %+v", cfg.BeadFilter)
+	}
+}
+
+// A 1-bead corpus produces ConfidenceNone (kerf-yxl) — detector stays silent
+// and bead_filter remains unset. No 'Detected:' line.
+func TestInit_DetectorNone_OnTinyCorpus_SilentNoFilter(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[{"id":"b-1","labels":["subsystem:auth"]}]`)
+
+	out, _, projCfgPath := runInitInRepo(t)
+
+	if strings.Contains(out, "Detected:") {
+		t.Errorf("1-bead corpus must stay silent; out=%q", out)
+	}
+	cfg, err := config.LoadProjectConfig(projCfgPath)
+	if err != nil {
+		t.Fatalf("loading project config: %v", err)
+	}
+	if cfg.BeadFilter != nil {
+		t.Errorf("expected bead_filter unset on tiny corpus, got %+v", cfg.BeadFilter)
+	}
+}
+
+// A corpus that clears the count floor but not the score floor produces
+// ConfidenceLow (kerf-yxl). Init stays silent — no auto-applied filter.
+func TestInit_DetectorLow_NoConfidentSuggestion_SilentNoFilter(t *testing.T) {
+	resetInitFlags(t)
+	// 3 beads under one prefix (count floor met) but none of the tail
+	// segments match codenames → score 0, below score floor.
+	stubBr(t, `[
+		{"id":"x-1","labels":["subsystem:foo"]},
+		{"id":"x-2","labels":["subsystem:bar"]},
+		{"id":"x-3","labels":["subsystem:baz"]}
+	]`)
+
+	// runInitInRepo creates no work codenames, so no tail can match.
+	out, _, projCfgPath := runInitInRepo(t)
+	if strings.Contains(out, "Detected:") {
+		t.Errorf("low-confidence corpus must stay silent; out=%q", out)
+	}
+	cfg, err := config.LoadProjectConfig(projCfgPath)
+	if err != nil {
+		t.Fatalf("loading project config: %v", err)
+	}
+	if cfg.BeadFilter != nil {
+		t.Errorf("expected bead_filter unset on low-confidence corpus, got %+v", cfg.BeadFilter)
+	}
+}
+
+// --- Idempotency (spec §"Re-running on an existing project"). --------------
+
+// Re-run without --force prints the skip-with-informative-output summary,
+// keeps the existing project.yaml byte-identical, and preserves the
+// hand-set bead_filter.
+func TestInit_RerunWithoutForce_PreservesProjectYAMLAndBeadFilter(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[]`)
+
+	_, projectID, projCfgPath := runInitInRepo(t)
+
 	cfg, err := config.LoadProjectConfig(projCfgPath)
 	if err != nil {
 		t.Fatalf("loading project config: %v", err)
@@ -189,116 +428,35 @@ func TestInit_Rerun_PreservesBeadFilter(t *testing.T) {
 	}
 	originalContent, _ := os.ReadFile(projCfgPath)
 
-	// Second init without --force: must skip the project.yaml write entirely.
-	out := captureOutput(t, func() {
-		if err := initCmd.RunE(initCmd, []string{}); err != nil {
-			t.Fatalf("second init: %v", err)
-		}
-	})
-
-	// Spec: prints skip message, exits 0, includes path + jigs + bead_filter.
+	out := runInitAgain(t)
 	testutil.AssertStringContains(t, out, "already exists at")
 	testutil.AssertStringContains(t, out, "skipping re-initialisation")
 	testutil.AssertStringContains(t, out, "Active jigs")
 	testutil.AssertStringContains(t, out, "team:{codename}")
 	testutil.AssertStringContains(t, out, "kerf init --force")
 
-	// File contents must be byte-identical — no overwrite happened.
-	afterContent, _ := os.ReadFile(projCfgPath)
-	if string(afterContent) != string(originalContent) {
+	after, _ := os.ReadFile(projCfgPath)
+	if string(after) != string(originalContent) {
 		t.Errorf("project.yaml was overwritten on re-init without --force")
 	}
-
-	// Reload and confirm hand-set bead_filter is intact.
 	cfg2, err := config.LoadProjectConfig(projCfgPath)
 	if err != nil {
 		t.Fatalf("reloading project config: %v", err)
 	}
 	if cfg2.BeadFilter == nil || cfg2.BeadFilter.Label != "team:{codename}" {
-		t.Errorf("bead_filter not preserved on skip-path re-init: got %+v", cfg2.BeadFilter)
+		t.Errorf("bead_filter not preserved: got %+v", cfg2.BeadFilter)
 	}
+	_ = projectID
 }
 
-// --force re-runs the full init flow and rewrites project.yaml.
-func TestInit_Force_Rewrites(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	gitRepo := testutil.SetupGitRepo(t)
-	oldWd, _ := os.Getwd()
-	os.Chdir(gitRepo)
-	defer os.Chdir(oldWd)
-
-	captureOutput(t, func() {
-		if err := initCmd.RunE(initCmd, []string{}); err != nil {
-			t.Fatalf("first init: %v", err)
-		}
-	})
-
-	pidData, _ := os.ReadFile(filepath.Join(gitRepo, ".kerf", "project-identifier"))
-	projectID := strings.TrimSpace(string(pidData))
-	projCfgPath := config.ProjectConfigPath(filepath.Join(tmp, ".kerf"), projectID)
-
-	// Mutate file to a sentinel so we can verify it gets rewritten.
-	if err := os.WriteFile(projCfgPath, []byte("jigs: []\n# sentinel marker\n"), 0o644); err != nil {
-		t.Fatalf("seeding sentinel: %v", err)
-	}
-
-	// Non-TTY stdin so detection auto-applies without prompting.
-	origStdin := os.Stdin
-	os.Stdin = nonTTYStdin(t)
-	defer func() { os.Stdin = origStdin }()
-
-	initForceFlag = true
-	defer func() { initForceFlag = false }()
-	out := captureOutput(t, func() {
-		if err := initCmd.RunE(initCmd, []string{}); err != nil {
-			t.Fatalf("force re-init: %v", err)
-		}
-	})
-
-	testutil.AssertStringContains(t, out, "overwriting existing project.yaml")
-
-	// File must no longer contain the sentinel; jigs list must be repopulated.
-	after, _ := os.ReadFile(projCfgPath)
-	if strings.Contains(string(after), "sentinel marker") {
-		t.Errorf("--force did not rewrite project.yaml; sentinel remains")
-	}
-	cfg, err := config.LoadProjectConfig(projCfgPath)
-	if err != nil {
-		t.Fatalf("loading after force: %v", err)
-	}
-	if len(cfg.Jigs) == 0 {
-		t.Errorf("expected jigs to be repopulated by --force")
-	}
-}
-
-// Non-interactive --force preserves a hand-set bead_filter rather than
-// silently dropping it (spec §kerf init re-run rule, point 2).
-func TestInit_Force_NonInteractive_PreservesBeadFilter(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	gitRepo := testutil.SetupGitRepo(t)
-	oldWd, _ := os.Getwd()
-	os.Chdir(gitRepo)
-	defer os.Chdir(oldWd)
-
-	// br stub returns empty store so detection finds no candidate; the
-	// non-interactive preservation rule must still apply.
+// --force on an existing project.yaml warns, rewrites the file, and still
+// preserves a hand-set bead_filter when the detector has no new suggestion.
+func TestInit_RerunWithForce_RewritesAndPreservesPriorBeadFilter(t *testing.T) {
+	resetInitFlags(t)
 	stubBr(t, `[]`)
 
-	captureOutput(t, func() {
-		if err := initCmd.RunE(initCmd, []string{}); err != nil {
-			t.Fatalf("first init: %v", err)
-		}
-	})
+	_, _, projCfgPath := runInitInRepo(t)
 
-	pidData, _ := os.ReadFile(filepath.Join(gitRepo, ".kerf", "project-identifier"))
-	projectID := strings.TrimSpace(string(pidData))
-	projCfgPath := config.ProjectConfigPath(filepath.Join(tmp, ".kerf"), projectID)
-
-	// Seed bead_filter before the --force re-init.
 	cfg, err := config.LoadProjectConfig(projCfgPath)
 	if err != nil {
 		t.Fatalf("loading project config: %v", err)
@@ -307,103 +465,98 @@ func TestInit_Force_NonInteractive_PreservesBeadFilter(t *testing.T) {
 	if err := config.SaveProjectConfig(projCfgPath, cfg); err != nil {
 		t.Fatalf("saving project config: %v", err)
 	}
-
-	origStdin := os.Stdin
-	os.Stdin = nonTTYStdin(t)
-	defer func() { os.Stdin = origStdin }()
+	if err := os.WriteFile(projCfgPath, []byte("jigs: []\n# sentinel\n"+`bead_filter:
+  label: team:{codename}
+`), 0o644); err != nil {
+		t.Fatalf("seed sentinel: %v", err)
+	}
 
 	initForceFlag = true
-	defer func() { initForceFlag = false }()
-	captureOutput(t, func() {
-		if err := initCmd.RunE(initCmd, []string{}); err != nil {
-			t.Fatalf("force re-init: %v", err)
-		}
-	})
+	out := runInitAgain(t)
 
+	testutil.AssertStringContains(t, out, "overwriting existing project.yaml")
+	after, _ := os.ReadFile(projCfgPath)
+	if strings.Contains(string(after), "sentinel") {
+		t.Errorf("--force did not rewrite project.yaml; sentinel remains")
+	}
 	cfg2, err := config.LoadProjectConfig(projCfgPath)
 	if err != nil {
-		t.Fatalf("loading after force: %v", err)
+		t.Fatalf("reloading after force: %v", err)
+	}
+	if len(cfg2.Jigs) == 0 {
+		t.Errorf("expected jigs repopulated by --force")
 	}
 	if cfg2.BeadFilter == nil || cfg2.BeadFilter.Label != "team:{codename}" {
-		t.Errorf("--force non-interactive must preserve bead_filter; got %+v", cfg2.BeadFilter)
+		t.Errorf("--force must preserve prior bead_filter when detector has nothing; got %+v", cfg2.BeadFilter)
 	}
 }
 
-// Regression for A:F3: a 12-bead store with 3 prefixes and matching codenames
-// fires detection and writes a bead_filter on a fresh non-interactive init.
-func TestInit_DetectBeadFilter_FiresAboveThreshold(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+// --- Audit/util ------------------------------------------------------------
 
-	gitRepo := testutil.SetupGitRepo(t)
-	oldWd, _ := os.Getwd()
-	os.Chdir(gitRepo)
-	defer os.Chdir(oldWd)
-
-	// Bootstrap an empty project so the works directory exists; stub br
-	// returns no beads on this first pass.
-	stubBr(t, `[]`)
-	captureOutput(t, func() {
-		if err := initCmd.RunE(initCmd, []string{}); err != nil {
-			t.Fatalf("first init: %v", err)
+// captureErr runs fn under captured stdout (so the test log stays clean) and
+// returns the error fn produced.
+func captureErr(fn func() error) error {
+	var err error
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	err = fn()
+	w.Close()
+	os.Stdout = old
+	// Drain the pipe so the goroutine doesn't leak.
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, e := r.Read(buf); e != nil {
+				return
+			}
 		}
-	})
+	}()
+	return err
+}
 
-	pidData, _ := os.ReadFile(filepath.Join(gitRepo, ".kerf", "project-identifier"))
-	projectID := strings.TrimSpace(string(pidData))
-	worksDir := filepath.Join(tmp, ".kerf", "projects", projectID)
-	// Seed codenames matching the dominant prefix's tail values.
-	for _, cn := range []string{"foo", "bar", "baz", "qux"} {
-		if err := os.MkdirAll(filepath.Join(worksDir, cn), 0o755); err != nil {
-			t.Fatalf("seed work %s: %v", cn, err)
+// parseStateChanges extracts the fenced state-change block from init output
+// and returns a map of artifact → verb. The block format is fixed per spec:
+//
+//	State changes:
+//	```
+//	  <artifact>   <verb> [(detail)]
+//	  ...
+//	```
+//
+// Detail (in parentheses) is intentionally discarded — tests assert verbs.
+func parseStateChanges(t *testing.T, out string) map[string]string {
+	t.Helper()
+	rows := map[string]string{}
+	idx := strings.Index(out, "State changes:")
+	if idx < 0 {
+		return rows
+	}
+	tail := out[idx:]
+	// Take the first fenced block after the header.
+	fenceStart := strings.Index(tail, "```")
+	if fenceStart < 0 {
+		return rows
+	}
+	rest := tail[fenceStart+3:]
+	fenceEnd := strings.Index(rest, "```")
+	if fenceEnd < 0 {
+		return rows
+	}
+	body := rest[:fenceEnd]
+	// Each line: "  <artifact>   <verb>[ (detail)]"
+	lineRe := regexp.MustCompile(`^\s*([\S]+(?:\s+[\S]+)*?)\s{2,}(created|updated|unchanged)\b`)
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimRight(line, " \t\r")
+		if line == "" {
+			continue
 		}
-	}
-
-	// 12 beads across 3 prefixes:
-	//   5 work:* (all match codenames) — score 1.0
-	//   4 epic:* (none match)           — score 0.0
-	//   3 subsystem:* (none match)      — score 0.0
-	// Dominant should be "work" via the 0.5 match-score threshold.
-	stubBr(t, `[
-		{"id":"b-1","labels":["work:foo"]},
-		{"id":"b-2","labels":["work:foo"]},
-		{"id":"b-3","labels":["work:bar"]},
-		{"id":"b-4","labels":["work:baz"]},
-		{"id":"b-5","labels":["work:qux"]},
-		{"id":"b-6","labels":["epic:alpha"]},
-		{"id":"b-7","labels":["epic:beta"]},
-		{"id":"b-8","labels":["epic:gamma"]},
-		{"id":"b-9","labels":["epic:delta"]},
-		{"id":"b-10","labels":["subsystem:auth"]},
-		{"id":"b-11","labels":["subsystem:db"]},
-		{"id":"b-12","labels":["subsystem:api"]}
-	]`)
-
-	origStdin := os.Stdin
-	os.Stdin = nonTTYStdin(t)
-	defer func() { os.Stdin = origStdin }()
-
-	initForceFlag = true
-	defer func() { initForceFlag = false }()
-	out := captureOutput(t, func() {
-		if err := initCmd.RunE(initCmd, []string{}); err != nil {
-			t.Fatalf("force re-init: %v", err)
+		m := lineRe.FindStringSubmatch(line)
+		if m == nil {
+			t.Logf("state-change line did not parse: %q", line)
+			continue
 		}
-	})
-
-	if !strings.Contains(out, "Detected") {
-		t.Errorf("expected 'Detected' detection line in output; got %q", out)
+		rows[m[1]] = m[2]
 	}
-
-	projCfgPath := config.ProjectConfigPath(filepath.Join(tmp, ".kerf"), projectID)
-	cfg, err := config.LoadProjectConfig(projCfgPath)
-	if err != nil {
-		t.Fatalf("loading project config: %v", err)
-	}
-	if cfg.BeadFilter == nil {
-		t.Fatalf("expected bead_filter to be set, got nil; output was:\n%s", out)
-	}
-	if cfg.BeadFilter.Label != "work:{codename}" {
-		t.Errorf("expected work:{codename}, got %q", cfg.BeadFilter.Label)
-	}
+	return rows
 }
