@@ -467,9 +467,19 @@ func runTriage(cmd *cobra.Command) error {
 	// step is skipped — stdout sees only the single-line baseline
 	// confirmation (or summary record under --format=json) emitted in
 	// step 8 below.
+	//
+	// Plan 018 / B7 (kerf-ee8): when --kind is given and the filtered set
+	// is empty, skip the full report header and emit a single line. Single
+	// --kind → `No {kind} items.`; multiple --kind flags → `No items in
+	// selected kinds: {comma-separated list}.` JSON output is unchanged
+	// (consumers see the empty `items` array on the canonical report).
 	if !triageAck {
-		switch format {
-		case "json":
+		emptyKindFilter := kindSet != nil &&
+			len(untriaged) == 0 && len(multiMatched) == 0 && len(external) == 0
+		switch {
+		case emptyKindFilter && format == "text":
+			fmt.Fprintln(out, emptyKindFilterLine(triageKinds))
+		case format == "json":
 			if rerr := renderTriageJSON(out, report); rerr != nil {
 				return rerr
 			}
@@ -901,6 +911,32 @@ func parseTriageKinds(in []string) (map[string]bool, error) {
 		out[k] = true
 	}
 	return out, nil
+}
+
+// emptyKindFilterLine renders the one-line message per Plan 018 / B7
+// (specs/commands.md §"kerf triage" step 6). Called only when --kind was
+// given and the filtered item set is empty.
+//
+//   - Single --kind X → `No X items.`
+//   - Multiple --kind flags → `No items in selected kinds: X, Y, Z.`
+//
+// The kinds list mirrors the user's flag order (de-duplicated) so the
+// agent sees back exactly what it asked for.
+func emptyKindFilterLine(kinds []string) string {
+	seen := make(map[string]bool, len(kinds))
+	uniq := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		k = strings.TrimSpace(k)
+		if k == "" || seen[k] {
+			continue
+		}
+		seen[k] = true
+		uniq = append(uniq, k)
+	}
+	if len(uniq) == 1 {
+		return fmt.Sprintf("No %s items.", uniq[0])
+	}
+	return fmt.Sprintf("No items in selected kinds: %s.", strings.Join(uniq, ", "))
 }
 
 // renderFilter returns a single-line representation of a resolved filter

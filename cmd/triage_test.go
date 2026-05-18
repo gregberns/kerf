@@ -342,6 +342,105 @@ func TestTriage_KindFilter(t *testing.T) {
 	}
 }
 
+// TestTriage_KindFilter_EmptySingle — Plan 018 / B7 (kerf-ee8): when
+// --kind filters to an empty set, suppress the full report header and
+// emit one line, "No {kind} items.".
+func TestTriage_KindFilter_EmptySingle(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	// Only well-matched beads — no untriaged, no multi-matched, no drift.
+	stubBr(t, `[
+		{"id":"a-1","title":"clean","status":"open","labels":["subsystem:alpha"]}
+	]`)
+
+	resetTriageFlags()
+	triageKinds = []string{"multi_matched"}
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage: %v", err)
+	}
+	got := strings.TrimRight(out, "\n")
+	want := "No multi_matched items."
+	if got != want {
+		t.Fatalf("empty --kind output mismatch\n got: %q\nwant: %q", got, want)
+	}
+	if strings.Contains(out, "Triage for ") {
+		t.Errorf("report header must be suppressed when --kind result is empty\n%s", out)
+	}
+	if strings.Contains(out, "Beads:") {
+		t.Errorf("bead-count line must be suppressed when --kind result is empty\n%s", out)
+	}
+}
+
+// TestTriage_KindFilter_EmptyMulti — Plan 018 / B7 (kerf-ee8): multiple
+// --kind flags with zero combined matches emit the multi-kind variant.
+func TestTriage_KindFilter_EmptyMulti(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	stubBr(t, `[
+		{"id":"a-1","title":"clean","status":"open","labels":["subsystem:alpha"]}
+	]`)
+
+	resetTriageFlags()
+	triageKinds = []string{"multi_matched", "external_drift"}
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage: %v", err)
+	}
+	got := strings.TrimRight(out, "\n")
+	want := "No items in selected kinds: multi_matched, external_drift."
+	if got != want {
+		t.Fatalf("empty multi-kind output mismatch\n got: %q\nwant: %q", got, want)
+	}
+	if strings.Contains(out, "Triage for ") {
+		t.Errorf("report header must be suppressed when multi --kind result is empty\n%s", out)
+	}
+}
+
+// TestTriage_KindFilter_NonEmptyStillRendersHeader — guards that the
+// empty-set short-circuit does NOT fire when matches exist.
+func TestTriage_KindFilter_NonEmptyStillRendersHeader(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha", "beta": "subsystem:beta"},
+		nil,
+	)
+	stubBr(t, `[
+		{"id":"m-1","title":"shared","status":"open","labels":["subsystem:alpha","subsystem:beta"]}
+	]`)
+
+	resetTriageFlags()
+	triageKinds = []string{"multi_matched"}
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage: %v", err)
+	}
+	if !strings.Contains(out, "Triage for ") {
+		t.Errorf("report header must render when --kind matches non-empty\n%s", out)
+	}
+	if !strings.Contains(out, "Multi-matched beads (1):") {
+		t.Errorf("multi-matched section must render when matched\n%s", out)
+	}
+	if strings.Contains(out, "No multi_matched items.") {
+		t.Errorf("empty-set one-liner must not fire when matches exist\n%s", out)
+	}
+}
+
 // TestTriage_ResolvedClean — no surfaced items ⇒ exit 0.
 func TestTriage_ResolvedClean(t *testing.T) {
 	projectID := setupTriageProject(t,
