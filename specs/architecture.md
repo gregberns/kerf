@@ -260,9 +260,8 @@ This section is the canonical home for the `project.yaml` schema. Other specs th
 # applies; when both are absent, `kerf new` emits the onboarding error
 # described in commands.md.
 # Per-project value takes precedence over the bench-wide setting.
+# Written by `kerf init --jig <name>` on a fresh init or a --force re-run.
 # default_jig: spec
-# <!-- TBD: open question 3 from plan 016 — whether default_jig persists in
-#      project.yaml or is dropped from init's output entirely -->
 
 # Jigs active for this project.
 # When set, only these jigs are available for `kerf new` in this project.

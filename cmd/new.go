@@ -109,8 +109,14 @@ func runNew(cn string) error {
 		return fmt.Errorf("preparing local storage: %w", err)
 	}
 
-	// 3. Resolve jig.
+	// 3. Resolve jig. Precedence: --jig flag > project.yaml default_jig >
+	// bench-wide ~/.kerf/config.yaml default_jig (plan 016 / B4, OQ3).
 	jigName := newJigFlag
+	if jigName == "" {
+		if pc, _ := config.LoadProjectConfig(r.ProjectConfigPath()); pc != nil && pc.DefaultJig != "" {
+			jigName = pc.DefaultJig
+		}
+	}
 	if jigName == "" {
 		cfgPath := filepath.Join(bp, "config.yaml")
 		cfg, _ := config.Load(cfgPath)

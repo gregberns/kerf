@@ -69,7 +69,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 | `codename` | No | Auto-generated `adjective-noun` slug | Immutable identifier for the work. Must match `[a-z0-9]+(-[a-z0-9]+)*`. |
 | `--title` | No | `null` | Human-friendly title for the work. |
 | `--type` | No | Matches jig name | Work type (e.g., `feature`, `bug`). |
-| `--jig` | No | `default_jig` from config.yaml (required if `default_jig` unset) | Jig to use for this work. Resolved via jig resolution order (see [jig-system.md](jig-system.md)). |
+| `--jig` | No | `default_jig` from `project.yaml`, falling back to `~/.kerf/config.yaml` (required if unset on both layers) | Jig to use for this work. Resolved via jig resolution order (see [jig-system.md](jig-system.md)). |
 | `--area` | No | `[]` | One or more area names to associate with the work. May be repeated (e.g., `--area auth --area api`). Each name must exist in `areas.yaml`. |
 | `--bead-filter` | No | — | A single bead-filter clause to write into the new work's `spec.yaml` as its per-work `bead_filter`. Accepts either `label=<value>` or `id_prefix=<value>` (e.g., `--bead-filter 'label=subsystem:bridge'`). One-shot: not repeatable on `kerf new` — to compose a multi-clause `any:` union, create the work with one clause and then add additional clauses via `kerf work edit --bead-filter-add` (which is repeatable). See [coordination.md](coordination.md#bead-attachment). |
 | `--project` | No | Inferred from `.kerf/project-identifier` | Project to create the work under. |
@@ -1318,7 +1318,7 @@ kerf init [--jig <plan|spec>] [--force] [--yes] [--no] [--bead-filter <expr>]
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--jig` | No | None | Set the default workflow. Must be `plan` or `spec`. If omitted and `default_jig` is not configured, a note is printed instructing the user to choose. |
+| `--jig` | No | None | Set the default workflow. Must be `plan` or `spec`. Writes `default_jig` to both `~/.kerf/config.yaml` (bench-wide) and `project.yaml` (project-level, on fresh-init or `--force`). If omitted and `default_jig` is not configured, a note is printed instructing the user to choose. |
 | `--force` | No | `false` | Re-run init even when `project.yaml` already exists. See "Re-running on an existing project" below. Controls overwrite only — does not affect bead-filter resolution. |
 | `--yes` | No | `false` | Accept the bead-filter detector's suggestion when one clears the confidence threshold. When the detector has no confident suggestion, `--yes` leaves `bead_filter` unset (silent). |
 | `--no` | No | `false` | Skip bead-filter detection entirely. `bead_filter` is left unset. |
@@ -1331,7 +1331,7 @@ kerf init [--jig <plan|spec>] [--force] [--yes] [--no] [--bead-filter <expr>]
 3. Resolve the project ID (same derivation as `kerf new` — from git remote or directory name).
 4. **Detect existing `project.yaml`.** Look for `project.yaml` at the resolved location (either `{repo}/.kerf/project.yaml` under local storage, or `~/.kerf/projects/{project-id}/project.yaml` under bench storage). If it exists, follow the re-run rule in "Re-running on an existing project" below before continuing.
 5. If `.kerf/project-identifier` does not exist, create it and print the derived ID.
-6. If `--jig` is provided, set `default_jig` in config and print confirmation.
+6. If `--jig` is provided, set `default_jig` in the bench-wide `~/.kerf/config.yaml` and (on the fresh-init or `--force` paths) also persist it as the project-level `default_jig` in `project.yaml`. Print confirmation. The project-level value takes precedence in `kerf new`'s jig-resolution order.
 7. If `--jig` is not provided and `default_jig` is not set, print a note with the two options (`kerf config default_jig plan` and `kerf config default_jig spec`).
 8. **Resolve active jigs.** Record the default jig (from `--jig` or `default_jig`) and any other jigs the project will use. Jig selection is not interactive — the default-jig resolution drives the active set, and additional jigs are added later by editing `project.yaml` directly. For composable jigs (e.g., `implementation`), pass selection follows the jig's default pass list; users override by editing `project.yaml`.
 9. **Resolve `bead_filter`.** Flag precedence: `--bead-filter <expr>` wins outright; otherwise `--no` skips detection; otherwise `--yes` accepts the detector's suggestion if confident; otherwise the default behavior is identical to `--yes` (detector runs, confident suggestion is written, low-confidence suggestion is dropped). Detection runs as follows:
@@ -1386,7 +1386,7 @@ The output includes, in order:
      bead_filter                unchanged (detector returned no confident suggestion; run 'kerf config bead_filter <expr>' to set)
    ```
 
-   The summary covers `.kerf/project-identifier`, `project.yaml`, `default_jig`, and `bead_filter`. Artifacts whose persistence is not yet wired (see open question 3 in plan 016) are not advertised on this block — init only reports what it actually writes. <!-- TBD: open question 3 from plan 016 — whether default_jig lands in project.yaml or stays in config.yaml. -->
+   The summary covers `.kerf/project-identifier`, `project.yaml`, `default_jig`, and `bead_filter`. `default_jig` is reported when init either persisted a new value (from `--jig`) or read an existing value from `project.yaml`; it is omitted when no value is set on either layer. The summary is the diffable signal that what init claims matches what landed on disk; an artifact init did not write (and has no value to report) is not listed.
 
 The instructions are agent-agnostic. kerf does not know or reference any specific AI tool. The agent reading the output determines where to put the instructions based on its own configuration conventions.
 

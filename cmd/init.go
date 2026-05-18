@@ -181,7 +181,10 @@ func runInit() error {
 		tracker.Record(".kerf/project-identifier", "unchanged", projectID)
 	}
 
-	// Handle --jig flag or check existing config
+	// Handle --jig flag or check existing config. The bench-wide
+	// ~/.kerf/config.yaml is still updated so it works as a fallback for
+	// projects without their own default_jig; the project-level persistence
+	// happens below when project.yaml is written.
 	cfg, _ := config.Load(filepath.Join(benchPath, "config.yaml"))
 	if initJigFlag != "" {
 		if initJigFlag != "plan" && initJigFlag != "spec" {
@@ -224,9 +227,11 @@ func runInit() error {
 	if existingCfg != nil && !initForceFlag {
 		// Skip-with-informative-output path. Steps 8–10 are skipped; the
 		// safe-to-repeat steps (project-identifier, --jig, kerf setup) already
-		// ran above or run below.
+		// ran above or run below. --jig on a skip-path updates the bench
+		// config but does not touch project.yaml — that requires --force.
 		printExistingProjectSummary(projCfgPath, existingCfg)
 		tracker.Record("project.yaml", "unchanged", projCfgPath)
+		recordDefaultJigRow(tracker, existingCfg.DefaultJig, existingCfg.DefaultJig, false)
 		if existingCfg.BeadFilter != nil && existingCfg.BeadFilter.Label != "" {
 			tracker.Record("bead_filter", "unchanged", "label="+existingCfg.BeadFilter.Label)
 		} else {
@@ -269,7 +274,19 @@ func runInit() error {
 		detectedFilter = detectBeadFilter(resolver, mode, os.Stdout, priorFilter)
 	}
 
-	if err := createDefaultProjectConfig(projCfgPath, detectedFilter); err != nil {
+	// Resolve the value to persist as project-level default_jig. Precedence:
+	// the explicit --jig flag this run > the prior project.yaml value (on a
+	// --force re-run with no --jig) > unset.
+	resolvedDefaultJig := initJigFlag
+	priorDefaultJig := ""
+	if existingCfg != nil {
+		priorDefaultJig = existingCfg.DefaultJig
+	}
+	if resolvedDefaultJig == "" {
+		resolvedDefaultJig = priorDefaultJig
+	}
+
+	if err := createDefaultProjectConfig(projCfgPath, detectedFilter, resolvedDefaultJig); err != nil {
 		return fmt.Errorf("creating project.yaml: %w", err)
 	}
 	if existingCfg != nil {
@@ -277,6 +294,7 @@ func runInit() error {
 	} else {
 		tracker.Record("project.yaml", "created", projCfgPath)
 	}
+	recordDefaultJigRow(tracker, priorDefaultJig, resolvedDefaultJig, existingCfg == nil)
 	switch {
 	case detectedFilter != nil && detectedFilter.Label != "" && (existingCfg == nil || existingCfg.BeadFilter == nil || existingCfg.BeadFilter.Label != detectedFilter.Label):
 		verb := "created"
@@ -317,10 +335,39 @@ func runInit() error {
 	return nil
 }
 
+// recordDefaultJigRow registers the `default_jig` row on the state-change
+// summary. Resolves Open Q 3 from plan 016: default_jig persists in
+// project.yaml, so init reports it like any other tracked artifact. The
+// row is emitted only when init actually writes (or has read) a value —
+// when both prior and resolved are empty, default_jig is not advertised.
+func recordDefaultJigRow(tracker *initStateTracker, prior, resolved string, fresh bool) {
+	if prior == "" && resolved == "" {
+		return
+	}
+	switch {
+	case resolved == "" && prior != "":
+		// Only happens on a --force re-run that somehow cleared the value;
+		// in practice resolved falls back to prior, so this is a safety net.
+		tracker.Record("default_jig", "updated", "cleared")
+	case prior == "" && resolved != "":
+		verb := "created"
+		if !fresh {
+			verb = "updated"
+		}
+		tracker.Record("default_jig", verb, "set to '"+resolved+"'")
+	case prior != resolved:
+		tracker.Record("default_jig", "updated", "set to '"+resolved+"'")
+	default:
+		tracker.Record("default_jig", "unchanged", "set to '"+resolved+"'")
+	}
+}
+
 // createDefaultProjectConfig creates project.yaml with all available jigs.
 // For composable jigs, all passes are included by default. If beadFilter is
 // non-nil, it is written into the project config as the project-wide filter.
-func createDefaultProjectConfig(path string, beadFilter *beads.Filter) error {
+// defaultJig, when non-empty, is persisted as the project-level default_jig
+// (plan 016 / B4, Open Q 3 resolution).
+func createDefaultProjectConfig(path string, beadFilter *beads.Filter, defaultJig string) error {
 	jigsDir := userJigsDir()
 	summaries, err := jig.ListAll(jigsDir)
 	if err != nil {
@@ -350,6 +397,7 @@ func createDefaultProjectConfig(path string, beadFilter *beads.Filter) error {
 	}
 
 	projCfg := &config.ProjectConfig{
+		DefaultJig: defaultJig,
 		Jigs:       jigNames,
 		Passes:     passes,
 		BeadFilter: beadFilter,
@@ -426,6 +474,9 @@ func detectBeadFilter(resolver *storage.Resolver, mode beadFilterMode, stdout io
 // path when kerf init detects an existing project.yaml without --force.
 func printExistingProjectSummary(path string, cfg *config.ProjectConfig) {
 	fmt.Printf("project.yaml already exists at %s — skipping re-initialisation.\n", path)
+	if cfg.DefaultJig != "" {
+		fmt.Printf("  default_jig: %s\n", cfg.DefaultJig)
+	}
 	if len(cfg.Jigs) > 0 {
 		fmt.Printf("  Active jigs: %s\n", strings.Join(cfg.Jigs, ", "))
 	} else {

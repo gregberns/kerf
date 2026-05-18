@@ -12,6 +12,12 @@ import (
 // ProjectConfig represents per-project jig configuration stored in
 // ~/.kerf/projects/{project-id}/project.yaml
 type ProjectConfig struct {
+	// DefaultJig, when non-empty, is the project-wide default jig name used
+	// by `kerf new` when `--jig` is not provided. It takes precedence over
+	// the bench-wide `default_jig` in ~/.kerf/config.yaml. See
+	// architecture.md §"Project Configuration" for the schema slot and
+	// commands.md §"kerf new" for the resolution order.
+	DefaultJig string              `yaml:"default_jig,omitempty"`
 	Jigs       []string            `yaml:"jigs,omitempty"`
 	Passes     map[string][]string `yaml:"passes,omitempty"`
 	Tools      map[string]string   `yaml:"tools,omitempty"`
