@@ -115,7 +115,7 @@ func runWorkEdit(cn string) error {
 
 	// Optional: pre-edit attached-bead count, for the "was: N beads" delta.
 	// If `br` is unavailable we silently skip the count.
-	beforeCount, beforeOK := attachedBeadCount(cn, specPath, projectID, r)
+	beforeTotal, beforeOpen, beforeClosed, beforeOK := attachedBeadCount(cn, specPath, projectID, r)
 
 	// 3. Apply removals first.
 	var noMatchRemovals []string
@@ -162,10 +162,15 @@ func runWorkEdit(cn string) error {
 	}
 
 	// Post-edit count.
-	afterCount, afterOK := attachedBeadCount(cn, specPath, projectID, r)
+	afterTotal, afterOpen, afterClosed, afterOK := attachedBeadCount(cn, specPath, projectID, r)
 	if beforeOK && afterOK {
 		fmt.Println()
-		fmt.Printf("Now matches: %d beads (was: %d beads).\n", afterCount, beforeCount)
+		// Disambiguate open vs. closed on both sides so an agent can tell
+		// whether the broader filter is picking up live work or historical
+		// clutter. Spec: specs/commands.md §"kerf work edit" → Output.
+		fmt.Printf("Now matches: %d (%d open / %d closed). Previously: %d (%d open / %d closed).\n",
+			afterTotal, afterOpen, afterClosed,
+			beforeTotal, beforeOpen, beforeClosed)
 	}
 
 	// Fall-through note when no clauses remain.
@@ -350,18 +355,22 @@ func specHasBeadFilter(specPath string) bool {
 	return false
 }
 
-// attachedBeadCount returns the number of beads attached to the work, given
-// the current state of its spec.yaml. Falls back to (0, false) when `br` is
-// unavailable, when the spec cannot be parsed, or when the resolved filter
-// is invalid. Best-effort; the delta is purely informational.
+// attachedBeadCount returns (total, open, closed, ok) attached to the work
+// given the current state of its spec.yaml. Falls back to (0, 0, 0, false)
+// when `br` is unavailable, when the spec cannot be parsed, or when the
+// resolved filter is invalid. Best-effort; the delta is purely informational.
+//
+// "Closed" is determined by beads.IsClosed; everything else (in-progress,
+// blocked, ready, …) is counted as open so the confirmation message gives
+// agents a live-vs-historical-clutter read on both sides of the edit.
 //
 // Note: deliberately re-reads spec.yaml from disk (rather than reusing a
 // pre-edit *spec.SpecYAML) so the same code path serves both the "before"
 // and "after" sites.
-func attachedBeadCount(cn, specPath, projectID string, _ interface{}) (int, bool) {
+func attachedBeadCount(cn, specPath, projectID string, _ interface{}) (int, int, int, bool) {
 	s, err := spec.Read(specPath)
 	if err != nil {
-		return 0, false
+		return 0, 0, 0, false
 	}
 	// Honor project.yaml tools.tasks (default "br") so the before/after count
 	// hits the same store as the rest of kerf (plan 021). Best-effort: any
@@ -374,15 +383,23 @@ func attachedBeadCount(cn, specPath, projectID string, _ interface{}) (int, bool
 	}
 	all, err := beads.ListNamed(toolName)
 	if err != nil {
-		return 0, false
+		return 0, 0, 0, false
 	}
 	resolved := beads.Resolve(s.BeadFilter, nil)
 	if resolved == nil {
-		return 0, false
+		return 0, 0, 0, false
 	}
 	if err := resolved.Validate(); err != nil {
-		return 0, false
+		return 0, 0, 0, false
 	}
 	matches := beads.ForWorkWithFilter(all, cn, resolved)
-	return len(matches), true
+	var open, closed int
+	for _, b := range matches {
+		if beads.IsClosed(b) {
+			closed++
+		} else {
+			open++
+		}
+	}
+	return len(matches), open, closed, true
 }

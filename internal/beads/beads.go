@@ -269,6 +269,14 @@ func isComplete(status string) bool {
 	return s == "closed" || s == "done" || s == "complete"
 }
 
+// IsClosed reports whether the bead's status counts as a terminal/closed
+// status (closed, done, complete). Mirrors the unexported isComplete helper
+// used by Available / CountByEpic — exported so command-layer callers can
+// split open vs. closed for reporting.
+func IsClosed(b Bead) bool {
+	return isComplete(b.Status)
+}
+
 func isBlocked(status string) bool {
 	return strings.ToLower(status) == "blocked"
 }
