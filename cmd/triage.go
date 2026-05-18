@@ -55,6 +55,18 @@ var (
 	triageKinds    []string
 	triageFormat   string
 	triageTop      int
+	triageGroupBy  string
+)
+
+// triageGroupByCodenameLabel is the only currently-accepted value for
+// --group-by (per specs/commands.md §"kerf triage" §Flags). v1 groups the
+// untriaged section by each bead's tier-1 cohort-defining label (see
+// Suggester routing); beads without a tier-1 label fall into the
+// '(ungrouped)' tail bucket. Group order is lexicographic by group key;
+// the ungrouped bucket renders last.
+const (
+	triageGroupByCodenameLabel = "codename-label"
+	triageGroupByUngroupedKey  = "(ungrouped)"
 )
 
 // triageTopUnlimited is the sentinel meaning "show all items" for --top.
@@ -113,6 +125,7 @@ func init() {
 	triageCmd.Flags().StringArrayVar(&triageKinds, "kind", nil, "Show only items of this kind (repeatable): untriaged, multi_matched, external_drift")
 	triageCmd.Flags().StringVar(&triageFormat, "format", "text", "Output format: text or json")
 	triageCmd.Flags().IntVar(&triageTop, "top", 0, "Truncate each section to the top N items after sorting (0 = unlimited; large-project recipe: --top 20)")
+	triageCmd.Flags().StringVar(&triageGroupBy, "group-by", "", "Group untriaged items by a field. v1 accepts: codename-label")
 	rootCmd.AddCommand(triageCmd)
 }
 
@@ -200,6 +213,10 @@ func runTriage(cmd *cobra.Command) error {
 	// truncates each section to N items after sorting.
 	if triageTop < 0 {
 		return fmt.Errorf("--top must be >= 0 (got %d)", triageTop)
+	}
+	groupBy := strings.TrimSpace(triageGroupBy)
+	if groupBy != "" && groupBy != triageGroupByCodenameLabel {
+		return fmt.Errorf("unknown --group-by value '%s'. Supported: %s", triageGroupBy, triageGroupByCodenameLabel)
 	}
 
 	// --- Resolve project + storage ---------------------------------------
@@ -457,7 +474,7 @@ func runTriage(cmd *cobra.Command) error {
 				return rerr
 			}
 		default:
-			if rerr := renderTriageText(out, projectID, report, untriaged, multiMatched, external, triageTop); rerr != nil {
+			if rerr := renderTriageText(out, projectID, report, untriaged, multiMatched, external, triageTop, groupBy); rerr != nil {
 				return rerr
 			}
 		}
@@ -690,7 +707,7 @@ func renderTruncationFooter(out io.Writer, hidden int) {
 // with zero items are omitted, per spec. When top > 0 each section is
 // truncated to that many items after sorting; top == 0 is the unlimited
 // sentinel (matches the flag-absent default).
-func renderTriageText(out io.Writer, projectID string, report triageReport, untriaged, multiMatched, external []triageItem, top int) error {
+func renderTriageText(out io.Writer, projectID string, report triageReport, untriaged, multiMatched, external []triageItem, top int, groupBy string) error {
 	// Header — `Triage for <project> (baseline: <ts>):` followed by the
 	// canonical bead-count line. Per Plan 018 / B6, each count is labeled
 	// with its status filter so 'open' and 'total' never appear ambiguous.
@@ -725,15 +742,19 @@ func renderTriageText(out io.Writer, projectID string, report triageReport, untr
 
 	if len(untriaged) > 0 {
 		fmt.Fprintln(out)
-		renderSectionHeader(out, "Untriaged beads", len(untriaged), untriagedHidden)
-		for _, it := range untriagedShown {
-			fmt.Fprintf(out, "  %s  %s  %q  labels: %s\n",
-				it.BeadID, it.Status, it.Title, joinOrDash(it.Labels))
-			if it.Suggest != nil {
-				fmt.Fprintf(out, "    suggest: %s\n", *it.Suggest)
+		if groupBy == triageGroupByCodenameLabel {
+			renderUntriagedGrouped(out, untriaged, top)
+		} else {
+			renderSectionHeader(out, "Untriaged beads", len(untriaged), untriagedHidden)
+			for _, it := range untriagedShown {
+				fmt.Fprintf(out, "  %s  %s  %q  labels: %s\n",
+					it.BeadID, it.Status, it.Title, joinOrDash(it.Labels))
+				if it.Suggest != nil {
+					fmt.Fprintf(out, "    suggest: %s\n", *it.Suggest)
+				}
 			}
+			renderTruncationFooter(out, untriagedHidden)
 		}
-		renderTruncationFooter(out, untriagedHidden)
 	}
 
 	if len(multiMatched) > 0 {
@@ -773,6 +794,67 @@ func renderTriageText(out io.Writer, projectID string, report triageReport, untr
 	fmt.Fprintln(out, "  Address surfaced items, then run 'kerf triage --ack' to advance the baseline.")
 	fmt.Fprintln(out, "  Re-run 'kerf triage --resolved' to confirm the project is clean.")
 	return nil
+}
+
+// renderUntriagedGrouped renders the untriaged section grouped by tier-1
+// label (currently only `--group-by codename-label`). Group key is the
+// bead's first tier-1 label (e.g., `codename:foo`); beads without one
+// land in a `(ungrouped)` bucket that renders last. Group order is
+// lexicographic by key. Under `--top N`, truncation is applied per-group
+// after sorting — each group's header reports `(showing K of N)` when
+// the cap fires, and the overall section header carries the unmodified
+// total so the reader can reconcile against the summary line. Items
+// inside a group sort by bead ID, matching the flat rendering's contract.
+func renderUntriagedGrouped(out io.Writer, items []triageItem, top int) {
+	groups := make(map[string][]triageItem)
+	for _, it := range items {
+		key := triagePickTier1Label(it.Labels)
+		if key == "" {
+			key = triageGroupByUngroupedKey
+		}
+		groups[key] = append(groups[key], it)
+	}
+	keys := make([]string, 0, len(groups))
+	for k := range groups {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	// Move the ungrouped bucket to the tail (sort.Strings places it first
+	// because '(' < any letter — but spec-wise we want it last).
+	if idx := indexOfString(keys, triageGroupByUngroupedKey); idx >= 0 {
+		keys = append(append([]string{}, keys[:idx]...), keys[idx+1:]...)
+		keys = append(keys, triageGroupByUngroupedKey)
+	}
+	fmt.Fprintf(out, "Untriaged beads (%d), grouped by codename-label:\n", len(items))
+	for _, key := range keys {
+		bucket := groups[key]
+		sort.Slice(bucket, func(i, j int) bool { return bucket[i].BeadID < bucket[j].BeadID })
+		shown, hidden := truncateSection(bucket, top)
+		if hidden > 0 {
+			fmt.Fprintf(out, "  %s (showing %d of %d):\n", key, len(shown), len(bucket))
+		} else {
+			fmt.Fprintf(out, "  %s (%d):\n", key, len(bucket))
+		}
+		for _, it := range shown {
+			fmt.Fprintf(out, "    %s  %s  %q  labels: %s\n",
+				it.BeadID, it.Status, it.Title, joinOrDash(it.Labels))
+			if it.Suggest != nil {
+				fmt.Fprintf(out, "      suggest: %s\n", *it.Suggest)
+			}
+		}
+		if hidden > 0 {
+			fmt.Fprintf(out, "    ... and %d more — use --top 0 for full list\n", hidden)
+		}
+	}
+}
+
+func indexOfString(ss []string, target string) int {
+	for i, s := range ss {
+		if s == target {
+			return i
+		}
+	}
+	return -1
 }
 
 func renderWorkHealth(out io.Writer, works []triageWorkHealth) {

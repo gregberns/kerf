@@ -32,6 +32,7 @@ func resetTriageFlags() {
 	triageKinds = nil
 	triageFormat = "text"
 	triageTop = 0
+	triageGroupBy = ""
 	triageLastExitCode = 0
 }
 
@@ -990,5 +991,100 @@ func TestTriage_TopNegativeRejected(t *testing.T) {
 	_, err := runTriageCapturing(t)
 	if err == nil || !contains(err.Error(), "--top must be >= 0") {
 		t.Fatalf("want negative-top rejection, got %v", err)
+	}
+}
+
+// resetTriageFlags zeroes triageGroupBy via the shared helper above.
+
+// TestTriage_GroupByCodenameLabel — --group-by codename-label produces a
+// section header per detected codename: label and groups items under it.
+// Beads with no tier-1 label fall into '(ungrouped)' which renders last.
+// Default (flag absent) is unchanged — covered by TestTriage_SectionsRender.
+func TestTriage_GroupByCodenameLabel(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	stubBr(t, `[
+		{"id":"u-1","title":"orphan-foo-1","status":"open","labels":["codename:foo"]},
+		{"id":"u-2","title":"orphan-foo-2","status":"open","labels":["codename:foo"]},
+		{"id":"u-3","title":"orphan-bar","status":"open","labels":["codename:bar"]},
+		{"id":"u-4","title":"orphan-loose","status":"open","labels":["weird:thing"]}
+	]`)
+
+	resetTriageFlags()
+	triageGroupBy = "codename-label"
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage: %v", err)
+	}
+	testutil.AssertStringContains(t, out, "Untriaged beads (4), grouped by codename-label:")
+	testutil.AssertStringContains(t, out, "codename:bar (1):")
+	testutil.AssertStringContains(t, out, "codename:foo (2):")
+	testutil.AssertStringContains(t, out, "(ungrouped) (1):")
+	// Lexicographic order: codename:bar precedes codename:foo precedes
+	// the (ungrouped) tail.
+	bar := strings.Index(out, "codename:bar (")
+	foo := strings.Index(out, "codename:foo (")
+	un := strings.Index(out, "(ungrouped) (")
+	if bar < 0 || foo < 0 || un < 0 || !(bar < foo && foo < un) {
+		t.Errorf("expected group order bar < foo < (ungrouped); got bar=%d foo=%d un=%d\n%s", bar, foo, un, out)
+	}
+	// Items render under their group headers (indent two extra spaces).
+	testutil.AssertStringContains(t, out, "    u-1")
+	testutil.AssertStringContains(t, out, "    u-3")
+	testutil.AssertStringContains(t, out, "    u-4")
+}
+
+// TestTriage_GroupByWithTop — --group-by composes with --top by truncating
+// per group; each truncated group shows "(showing K of N)" and a footer.
+func TestTriage_GroupByWithTop(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	stubBr(t, `[
+		{"id":"u-1","title":"foo-1","status":"open","labels":["codename:foo"]},
+		{"id":"u-2","title":"foo-2","status":"open","labels":["codename:foo"]},
+		{"id":"u-3","title":"foo-3","status":"open","labels":["codename:foo"]},
+		{"id":"u-4","title":"bar-1","status":"open","labels":["codename:bar"]}
+	]`)
+	resetTriageFlags()
+	triageGroupBy = "codename-label"
+	triageTop = 2
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage: %v", err)
+	}
+	testutil.AssertStringContains(t, out, "codename:bar (1):")
+	testutil.AssertStringContains(t, out, "codename:foo (showing 2 of 3):")
+	testutil.AssertStringContains(t, out, "and 1 more — use --top 0 for full list")
+}
+
+// TestTriage_GroupByRejectsUnknown — any value other than 'codename-label'
+// is rejected with a clear error message.
+func TestTriage_GroupByRejectsUnknown(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	stubBr(t, `[{"id":"u-1","title":"o","status":"open","labels":["x:1"]}]`)
+	resetTriageFlags()
+	triageGroupBy = "bogus"
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	_, err := runTriageCapturing(t)
+	if err == nil || !contains(err.Error(), "unknown --group-by value") {
+		t.Fatalf("want unknown --group-by rejection, got %v", err)
 	}
 }
