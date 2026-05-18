@@ -223,15 +223,46 @@ bead_filter:
 	}
 }
 
-func TestRemoveBeadFilterClause_RemovesKeyWhenLast(t *testing.T) {
+func TestRemoveBeadFilterClause_RetainsEmptyKeyWhenLastLeaf(t *testing.T) {
+	// Per specs/works.md bead_filter row and Plan 019: removing the last
+	// clause keeps the key in canonical present-but-empty form so the
+	// work-edit path matches what `kerf new` emits.
 	src := "codename: bridge\nbead_filter:\n  label: \"x:y\"\ntype: feature\n"
 	p := writeFixture(t, "spec.yaml", src)
 	if err := RemoveBeadFilterClause(p, "label=x:y"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 	got := readFile(t, p)
-	if strings.Contains(got, "bead_filter") {
-		t.Fatalf("expected bead_filter key removed entirely, got:\n%s", got)
+	if !strings.Contains(got, "bead_filter:") {
+		t.Fatalf("expected bead_filter key retained with empty value, got:\n%s", got)
+	}
+	if strings.Contains(got, "label: x:y") || strings.Contains(got, "label: \"x:y\"") {
+		t.Fatalf("expected clause removed from bead_filter, got:\n%s", got)
+	}
+	if !strings.Contains(got, "type: feature") {
+		t.Fatalf("expected surrounding keys retained:\n%s", got)
+	}
+}
+
+func TestRemoveBeadFilterClause_RetainsEmptyKeyWhenLastInAny(t *testing.T) {
+	// `any:` list with one entry, then remove that entry — must collapse all
+	// the way to present-but-empty (not back to a leaf, not removed).
+	src := `codename: bridge
+bead_filter:
+  any:
+    - label: "x:y"
+type: feature
+`
+	p := writeFixture(t, "spec.yaml", src)
+	if err := RemoveBeadFilterClause(p, "label=x:y"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	got := readFile(t, p)
+	if !strings.Contains(got, "bead_filter:") {
+		t.Fatalf("expected bead_filter key retained with empty value, got:\n%s", got)
+	}
+	if strings.Contains(got, "any:") || strings.Contains(got, "x:y") {
+		t.Fatalf("expected any-list emptied entirely, got:\n%s", got)
 	}
 	if !strings.Contains(got, "type: feature") {
 		t.Fatalf("expected surrounding keys retained:\n%s", got)

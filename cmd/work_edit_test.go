@@ -10,7 +10,8 @@ package cmd
 //
 // Deliverables under test (per beads.md B10):
 //   - Adding two clauses produces an `any:` list.
-//   - Removing the last clause removes the `bead_filter` key entirely.
+//   - Removing the last clause retains the `bead_filter` key with an empty
+//     value (canonical present-but-empty form, per Plan 019 / kerf-xb4).
 //   - Round-trip preserves comments on the target `spec.yaml`.
 //   - Baseline unchanged after invocation.
 
@@ -126,11 +127,12 @@ func TestWorkEdit_AddTwoClauses_ProducesAny(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Spec deliverable: "Removing the last clause removes the `bead_filter` key
-// entirely."
+// Spec deliverable: "Removing the last clause retains the `bead_filter` key
+// with an empty value (canonical present-but-empty form, matching `kerf new`
+// — see specs/works.md bead_filter row and Plan 019)."
 // ---------------------------------------------------------------------------
 
-func TestWorkEdit_RemoveLastClause_RemovesKey(t *testing.T) {
+func TestWorkEdit_RemoveLastClause_RetainsEmptyKey(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	pointPATHEmpty(t)
@@ -149,8 +151,12 @@ func TestWorkEdit_RemoveLastClause_RemovesKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read spec: %v", err)
 	}
-	if strings.Contains(string(out), "bead_filter") {
-		t.Fatalf("expected bead_filter key removed, got:\n%s", out)
+	s := string(out)
+	if !strings.Contains(s, "bead_filter:") {
+		t.Fatalf("expected bead_filter key retained with empty value, got:\n%s", s)
+	}
+	if strings.Contains(s, "subsystem:api") {
+		t.Fatalf("expected clause removed from bead_filter, got:\n%s", s)
 	}
 }
 

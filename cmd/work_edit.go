@@ -168,10 +168,13 @@ func runWorkEdit(cn string) error {
 		fmt.Printf("Now matches: %d beads (was: %d beads).\n", afterCount, beforeCount)
 	}
 
-	// Fall-through note when no clauses remain.
-	if !specHasBeadFilter(specPath) {
+	// Fall-through note when no clauses remain. The key is retained with an
+	// empty value (canonical present-but-empty form, matching `kerf new`); an
+	// empty filter resolves identically to an absent key, so resolution falls
+	// through to the project filter or built-in default.
+	if !specHasNonEmptyBeadFilter(specPath) {
 		fmt.Println()
-		fmt.Println("bead_filter removed; this work now falls back to the project filter or built-in default.")
+		fmt.Println("bead_filter cleared; this work now falls back to the project filter or built-in default.")
 	}
 
 	return nil
@@ -323,6 +326,38 @@ func (y *yamlByteBuf) Write(p []byte) (int, error) {
 }
 
 func (y *yamlByteBuf) Bytes() []byte { return y.b }
+
+// specHasNonEmptyBeadFilter reports whether the spec.yaml has a bead_filter
+// key whose value is a non-empty mapping (i.e., at least one clause present).
+// After last-clause removal the key is retained with an empty value, so the
+// "filter cleared" fall-through note keys off this rather than key presence.
+func specHasNonEmptyBeadFilter(specPath string) bool {
+	data, err := os.ReadFile(specPath)
+	if err != nil {
+		return false
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return false
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return false
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i < len(root.Content); i += 2 {
+		if root.Content[i].Kind == yaml.ScalarNode && root.Content[i].Value == "bead_filter" {
+			v := root.Content[i+1]
+			if v == nil || v.Kind != yaml.MappingNode {
+				return false
+			}
+			return len(v.Content) > 0
+		}
+	}
+	return false
+}
 
 // specHasBeadFilter reports whether the on-disk spec.yaml still has a
 // bead_filter key.
