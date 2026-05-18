@@ -574,6 +574,86 @@ func TestTriage_HelpTextOrder(t *testing.T) {
 	}
 }
 
+// TestTriage_SuggestUntriaged_TierRouting exercises Plan 018 / B1's
+// tier-1 vs tier-2 prefix routing:
+//   - tier-1 only (codename: / spec:): seeds kerf new / kerf work edit.
+//   - tier-2 only (axis:, tag:, subsystem:, …): falls back to kerf pin
+//     against the lexicographically-earliest active codename.
+//   - mixed: tier-1 wins.
+//   - no labels: pin fallback (or "no auto-suggestion" with empty works).
+func TestTriage_SuggestUntriaged_TierRouting(t *testing.T) {
+	cases := []struct {
+		name      string
+		labels    []string
+		codenames []string
+		want      string
+	}{
+		{
+			name:      "tier1_codename_no_existing_match_seeds_new",
+			labels:    []string{"codename:newfeat"},
+			codenames: []string{"alpha", "beta"},
+			want:      "kerf new newfeat --bead-filter 'label=codename:newfeat'",
+		},
+		{
+			name:      "tier1_codename_existing_match_extends_filter",
+			labels:    []string{"codename:alpha"},
+			codenames: []string{"alpha", "beta"},
+			want:      "kerf work edit alpha --bead-filter-add 'label=codename:alpha'",
+		},
+		{
+			name:      "tier1_spec_seeds_new",
+			labels:    []string{"spec:storage"},
+			codenames: []string{"alpha", "beta"},
+			want:      "kerf new storage --bead-filter 'label=spec:storage'",
+		},
+		{
+			name:      "tier2_axis_falls_back_to_pin",
+			labels:    []string{"axis:perf"},
+			codenames: []string{"zulu", "alpha"},
+			want:      "kerf pin alpha bead-1",
+		},
+		{
+			name:      "tier2_subsystem_falls_back_to_pin",
+			labels:    []string{"subsystem:bridge"},
+			codenames: []string{"zulu", "alpha"},
+			want:      "kerf pin alpha bead-1",
+		},
+		{
+			name:      "mixed_tier1_wins_over_tier2",
+			labels:    []string{"axis:perf", "spec:storage"},
+			codenames: []string{"alpha"},
+			want:      "kerf new storage --bead-filter 'label=spec:storage'",
+		},
+		{
+			name:      "no_labels_pins_against_first_work",
+			labels:    nil,
+			codenames: []string{"zulu", "alpha"},
+			want:      "kerf pin alpha bead-1",
+		},
+		{
+			name:      "no_labels_no_works_no_auto_suggestion",
+			labels:    nil,
+			codenames: nil,
+			want:      "no auto-suggestion; investigate manually (bead bead-1)",
+		},
+		{
+			name:      "all_tier2_no_works_no_auto_suggestion",
+			labels:    []string{"tag:foo", "scope:bar"},
+			codenames: nil,
+			want:      "no auto-suggestion; investigate manually (bead bead-1)",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := beads.Bead{ID: "bead-1", Labels: tc.labels}
+			got := triageSuggestUntriaged(b, tc.codenames)
+			if got != tc.want {
+				t.Errorf("suggest: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // --- tiny helpers --------------------------------------------------------
 
 func contains(s, sub string) bool {

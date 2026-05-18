@@ -222,10 +222,18 @@ func runTriage(cmd *cobra.Command) error {
 	}
 
 	// --- Load beads ------------------------------------------------------
-	if !beads.IsAvailable() {
-		return errors.New("cannot read bead store: bead tool 'br' not on PATH")
+	// Honor project.yaml tools.tasks (default "br"). When the configured tool
+	// is on PATH but invocation fails, surface the concrete diagnostic
+	// (BEADS_TOOL_ERROR) — silent zero was the misconfiguration trap behind
+	// plan 021.
+	toolName := beads.DefaultToolName
+	if projCfg != nil {
+		toolName = beads.ResolveToolName(projCfg.Tools)
 	}
-	allBeads, berr := beads.List()
+	if !beads.IsAvailableNamed(toolName) {
+		return fmt.Errorf("cannot read bead store: bead tool %q not on PATH", toolName)
+	}
+	allBeads, berr := beads.ListNamed(toolName)
 	if berr != nil {
 		return fmt.Errorf("cannot read bead store: %w", berr)
 	}
@@ -443,41 +451,62 @@ func triageIsReady(b beads.Bead) bool {
 	return true
 }
 
+// tier1LabelPrefixes is the cohort-defining allow-list per Plan 018:
+// only labels with these prefixes may seed a `kerf new` suggestion.
+// Everything else (axis:, tag:, kind:, scope:, subsystem:, area:, …) is
+// tier-2 / cross-cutting and falls back to a pin against the
+// lexicographically-earliest active work.
+var tier1LabelPrefixes = []string{"codename", "spec"}
+
+// triagePickTier1Label returns the first label on a bead whose prefix is
+// in the tier-1 allow-list, or "" when none match. Order of preference
+// follows tier1LabelPrefixes; within a prefix, order follows bead label
+// order so output is deterministic.
+func triagePickTier1Label(labels []string) string {
+	for _, prefix := range tier1LabelPrefixes {
+		for _, lbl := range labels {
+			pParts := strings.SplitN(lbl, ":", 2)
+			if len(pParts) == 2 && pParts[0] == prefix && pParts[1] != "" {
+				return lbl
+			}
+		}
+	}
+	return ""
+}
+
 // triageSuggestUntriaged renders a templated ready-to-paste command per
-// specs/commands.md §"kerf triage" — the chosen template for untriaged
-// items. Conservative: when an existing work matches the bead's label
-// prefix loosely, we surface `kerf work edit ... --bead-filter-add`;
-// otherwise we fall back to `kerf pin` (the most general escape hatch).
+// specs/commands.md §"kerf triage" and Plan 018's tier-1 / tier-2 routing:
+//   - Tier-1 label (codename: / spec:) → seed `kerf new` (or `kerf work
+//     edit --bead-filter-add` when an existing work already has that
+//     label in its filter — handled by the value-match below).
+//   - All tier-2 labels → fall back to `kerf pin <codename> <bead-id>`
+//     against the lexicographically-earliest active work.
+//   - No active work to pin against → "no auto-suggestion".
 func triageSuggestUntriaged(b beads.Bead, existingCodenames []string) string {
-	// Look for a `prefix:value` label and use it to drive the suggestion.
-	var clause string
-	for _, lbl := range b.Labels {
-		if strings.Contains(lbl, ":") {
-			clause = "label=" + lbl
-			break
+	tier1 := triagePickTier1Label(b.Labels)
+	if tier1 != "" {
+		parts := strings.SplitN(tier1, ":", 2)
+		value := parts[1]
+		clause := "label=" + tier1
+		// If an existing codename loosely matches the tier-1 label value,
+		// suggest extending that work's filter rather than creating a
+		// new one.
+		for _, cn := range existingCodenames {
+			if strings.Contains(cn, value) {
+				return fmt.Sprintf("kerf work edit %s --bead-filter-add '%s'", cn, clause)
+			}
 		}
+		return fmt.Sprintf("kerf new %s --bead-filter '%s'", value, clause)
 	}
-	if clause == "" {
-		// No label-prefix to key on; pin is the only safe suggestion.
-		return fmt.Sprintf("kerf pin <codename> %s", b.ID)
+	// Tier-2 fallback: pin against the lexicographically-earliest active
+	// work. existingCodenames comes from r.ListWorks(), which returns
+	// non-archived works.
+	if len(existingCodenames) == 0 {
+		return fmt.Sprintf("no auto-suggestion; investigate manually (bead %s)", b.ID)
 	}
-	// If a codename loosely matches the label value, suggest extending
-	// that work's filter. Otherwise suggest a new work bucket.
-	parts := strings.SplitN(clause, ":", 2)
-	value := ""
-	if len(parts) == 2 {
-		value = parts[1]
-	}
-	for _, cn := range existingCodenames {
-		if value != "" && strings.Contains(cn, value) {
-			return fmt.Sprintf("kerf work edit %s --bead-filter-add '%s'", cn, clause)
-		}
-	}
-	suggested := value
-	if suggested == "" {
-		suggested = "new-bucket"
-	}
-	return fmt.Sprintf("kerf new %s --bead-filter '%s'", suggested, clause)
+	sorted := append([]string(nil), existingCodenames...)
+	sort.Strings(sorted)
+	return fmt.Sprintf("kerf pin %s %s", sorted[0], b.ID)
 }
 
 // buildExternalDriftItems emits one triageItem per bead in each non-empty
