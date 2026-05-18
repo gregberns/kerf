@@ -25,6 +25,7 @@ import (
 	"github.com/gberns/kerf/internal/dep"
 	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/feed"
+	"github.com/gberns/kerf/internal/labelsample"
 	"github.com/gberns/kerf/internal/queue"
 	"github.com/gberns/kerf/internal/spec"
 )
@@ -364,6 +365,17 @@ func runNext(cmd *cobra.Command) error {
 	// ClosedExternally + ReopenedExternally).
 	driftSummary := computeDriftSummary(warningItems, driftDiff)
 
+	// --- Near-match advisor (Plan 019 / B7 — kerf-d9f) -----------------
+	// For each cleanup item rank-labelled `empty`, ask the B4 sampler
+	// (internal/labelsample) whether a single dominant label-shape exists
+	// for that codename in the bead store. When ReasonDominant fires, the
+	// proposal is unambiguous — that is the exact "one prefix-swap"
+	// condition the spec calls out — and we surface a `try:` hint inline
+	// on the warning row. Ambiguous (union) and zero-match cases fall
+	// through silently, matching specs/commands.md §"kerf next"
+	// → "Near-match advisor".
+	nearMatchHints := computeNearMatchHints(cleanupItems, allBeads)
+
 	// --- Assemble + exclusion (beads-then-cleanups; warnings separate) ---
 	main, warnings := feed.AssembleWithWarnings(beadItems, cleanupItems, warningItems, in)
 
@@ -396,7 +408,7 @@ func runNext(cmd *cobra.Command) error {
 				return jerr
 			}
 		} else {
-			if rerr := renderNextText(out, main, warnings, driftSummary, hasBaseline); rerr != nil {
+			if rerr := renderNextText(out, main, warnings, driftSummary, hasBaseline, nil); rerr != nil {
 				return rerr
 			}
 		}
@@ -406,7 +418,60 @@ func runNext(cmd *cobra.Command) error {
 	case "json":
 		return renderNextJSON(out, main, warnings, driftSummary, hasBaseline)
 	default:
-		return renderNextText(out, main, warnings, driftSummary, hasBaseline)
+		return renderNextText(out, main, warnings, driftSummary, hasBaseline, nearMatchHints)
+	}
+}
+
+// computeNearMatchHints walks cleanup items rank-labelled `empty` and asks
+// labelsample.ProposeFilter for an unambiguous label-shape proposal. The
+// returned map is keyed by work codename; values are the `try:` suffix
+// (without the leading " — ") so the renderer can append them verbatim.
+//
+// Spec: specs/commands.md §"kerf next" → "Near-match advisor". The advisor
+// only emits when exactly one alternate clause would lift the work out of
+// `empty`; ambiguous (union) and zero-candidate cases stay silent.
+//
+// Implementation reuses internal/labelsample (Plan 019 / B4 — kerf-iak):
+// ReasonDominant is the unambiguous case. ReasonUnion (≥ 2 viable
+// candidates), ReasonBelowFloor, and ReasonNoMatch all yield no hint.
+func computeNearMatchHints(cleanupItems []feed.Item, allBeads []beads.Bead) map[string]string {
+	if len(cleanupItems) == 0 || len(allBeads) == 0 {
+		return nil
+	}
+	hints := make(map[string]string)
+	for _, it := range cleanupItems {
+		if it.Kind != feed.KindCleanup || it.RankLabel != "empty" || it.WorkCodename == nil {
+			continue
+		}
+		cn := *it.WorkCodename
+		proposal := labelsample.ProposeFilter(allBeads, cn)
+		if proposal.Reason != labelsample.ReasonDominant || proposal.Filter == nil {
+			continue
+		}
+		clause := formatFilterClause(*proposal.Filter)
+		if clause == "" {
+			continue
+		}
+		hints[cn] = fmt.Sprintf("try: kerf work edit %s --bead-filter '%s'", cn, clause)
+	}
+	if len(hints) == 0 {
+		return nil
+	}
+	return hints
+}
+
+// formatFilterClause renders a single-leaf beads.Filter back to its CLI
+// string form ("label=<value>" or "id_prefix=<value>"). Returns "" for
+// non-leaf shapes (Any/union) — the advisor only acts on dominant
+// proposals, which are single-leaf by construction in labelsample.
+func formatFilterClause(f beads.Filter) string {
+	switch {
+	case f.Label != "":
+		return "label=" + f.Label
+	case f.IDPrefix != "":
+		return "id_prefix=" + f.IDPrefix
+	default:
+		return ""
 	}
 }
 
@@ -524,7 +589,7 @@ func stripUntriagedWarning(ws []feed.Item) []feed.Item {
 // render first, the one-line drift summary follows when any counter is
 // non-zero, and the warning stanza renders last. This puts actionable work
 // at the top of the agent's view; diagnostics tail the output.
-func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSummaryCounts, hasBaseline bool) error {
+func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSummaryCounts, hasBaseline bool, nearMatchHints map[string]string) error {
 	headlineRenders := hasBaseline && summary.renders()
 
 	// Empty-feed fallback: nothing actionable, nothing to diagnose.
@@ -568,9 +633,24 @@ func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSumm
 			if label == "" {
 				label = "cleanup"
 			}
-			fmt.Fprintf(out, "%d. %-7s %s   %s\n", i+1, label, wc, reason)
-			if it.Action != "" {
-				fmt.Fprintf(out, "          %s\n", it.Action)
+			// Near-match advisor (Plan 019 / B7 — kerf-d9f): when the
+			// cleanup row is `empty` and the sampler produced an
+			// unambiguous proposal, append the `try:` hint inline so it
+			// stays adjacent to the reason. The hint replaces the
+			// indented action line: agents only need one suggested next
+			// step. For non-empty rows or no-hint cases, the original
+			// two-line shape is preserved.
+			hint := ""
+			if label == "empty" && wc != "" {
+				hint = nearMatchHints[wc]
+			}
+			if hint != "" {
+				fmt.Fprintf(out, "%d. %-7s %s   %s — %s\n", i+1, label, wc, reason, hint)
+			} else {
+				fmt.Fprintf(out, "%d. %-7s %s   %s\n", i+1, label, wc, reason)
+				if it.Action != "" {
+					fmt.Fprintf(out, "          %s\n", it.Action)
+				}
 			}
 		case feed.KindWarning:
 			// Defensive: warnings normally render in the trailing stanza.

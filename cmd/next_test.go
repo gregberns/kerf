@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/feed"
 )
@@ -101,7 +102,7 @@ func TestNextFlags_ExpectedFlagsRegistered(t *testing.T) {
 
 func TestRenderNextText_EmptyFeed(t *testing.T) {
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, false); err != nil {
+	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, false, nil); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	got := strings.TrimRight(buf.String(), "\n")
@@ -196,7 +197,7 @@ func TestRenderNextText_PayloadAboveWarnings(t *testing.T) {
 		{Kind: feed.KindWarning, Title: "untriaged_beads", Action: "check bead_filter"},
 	}
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, main, warnings, driftSummaryCounts{}, false); err != nil {
+	if err := renderNextText(&buf, main, warnings, driftSummaryCounts{}, false, nil); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	body := buf.String()
@@ -555,7 +556,7 @@ func TestRenderNextText_DriftSummary_AllThreeCategories(t *testing.T) {
 		MultiMatched:  2,
 		ExternalDrift: 1,
 	}
-	if err := renderNextText(&buf, nil, nil, summary, true); err != nil {
+	if err := renderNextText(&buf, nil, nil, summary, true, nil); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	body := buf.String()
@@ -571,7 +572,7 @@ func TestRenderNextText_DriftSummary_AllThreeCategories(t *testing.T) {
 func TestRenderNextText_DriftSummary_OmitsZeroSegments(t *testing.T) {
 	var buf bytes.Buffer
 	summary := driftSummaryCounts{Untriaged: 0, MultiMatched: 1, ExternalDrift: 0}
-	if err := renderNextText(&buf, nil, nil, summary, true); err != nil {
+	if err := renderNextText(&buf, nil, nil, summary, true, nil); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	body := buf.String()
@@ -590,7 +591,7 @@ func TestRenderNextText_DriftSummary_OmitsZeroSegments(t *testing.T) {
 // is omitted when all three counts are zero (or when no baseline exists).
 func TestRenderNextText_DriftSummary_ZeroDriftNoLine(t *testing.T) {
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, true); err != nil {
+	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, true, nil); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	if strings.Contains(buf.String(), "kerf triage") {
@@ -600,7 +601,7 @@ func TestRenderNextText_DriftSummary_ZeroDriftNoLine(t *testing.T) {
 	buf.Reset()
 	// Even with non-zero counters, absent baseline suppresses the headline.
 	summary := driftSummaryCounts{Untriaged: 3}
-	if err := renderNextText(&buf, nil, nil, summary, false); err != nil {
+	if err := renderNextText(&buf, nil, nil, summary, false, nil); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	if strings.Contains(buf.String(), "untriaged") {
@@ -700,6 +701,163 @@ func TestRunNext_CacheAbsent_FirstRunDoesNotCrash(t *testing.T) {
 	// No baseline → bare array shape.
 	if strings.TrimSpace(buf.String()) != "[]" {
 		t.Fatalf("expected bare array JSON when cache is absent; got:\n%s", buf.String())
+	}
+}
+
+// --- Near-match advisor (Plan 019 / B7 — kerf-d9f) -------------------------
+//
+// computeNearMatchHints + renderNextText together implement the
+// specs/commands.md §"kerf next" → "Near-match advisor" surface: an `empty`
+// cleanup row gains an inline `try: ...` hint when one and only one
+// alternate label-shape would lift it out of `empty`.
+
+func TestNearMatchHints_DominantProposalProducesHint(t *testing.T) {
+	cn := "bridge"
+	wc := cn
+	cleanup := feed.Item{
+		Kind:         feed.KindCleanup,
+		Title:        "no attached beads",
+		WorkCodename: &wc,
+		Reason:       "resolved bead_filter matches zero beads in the store",
+		RankLabel:    "empty",
+	}
+	// Five beads carrying `subsystem:bridge` (well above the sampler's
+	// absolute floor of 3 and ≥ 80% of the candidate matches) → dominant.
+	store := []beads.Bead{
+		{ID: "b-1", Labels: []string{"subsystem:bridge"}},
+		{ID: "b-2", Labels: []string{"subsystem:bridge"}},
+		{ID: "b-3", Labels: []string{"subsystem:bridge"}},
+		{ID: "b-4", Labels: []string{"subsystem:bridge"}},
+		{ID: "b-5", Labels: []string{"subsystem:bridge"}},
+	}
+	hints := computeNearMatchHints([]feed.Item{cleanup}, store)
+	got, ok := hints[cn]
+	if !ok {
+		t.Fatalf("expected a hint for %q; got map=%v", cn, hints)
+	}
+	want := "try: kerf work edit bridge --bead-filter 'label=subsystem:bridge'"
+	if got != want {
+		t.Fatalf("hint mismatch\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
+func TestNearMatchHints_NoMatchSilent(t *testing.T) {
+	cn := "ghost"
+	wc := cn
+	cleanup := feed.Item{
+		Kind:         feed.KindCleanup,
+		WorkCodename: &wc,
+		RankLabel:    "empty",
+	}
+	// Store has beads, but none carry any shape matching `ghost`.
+	store := []beads.Bead{
+		{ID: "b-1", Labels: []string{"subsystem:something-else"}},
+		{ID: "b-2", Labels: []string{"area:other"}},
+	}
+	hints := computeNearMatchHints([]feed.Item{cleanup}, store)
+	if _, ok := hints[cn]; ok {
+		t.Fatalf("expected no hint when no candidate matches; got %v", hints)
+	}
+}
+
+func TestNearMatchHints_AmbiguousUnionSilent(t *testing.T) {
+	cn := "bridge"
+	wc := cn
+	cleanup := feed.Item{
+		Kind:         feed.KindCleanup,
+		WorkCodename: &wc,
+		RankLabel:    "empty",
+	}
+	// Two label shapes carry equal weight (3 each) so the sampler returns
+	// ReasonUnion, not ReasonDominant. The advisor must stay silent —
+	// ambiguous cases would otherwise present multiple "right answers"
+	// to the agent and force a guess.
+	store := []beads.Bead{
+		{ID: "b-1", Labels: []string{"subsystem:bridge"}},
+		{ID: "b-2", Labels: []string{"subsystem:bridge"}},
+		{ID: "b-3", Labels: []string{"subsystem:bridge"}},
+		{ID: "b-4", Labels: []string{"codename:bridge"}},
+		{ID: "b-5", Labels: []string{"codename:bridge"}},
+		{ID: "b-6", Labels: []string{"codename:bridge"}},
+	}
+	hints := computeNearMatchHints([]feed.Item{cleanup}, store)
+	if _, ok := hints[cn]; ok {
+		t.Fatalf("expected no hint on ambiguous union; got %v", hints)
+	}
+}
+
+func TestNearMatchHints_UnwiredRowsIgnored(t *testing.T) {
+	// `unwired` rows already carry a bootstrap-oriented Action; the
+	// advisor is scoped to `empty` per the spec sentence.
+	cn := "bridge"
+	wc := cn
+	cleanup := feed.Item{
+		Kind:         feed.KindCleanup,
+		WorkCodename: &wc,
+		RankLabel:    "unwired",
+	}
+	store := []beads.Bead{
+		{ID: "b-1", Labels: []string{"subsystem:bridge"}},
+		{ID: "b-2", Labels: []string{"subsystem:bridge"}},
+		{ID: "b-3", Labels: []string{"subsystem:bridge"}},
+		{ID: "b-4", Labels: []string{"subsystem:bridge"}},
+	}
+	hints := computeNearMatchHints([]feed.Item{cleanup}, store)
+	if len(hints) != 0 {
+		t.Fatalf("advisor must skip unwired rows; got %v", hints)
+	}
+}
+
+func TestRenderNextText_EmptyRowEmbedsHintInline(t *testing.T) {
+	cn := "bridge"
+	wc := cn
+	main := []feed.Item{{
+		Kind:         feed.KindCleanup,
+		Title:        "no attached beads",
+		WorkCodename: &wc,
+		Reason:       "resolved bead_filter matches zero beads in the store",
+		Action:       "edit spec.yaml bead_filter or check the project filter",
+		RankLabel:    "empty",
+	}}
+	hints := map[string]string{
+		cn: "try: kerf work edit bridge --bead-filter 'label=subsystem:bridge'",
+	}
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, main, nil, driftSummaryCounts{}, false, hints); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "— try: kerf work edit bridge --bead-filter 'label=subsystem:bridge'") {
+		t.Fatalf("expected inline `try:` hint on the empty row; got:\n%s", out)
+	}
+	// Hint replaces the indented action line — only one mention of the
+	// suggested command, not duplicated.
+	if strings.Contains(out, "edit spec.yaml bead_filter or check the project filter") {
+		t.Fatalf("indented action line should be suppressed when a hint is present; got:\n%s", out)
+	}
+}
+
+func TestRenderNextText_EmptyRowWithoutHintKeepsActionLine(t *testing.T) {
+	cn := "bridge"
+	wc := cn
+	main := []feed.Item{{
+		Kind:         feed.KindCleanup,
+		Title:        "no attached beads",
+		WorkCodename: &wc,
+		Reason:       "resolved bead_filter matches zero beads in the store",
+		Action:       "edit spec.yaml bead_filter or check the project filter",
+		RankLabel:    "empty",
+	}}
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, main, nil, driftSummaryCounts{}, false, nil); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "try:") {
+		t.Fatalf("no hint expected when hints map is nil; got:\n%s", out)
+	}
+	if !strings.Contains(out, "edit spec.yaml bead_filter or check the project filter") {
+		t.Fatalf("indented action line must remain when no hint is present; got:\n%s", out)
 	}
 }
 
