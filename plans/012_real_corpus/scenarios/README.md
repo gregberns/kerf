@@ -20,6 +20,7 @@ per scenario are in `../data/realcorpus_smoke.csv`.
 | `sh.yaml`         | 1     | 53    | 20000 | single work, deps=[]                 |
 | `wm.yaml`         | 1     | 71    | 20000 | single work, deps=[]                 |
 | `all_pilots.yaml` | 8     | 553   | 40000 | chain wm→rc→pl→hc→cp, on/sh fan-in   |
+| `all_pilots_sat.yaml` | 8 | 553   | 60000 | saturated: agents=2, rework_rate=0.008, all works rework targets |
 
 Bead counts come from the harmonik pilot YAMLs verbatim. Cross-pilot
 dep edges are inferred by the importer and pruned to keep the
@@ -32,6 +33,16 @@ Single-pilot scenarios stop `all-closed` (wall 6k–10k). `all_pilots`
 stops `ticks-cap` at 40k, 6/8 works complete, idle_pct ~0.71 — the
 unfinished works (`on`, `sh`) sit behind their dep chains in the last
 quarter. Idle is below 0.8, so agents stay at 4.
+
+`all_pilots_sat` stops `ticks-cap` at 60k with idle_pct ~0.17 (well
+under the 0.3 saturation target). The high rework rate (0.008/tick on
+all 8 works) keeps work generating across the full DAG, so
+`work_completed` exceeds `work_total` — completions include rework
+cycles. `rework_p95_wait` is in the ~19k–29k range, confirming the
+rework path is meaningfully exercised; weight changes on momentum and
+rework move the metric. This is the live signal-bearing scenario for
+the Plan 011 / D follow-up sweep (see
+`../../011_sim_validation/weight_tuning/sweep_v2.py`).
 
 ## Caveats
 

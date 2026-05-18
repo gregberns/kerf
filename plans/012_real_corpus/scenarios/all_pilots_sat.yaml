@@ -1,0 +1,133 @@
+# Saturated variant of all_pilots.yaml (Plan 011 / D follow-up).
+#
+# Goal: contend agents enough that idle_pct < 0.3 and the rework path is
+# meaningfully exercised, so weight tuning (momentum/rework/fan_out) can
+# observe a signal. The baseline all_pilots.yaml hit idle=0.71 with
+# only 6/8 works completing in 40k ticks; this variant tightens agent
+# count and pushes rework_rate ~8x with all works as rework targets.
+#
+# Knobs vs baseline:
+#   agents:                          4   -> 2     (halved, matches s*_sat convention)
+#   ticks:                       40000   -> 60000 (longer budget for the chain)
+#   rework_rate_per_tick:        0.001   -> 0.008 (8x)
+#   target_works:        cp/hc/meta/on   -> all 8 works
+#
+# Header notes from the source import are preserved below for traceability.
+# pilot cp: dropped 106 edge(s) to unknown pilot prefix
+# pilot hc: dropped 29 edge(s) to unknown pilot prefix
+# pilot on: dropped 74 edge(s) to unknown pilot prefix
+# pilot pl: dropped 26 forward-deferred edge(s)
+# pilot pl: dropped 31 edge(s) to unknown pilot prefix
+# pilot rc: dropped 75 edge(s) to unknown pilot prefix
+# pilot sh: dropped 13 edge(s) to unknown pilot prefix
+# pilot wm: dropped 26 edge(s) to unknown pilot prefix
+# dropped 10 work-level dep edge(s) to keep the scenario acyclic
+
+seed: 42
+ticks: 60000
+agents: 2
+works:
+  - codename: cp
+    areas:
+      - invariant
+      - req
+      - schema
+      - test-infra
+    deps:
+      - hc
+    bead_count: 85
+  - codename: hc
+    areas:
+      - error-taxonomy
+      - invariant
+      - req
+      - schema
+      - test-infra
+    deps:
+      - pl
+    bead_count: 80
+  - codename: meta
+    areas:
+      - workflow
+    deps: []
+    bead_count: 42
+  - codename: "on"
+    areas:
+      - error-taxonomy
+      - invariant
+      - req
+      - test-infra
+    deps:
+      - cp
+      - hc
+      - pl
+      - rc
+    bead_count: 84
+  - codename: pl
+    areas:
+      - invariant
+      - req
+      - schema
+      - test-infra
+    deps:
+      - rc
+      - wm
+    bead_count: 59
+  - codename: rc
+    areas:
+      - error-taxonomy
+      - invariant
+      - req
+      - schema
+      - test-infra
+    deps:
+      - wm
+    bead_count: 79
+  - codename: sh
+    areas:
+      - error-taxonomy
+      - invariant
+      - req
+      - schema
+    deps:
+      - hc
+      - "on"
+      - pl
+      - wm
+    bead_count: 53
+  - codename: wm
+    areas:
+      - error-taxonomy
+      - invariant
+      - req
+      - schema
+      - test-infra
+    deps: []
+    bead_count: 71
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.008
+    target_works:
+      - cp
+      - hc
+      - meta
+      - "on"
+      - pl
+      - rc
+      - sh
+      - wm
+agent_model:
+  duration:
+    kind: from_distribution
+    distribution: task_work
+  spin_up:
+    kind: from_distribution
+    distribution: spin_up
+merge_model:
+  base_duration:
+    kind: from_distribution
+    distribution: merge
+  conflict_probability: 0.04
+  conflict_duration:
+    kind: from_distribution
+    distribution: conflict_resolution
