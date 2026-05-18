@@ -62,6 +62,59 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 }
 
+// initStateChange is one row in the state-change summary block emitted at the
+// end of `kerf init` output. It implements specs/commands.md §"kerf init"
+// Output bullet 7 and specs/cli.md §"State-Change Summary (init)".
+//
+// Status is one of "created", "updated", "unchanged". Detail is optional
+// trailing parenthetical text (e.g. the bead_filter literal or a follow-up
+// command). Only artifacts init actually touched are recorded — init does not
+// advertise state for artifacts it does not write.
+type initStateChange struct {
+	Name   string
+	Status string
+	Detail string
+}
+
+// initStateTracker collects state-change rows in registration order so the
+// final summary block is stable and diffable across runs. Adding a new
+// artifact is a single Record call at the site that owns it; downstream
+// beads (e.g. B4's default_jig) layer on by registering their own row.
+type initStateTracker struct {
+	rows []initStateChange
+}
+
+func (t *initStateTracker) Record(name, status, detail string) {
+	t.rows = append(t.rows, initStateChange{Name: name, Status: status, Detail: detail})
+}
+
+// Emit writes the fenced state-change summary block. The block is the last
+// thing init prints on its successful paths. Columns are space-aligned so
+// human-readable diffs stay clean; the trailing detail (when present) is
+// rendered in parentheses.
+func (t *initStateTracker) Emit(w io.Writer) {
+	if len(t.rows) == 0 {
+		return
+	}
+	width := 0
+	for _, r := range t.rows {
+		if len(r.Name) > width {
+			width = len(r.Name)
+		}
+	}
+	fmt.Fprintln(w, "State changes:")
+	fmt.Fprintln(w, "```")
+	for _, r := range t.rows {
+		pad := strings.Repeat(" ", width-len(r.Name))
+		if r.Detail != "" {
+			fmt.Fprintf(w, "  %s%s   %s (%s)\n", r.Name, pad, r.Status, r.Detail)
+		} else {
+			fmt.Fprintf(w, "  %s%s   %s\n", r.Name, pad, r.Status)
+		}
+	}
+	fmt.Fprintln(w, "```")
+}
+
 func runInit() error {
 	// Resolve bead-filter flags up-front (kerf-pjs). Precedence per spec
 	// §"kerf init" step 9: --bead-filter > --no > --yes > default (=--yes).
@@ -85,6 +138,8 @@ func runInit() error {
 	case initYesFlag:
 		mode = beadFilterModeYes
 	}
+
+	tracker := &initStateTracker{}
 
 	// Find git root
 	cwd, err := os.Getwd()
@@ -120,8 +175,10 @@ func runInit() error {
 			return fmt.Errorf("writing project identifier: %w", err)
 		}
 		fmt.Printf("Created .kerf/project-identifier: %s\n", projectID)
+		tracker.Record(".kerf/project-identifier", "created", projectID)
 	} else {
 		fmt.Printf("Project already initialized: %s\n", projectID)
+		tracker.Record(".kerf/project-identifier", "unchanged", projectID)
 	}
 
 	// Handle --jig flag or check existing config
@@ -169,6 +226,12 @@ func runInit() error {
 		// safe-to-repeat steps (project-identifier, --jig, kerf setup) already
 		// ran above or run below.
 		printExistingProjectSummary(projCfgPath, existingCfg)
+		tracker.Record("project.yaml", "unchanged", projCfgPath)
+		if existingCfg.BeadFilter != nil && existingCfg.BeadFilter.Label != "" {
+			tracker.Record("bead_filter", "unchanged", "label="+existingCfg.BeadFilter.Label)
+		} else {
+			tracker.Record("bead_filter", "unchanged", "unset; run 'kerf config bead_filter <expr>' to set")
+		}
 
 		// Run kerf setup — the single source of the AGENT SETUP INSTRUCTIONS
 		// block (specs/commands.md §kerf init step 11).
@@ -178,6 +241,8 @@ func runInit() error {
 		}
 		fmt.Println()
 		fmt.Println("Use 'kerf init --force' to overwrite project.yaml, or edit it directly.")
+		fmt.Println()
+		tracker.Emit(os.Stdout)
 		return nil
 	}
 
@@ -207,6 +272,24 @@ func runInit() error {
 	if err := createDefaultProjectConfig(projCfgPath, detectedFilter); err != nil {
 		return fmt.Errorf("creating project.yaml: %w", err)
 	}
+	if existingCfg != nil {
+		tracker.Record("project.yaml", "updated", projCfgPath)
+	} else {
+		tracker.Record("project.yaml", "created", projCfgPath)
+	}
+	switch {
+	case detectedFilter != nil && detectedFilter.Label != "" && (existingCfg == nil || existingCfg.BeadFilter == nil || existingCfg.BeadFilter.Label != detectedFilter.Label):
+		verb := "created"
+		if existingCfg != nil && existingCfg.BeadFilter != nil {
+			verb = "updated"
+		}
+		tracker.Record("bead_filter", verb, "label="+detectedFilter.Label)
+	case detectedFilter != nil && detectedFilter.Label != "":
+		// --force re-run preserved the same prior filter.
+		tracker.Record("bead_filter", "unchanged", "label="+detectedFilter.Label)
+	default:
+		tracker.Record("bead_filter", "unchanged", "detector returned no confident suggestion; run 'kerf config bead_filter <expr>' to set")
+	}
 	if resolver.Mode == storage.ModeLocal {
 		worksDir := resolver.WorksDir()
 		if err := os.MkdirAll(worksDir, 0o755); err != nil {
@@ -229,6 +312,8 @@ func runInit() error {
 		fmt.Printf("Note: could not generate setup instructions: %v\n", err)
 	}
 
+	fmt.Println()
+	tracker.Emit(os.Stdout)
 	return nil
 }
 
