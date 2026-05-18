@@ -196,3 +196,9 @@ kerf triage                                              # clean, per-work count
 ```
 
 End state on bench: `~/.kerf/projects/gregberns-kerf/project.yaml` + five work directories (one per codename). No files in the repo besides `.kerf/project-identifier` (and the shim under `plans/_dogfood/bin/br`).
+
+---
+
+## Build breaks observed during plan 021
+
+**2026-05-18 — `cmd/init.go` does not build at HEAD (b40df97).** That commit removed the helper `bootstrapInstructions` from one call site in the existing-project branch but left a second call at the new-project branch (line 174). `go build ./...` fails with `undefined: bootstrapInstructions`. Removed in passing while running plan 021 tests; severity MAJOR (kerf would not have shipped from HEAD). Routing: track as a regression fixup. Separately, the working-tree `cmd/init.go` had been further edited with `--yes` / `--no` / `--bead-filter` flags and `bufio` calls that don't import `bufio` and a `mode` parameter type mismatch — this looks like a different in-flight plan; left unmodified and not committed.

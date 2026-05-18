@@ -104,16 +104,20 @@ func runMap() error {
 	}
 
 	// Load project bead_filter once so each work resolves filter precedence
-	// (per-work → project → default) via beads.Resolve.
+	// (per-work → project → default) via beads.Resolve. Also pick up
+	// tools.tasks so the bead tool honored here matches `kerf next` /
+	// `kerf triage` / `kerf show` (plan 021).
 	var projectFilter *beads.Filter
+	var mapTool = beads.DefaultToolName
 	if cfg, err := config.LoadProjectConfig(r.ProjectConfigPath()); err == nil && cfg != nil {
 		projectFilter = cfg.BeadFilter
+		mapTool = beads.ResolveToolName(cfg.Tools)
 	}
 
 	// Optionally load bead data. Spec-conformant case-sensitive matching via
 	// beads.ForWorkWithFilter (Plan 008 / B5; specs/coordination.md L232).
-	if beads.IsAvailable() {
-		allBeads, _ := beads.List()
+	if beads.IsAvailableNamed(mapTool) {
+		allBeads, _ := beads.ListNamed(mapTool)
 		if len(allBeads) > 0 {
 			for i := range works {
 				resolved := beads.Resolve(works[i].beadFilter, projectFilter)

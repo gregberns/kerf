@@ -8,9 +8,38 @@ package beads
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"strings"
 )
+
+// ToolError is returned by ListNamed when the configured beads-CLI binary is
+// present on PATH but invocation fails (non-zero exit, malformed JSON, etc.).
+// It carries enough context (tool name, exit code, stderr snippet) for callers
+// to render an actionable diagnostic — distinguishing "tool ran and failed"
+// from "tool not installed" (which still degrades silently to nil, nil).
+//
+// The error string is prefixed with "BEADS_TOOL_ERROR:" so it can be grepped
+// out of CLI output and surfaced in tests.
+type ToolError struct {
+	Tool    string // resolved binary name (e.g. "br", "bd")
+	ExitErr error  // underlying exec error (typically *exec.ExitError)
+	Stderr  string // captured stderr (already trimmed)
+}
+
+func (e *ToolError) Error() string {
+	snippet := e.Stderr
+	const max = 400
+	if len(snippet) > max {
+		snippet = snippet[:max] + "...(truncated)"
+	}
+	if snippet == "" {
+		return fmt.Sprintf("BEADS_TOOL_ERROR: tool=%q failed: %v", e.Tool, e.ExitErr)
+	}
+	return fmt.Sprintf("BEADS_TOOL_ERROR: tool=%q failed: %v: %s", e.Tool, e.ExitErr, snippet)
+}
+
+func (e *ToolError) Unwrap() error { return e.ExitErr }
 
 // Bead represents a single bead (task) from the br CLI.
 type Bead struct {
@@ -76,6 +105,13 @@ func List() ([]Bead, error) {
 // using the resolved beads-CLI binary name (per project.yaml tools.tasks).
 // Argv shape matches the `br` CLI; do not pass a binary that does not accept
 // these flags.
+//
+// Errors are distinguished by category:
+//   - Tool not on PATH → (nil, nil). Callers degrade silently; this is the
+//     "kerf works without a bead store" case.
+//   - Tool ran but failed (non-zero exit, malformed JSON) → (nil, *ToolError).
+//     Callers should surface this with the tool name and stderr snippet so
+//     misconfigurations (wrong binary, broken store) don't fail silently.
 func ListNamed(toolName string) ([]Bead, error) {
 	if toolName == "" {
 		toolName = DefaultToolName
@@ -84,13 +120,27 @@ func ListNamed(toolName string) ([]Bead, error) {
 		return nil, nil
 	}
 
-	out, err := exec.Command(toolName, "list", "--format", "json", "--all", "--limit", "0").Output()
-	if err != nil {
-		// tool failed (bad config, no DB, etc.) -- degrade gracefully
-		return nil, nil
+	cmd := exec.Command(toolName, "list", "--format", "json", "--all", "--limit", "0")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, &ToolError{
+			Tool:    toolName,
+			ExitErr: err,
+			Stderr:  strings.TrimSpace(stderr.String()),
+		}
 	}
 
-	return ParseJSON(out)
+	beads, perr := ParseJSON(stdout.Bytes())
+	if perr != nil {
+		return nil, &ToolError{
+			Tool:    toolName,
+			ExitErr: perr,
+			Stderr:  strings.TrimSpace(stderr.String()),
+		}
+	}
+	return beads, nil
 }
 
 // ParseJSON parses br's JSON output into a slice of Bead.

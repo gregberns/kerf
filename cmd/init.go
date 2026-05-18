@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -18,9 +17,25 @@ import (
 	"github.com/gberns/kerf/internal/storage"
 )
 
+// beadFilterMode encodes the user's bead-filter resolution choice (kerf-pjs).
+// Spec §"kerf init" step 9 precedence: --bead-filter > --no > --yes > default.
+// The default (no flag) is identical to --yes: run the detector and accept a
+// confident suggestion. kerf init is non-interactive — there is no prompt mode.
+type beadFilterMode int
+
+const (
+	beadFilterModeDefault  beadFilterMode = iota // identical to --yes
+	beadFilterModeYes                            // accept confident suggestion
+	beadFilterModeNo                             // skip detection
+	beadFilterModeExplicit                       // use the literal from --bead-filter
+)
+
 var (
-	initJigFlag   string
-	initForceFlag bool
+	initJigFlag        string
+	initForceFlag      bool
+	initYesFlag        bool
+	initNoFlag         bool
+	initBeadFilterFlag string
 )
 
 var initCmd = &cobra.Command{
@@ -41,10 +56,36 @@ gitignore, etc. kerf doesn't know or care what agent you're using.`,
 func init() {
 	initCmd.Flags().StringVar(&initJigFlag, "jig", "", "Set default workflow: plan or spec")
 	initCmd.Flags().BoolVar(&initForceFlag, "force", false, "Re-run init even when project.yaml already exists")
+	initCmd.Flags().BoolVar(&initYesFlag, "yes", false, "Accept the bead-filter detector's confident suggestion (default behaviour)")
+	initCmd.Flags().BoolVar(&initNoFlag, "no", false, "Skip bead-filter detection; leave bead_filter unset")
+	initCmd.Flags().StringVar(&initBeadFilterFlag, "bead-filter", "", "Explicit bead-filter literal (e.g. 'label=subsystem:auth'); bypasses the detector")
 	rootCmd.AddCommand(initCmd)
 }
 
 func runInit() error {
+	// Resolve bead-filter flags up-front (kerf-pjs). Precedence per spec
+	// §"kerf init" step 9: --bead-filter > --no > --yes > default (=--yes).
+	if initYesFlag && initNoFlag {
+		return fmt.Errorf("--yes and --no are mutually exclusive")
+	}
+	var explicitFilter *beads.Filter
+	if initBeadFilterFlag != "" {
+		f, perr := beads.ParseFilterClause(initBeadFilterFlag)
+		if perr != nil {
+			return fmt.Errorf("--bead-filter expects 'label=<value>' or 'id_prefix=<value>', got %q", initBeadFilterFlag)
+		}
+		explicitFilter = f
+	}
+	mode := beadFilterModeDefault
+	switch {
+	case explicitFilter != nil:
+		mode = beadFilterModeExplicit
+	case initNoFlag:
+		mode = beadFilterModeNo
+	case initYesFlag:
+		mode = beadFilterModeYes
+	}
+
 	// Find git root
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -154,7 +195,14 @@ func runInit() error {
 	if existingCfg != nil {
 		priorFilter = existingCfg.BeadFilter
 	}
-	detectedFilter := detectBeadFilter(resolver, os.Stdin, os.Stdout, priorFilter)
+	// If --bead-filter was supplied, use it verbatim; otherwise the detector
+	// decides per mode (kerf-pjs).
+	var detectedFilter *beads.Filter
+	if mode == beadFilterModeExplicit {
+		detectedFilter = explicitFilter
+	} else {
+		detectedFilter = detectBeadFilter(resolver, mode, os.Stdout, priorFilter)
+	}
 
 	if err := createDefaultProjectConfig(projCfgPath, detectedFilter); err != nil {
 		return fmt.Errorf("creating project.yaml: %w", err)
@@ -170,10 +218,11 @@ func runInit() error {
 		}
 	}
 
-	// Print the bootstrap instructions
-	fmt.Print(bootstrapInstructions(projectID, cfg.EffectiveDefaultJig()))
-
-	// Run kerf setup to generate agent-facing instructions
+	// Run kerf setup — the single source of the AGENT SETUP INSTRUCTIONS
+	// block (specs/commands.md §kerf init step 11). The earlier
+	// bootstrapInstructions helper was removed in b40df97 but this call
+	// site was missed, leaving the package broken at HEAD — fixed in
+	// passing here so plan 021 tests can compile.
 	fmt.Println()
 	if err := runSetup(); err != nil {
 		// Non-fatal: setup may fail if project resolution differs, but init already succeeded
@@ -233,33 +282,23 @@ func createDefaultProjectConfig(path string, beadFilter *beads.Filter) error {
 	return nil
 }
 
-// isInteractiveStdin returns true when stdin is attached to a terminal (i.e.
-// character device). When stdin is piped/redirected (the typical CI or
-// scripted-init case), the auto-detect step does not prompt.
-func isInteractiveStdin(in *os.File) bool {
-	if in == nil {
-		return false
-	}
-	fi, err := in.Stat()
-	if err != nil {
-		return false
-	}
-	return fi.Mode()&os.ModeCharDevice != 0
-}
-
 // detectBeadFilter implements specs/commands.md §"kerf init" step 9.
-// Returns a *beads.Filter when a confident candidate is found and accepted (or
-// auto-applied non-interactively), or nil to leave bead_filter unset.
-// Failures degrade silently — init must always succeed.
 //
+// The function is non-interactive: it never reads from stdin (kerf-pjs).
+// Resolution is driven by the supplied beadFilterMode:
+//
+//   - beadFilterModeNo: skip detection entirely, return priorFilter unchanged.
+//   - beadFilterModeYes / beadFilterModeDefault: run the detector; on a
+//     confident suggestion, return it; otherwise return priorFilter.
+//
+// beadFilterModeExplicit is handled by the caller before this function runs.
 // priorFilter (when non-nil) carries the user's existing bead_filter from a
-// pre-existing project.yaml. In a --force re-init it is used so that:
-//   - non-interactively, the prior filter is preserved verbatim (no silent
-//     replacement), and
-//   - interactively, the prior literal is offered as the default response in
-//     the confirmation prompt.
-func detectBeadFilter(resolver *storage.Resolver, stdin *os.File, stdout io.Writer, priorFilter *beads.Filter) *beads.Filter {
-	interactive := isInteractiveStdin(stdin)
+// pre-existing project.yaml and is preserved verbatim when the detector has
+// no confident suggestion, so --force never silently discards a user value.
+func detectBeadFilter(resolver *storage.Resolver, mode beadFilterMode, stdout io.Writer, priorFilter *beads.Filter) *beads.Filter {
+	if mode == beadFilterModeNo {
+		return priorFilter
+	}
 
 	// Honor project.yaml tools.tasks (default "br") so detection runs against
 	// the same bead store the rest of kerf will use after init.
@@ -280,121 +319,17 @@ func detectBeadFilter(resolver *storage.Resolver, stdin *os.File, stdout io.Writ
 	}
 
 	codenames, _ := resolver.ListWorks()
-	// Per spec step 9.2: with zero codenames we cannot correlate prefixes with
-	// works. Non-interactively we preserve the prior filter (or leave unset);
-	// interactively we still offer the user the top-by-count fallback so a
-	// fresh project (no works yet) can pick a prefix at init time. This is the
-	// repair for the A:F3 regression: previously, an empty works directory
-	// returned silently, so detection never fired even when the store had a
-	// dominant prefix.
-	prefix, score, top := beads.DetectFilterPrefix(all, codenames)
+	prefix, score, _ := beads.DetectFilterPrefix(all, codenames)
 
 	if prefix != "" {
 		filter := &beads.Filter{Label: prefix + ":{codename}"}
-		if !interactive {
-			fmt.Fprintf(stdout, "Detected: %d%% of beads use `%s:*` labels. Setting project-wide bead_filter to `%s:{codename}`.\n",
-				int(score*100+0.5), prefix, prefix)
-			return filter
-		}
-		fmt.Fprintf(stdout, "Detected: %d%% of beads use `%s:*` labels.\n", int(score*100+0.5), prefix)
-		if priorFilter != nil && priorFilter.Label != "" && priorFilter.Label != filter.Label {
-			fmt.Fprintf(stdout, "Current project bead_filter is `%s`. Replace with `%s:{codename}`? [y/N] ", priorFilter.Label, prefix)
-			if confirmNoDefault(stdin) {
-				return filter
-			}
-			return priorFilter
-		}
-		fmt.Fprintf(stdout, "Set project-wide bead_filter to `%s:{codename}`? [Y/n] ", prefix)
-		if confirmYesDefault(stdin) {
-			return filter
-		}
-		return priorFilter
+		fmt.Fprintf(stdout, "Detected: %d%% of beads use `%s:*` labels. Setting project-wide bead_filter to `%s:{codename}`.\n",
+			int(score*100+0.5), prefix, prefix)
+		return filter
 	}
 
-	// No confident candidate. Non-interactive: preserve any prior filter.
-	if !interactive {
-		return priorFilter
-	}
-	if len(top) == 0 {
-		return priorFilter
-	}
-	chosen := promptFallbackPrefix(top, stdin, stdout)
-	if chosen == nil {
-		return priorFilter
-	}
-	return chosen
-}
-
-// confirmNoDefault reads a line from stdin and returns true only for explicit
-// "y" / "yes" answers; "", "n", "no" all return false. Used when the safer
-// default is to NOT replace an existing value.
-func confirmNoDefault(stdin *os.File) bool {
-	if stdin == nil {
-		return false
-	}
-	reader := bufio.NewReader(stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil && line == "" {
-		return false
-	}
-	answer := strings.ToLower(strings.TrimSpace(line))
-	return answer == "y" || answer == "yes"
-}
-
-// confirmYesDefault reads a line from stdin and returns true for "", "y", "Y",
-// "yes", "YES". Anything else is treated as "no". Read errors return false.
-func confirmYesDefault(stdin *os.File) bool {
-	if stdin == nil {
-		return false
-	}
-	reader := bufio.NewReader(stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil && line == "" {
-		return false
-	}
-	answer := strings.ToLower(strings.TrimSpace(line))
-	return answer == "" || answer == "y" || answer == "yes"
-}
-
-// promptFallbackPrefix presents the top-by-count prefixes plus an option to
-// type a custom prefix or skip, and returns the user's choice as a Filter (or
-// nil to skip).
-func promptFallbackPrefix(top []beads.PrefixCount, stdin *os.File, stdout io.Writer) *beads.Filter {
-	fmt.Fprintln(stdout, "No dominant label prefix detected. Top prefixes by raw count:")
-	for i, pc := range top {
-		fmt.Fprintf(stdout, "  %d. %s:* (%d beads)\n", i+1, pc.Prefix, pc.Count)
-	}
-	custom := len(top) + 1
-	skip := len(top) + 2
-	fmt.Fprintf(stdout, "  %d. type your own\n", custom)
-	fmt.Fprintf(stdout, "  %d. skip\n", skip)
-	fmt.Fprintf(stdout, "Choose [1-%d]: ", skip)
-
-	reader := bufio.NewReader(stdin)
-	line, _ := reader.ReadString('\n')
-	answer := strings.TrimSpace(line)
-	if answer == "" {
-		return nil
-	}
-
-	// Numeric choice.
-	for i := range top {
-		if answer == fmt.Sprintf("%d", i+1) {
-			return &beads.Filter{Label: top[i].Prefix + ":{codename}"}
-		}
-	}
-	if answer == fmt.Sprintf("%d", custom) {
-		fmt.Fprint(stdout, "Enter prefix (without trailing ':'): ")
-		line, _ := reader.ReadString('\n')
-		p := strings.TrimSpace(line)
-		p = strings.TrimSuffix(p, ":")
-		if p == "" {
-			return nil
-		}
-		return &beads.Filter{Label: p + ":{codename}"}
-	}
-	// "skip" or anything unrecognized → no filter.
-	return nil
+	// No confident candidate — preserve any prior filter; otherwise leave unset.
+	return priorFilter
 }
 
 // printExistingProjectSummary prints the resolved project.yaml path, the

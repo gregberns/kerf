@@ -47,9 +47,31 @@ plans/              # Change proposals. Each is a folder.
 2. If a spec gap blocks you: update the spec first, then code. The spec wins.
 3. Tests verify spec compliance, not just that code runs.
 
+## Parallel Implementation — Worktrees
+
+When more than one implementer agent runs concurrently, **each agent works in its own git worktree** off `main`. The orchestrator merges into `main` serially (or in independent batches).
+
+- Worktree path convention: `/tmp/kerf-wt-<bead-id>/` (or similar one-per-bead path).
+- Agents commit inside their worktree; they do not push, and they do not commit to the shared `main` working tree.
+- Orchestrator merges (`git merge --ff-only` when possible) after the reviewer has approved, then removes the worktree.
+- Dirty trees and pre-commit hooks that re-stage tracked files have produced commit-attribution incidents on `main` (work landing under the wrong bead's commit). Worktrees prevent this.
+
+## Review Gate — Functional Verification
+
+A reviewer must verify the feature works end-to-end against the spec sentence the bead claims to satisfy. Reading the diff alone is rubber-stamping.
+
+For each bead, the reviewer:
+1. Names the specific spec sentence the bead claims to satisfy.
+2. Runs the feature CLI (or invokes the function) against a minimal repro that exercises that sentence.
+3. Pastes the observed output.
+4. Confirms the observed output matches the spec.
+5. **Audits all call sites of the changed function/feature**, not just the bead's specific surface — the bead-tool config feature (commit `d965b9e`) shipped with 6 of 9 callers ignoring the config because the reviewer only checked the surface the bead named.
+
+If any of those steps cannot be done, the bead is not approved.
+
 ## Orchestration
 
 Three procedures in `.claude/commands/`:
 - **`plan-implementation`** — break specs into beads, get 3 critique agents, build dep graph. Before any code.
-- **`implement-beads`** — per-bead loop: dispatch → implementer commits → reviewer approves → merge → clear → next.
+- **`implement-beads`** — per-bead loop: dispatch (in worktree) → implementer commits → reviewer functionally verifies → orchestrator merges → clear → next.
 - **`spawn-workers`** — ntm + agent-mail reference.

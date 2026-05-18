@@ -29,6 +29,7 @@ import (
 
 	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/cmdutil"
+	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/snapshot"
 	"github.com/gberns/kerf/internal/spec"
 )
@@ -358,12 +359,20 @@ func specHasBeadFilter(specPath string) bool {
 // pre-edit *spec.SpecYAML) so the same code path serves both the "before"
 // and "after" sites.
 func attachedBeadCount(cn, specPath, projectID string, _ interface{}) (int, bool) {
-	_ = projectID
 	s, err := spec.Read(specPath)
 	if err != nil {
 		return 0, false
 	}
-	all, err := beads.List()
+	// Honor project.yaml tools.tasks (default "br") so the before/after count
+	// hits the same store as the rest of kerf (plan 021). Best-effort: any
+	// failure to resolve the tool name simply falls back to the default.
+	toolName := beads.DefaultToolName
+	if r, rerr := cmdutil.Resolver(projectID); rerr == nil {
+		if cfg, cerr := config.LoadProjectConfig(r.ProjectConfigPath()); cerr == nil && cfg != nil {
+			toolName = beads.ResolveToolName(cfg.Tools)
+		}
+	}
+	all, err := beads.ListNamed(toolName)
 	if err != nil {
 		return 0, false
 	}

@@ -139,7 +139,7 @@ func TestE2E_Plan006_AutoDetectAndBeadFeed(t *testing.T) {
 	// makeResolverWithWorks already creates the dirs; the call above doesn't
 	// matter for the test — we just need a resolver with ListWorks() output.
 	var detectBuf bytes.Buffer
-	got := detectBeadFilter(r, nonTTYStdin(t), &detectBuf, nil)
+	got := detectBeadFilter(r, beadFilterModeDefault, &detectBuf, nil)
 	if got == nil {
 		t.Fatalf("detectBeadFilter returned nil; expected subsystem:{codename}; out=%q", detectBuf.String())
 	}

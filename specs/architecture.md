@@ -284,10 +284,22 @@ This section is the canonical home for the `project.yaml` schema. Other specs th
 
 # Tool declarations for process jigs.
 # Declares which tools are used for each role in this project.
-# Informational — emitted in `kerf setup` output so agents know what to use.
+# `tasks` is functional: every kerf code path that reads from a bead store
+# (`kerf next`, `kerf triage`, `kerf show`, `kerf map`, `kerf pin`,
+# `kerf work edit`, and the `kerf init` bead-filter detector) shells out to
+# the binary named here. Default is `br`; common alternative is `bd`. The
+# key must name a binary on PATH that accepts the `br`-shape argv
+# (`<tool> list --format json --all --limit 0`) and emits the same JSON
+# envelope. Other keys (e.g. `orchestrator`) are informational and emitted
+# in `kerf setup` output so agents know what to use.
+# When `tasks` names a binary that is on PATH but fails (non-zero exit,
+# malformed JSON), kerf surfaces a `BEADS_TOOL_ERROR` diagnostic with the
+# tool name, exit code, and a stderr snippet rather than silently returning
+# zero beads. When the binary is not on PATH, kerf degrades silently
+# (no bead-derived data) so the rest of the tool keeps working.
 # tools:
 #   orchestrator: ntm         # agent orchestration tool
-#   tasks: br                 # task/bead management tool
+#   tasks: br                 # task/bead management tool — functional, see above
 
 # Queue scoring weights for `kerf next`.
 # Any field omitted falls back to its default. See coordination.md.

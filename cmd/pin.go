@@ -21,6 +21,7 @@ import (
 
 	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/cmdutil"
+	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/snapshot"
 	"github.com/gberns/kerf/internal/spec"
 )
@@ -81,8 +82,14 @@ func runPin(cmd *cobra.Command, codename, beadID string) error {
 	// that the bead ID exists in the bead store"; the validation here only
 	// fires when we have a store to check against, surfacing typos early
 	// without breaking the offline-pin case).
-	if beads.IsAvailable() {
-		all, lerr := beads.List()
+	// Honor project.yaml tools.tasks (default "br") so this existence check
+	// hits the same store as `kerf next` / `kerf triage` (plan 021).
+	pinTool := beads.DefaultToolName
+	if cfg, cerr := config.LoadProjectConfig(r.ProjectConfigPath()); cerr == nil && cfg != nil {
+		pinTool = beads.ResolveToolName(cfg.Tools)
+	}
+	if beads.IsAvailableNamed(pinTool) {
+		all, lerr := beads.ListNamed(pinTool)
 		if lerr == nil && len(all) > 0 {
 			found := false
 			for _, b := range all {

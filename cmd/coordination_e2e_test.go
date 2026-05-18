@@ -11,6 +11,7 @@ import (
 )
 
 func TestE2E_CoordinationFlow(t *testing.T) {
+	isolatePATH(t)
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 

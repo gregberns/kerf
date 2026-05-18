@@ -26,6 +26,17 @@ import (
 	"github.com/gberns/kerf/internal/feed"
 )
 
+// isolatePATH points PATH at an empty tempdir so that real `br` / `bd`
+// binaries installed on the developer's machine are not found during cmd-level
+// tests. Without this, plan 021's surfaced BEADS_TOOL_ERROR can leak into
+// tests that don't stage a fake binary — the original silent-degrade hid the
+// problem. Tests that explicitly want a working bead store stage their own
+// fake on PATH (or set HOME-rooted state) and don't call this helper.
+func isolatePATH(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+}
+
 // resetNextFlags clears the global flag-backed state between tests so a leak
 // from one case cannot poison another.
 func resetNextFlags() {
@@ -305,6 +316,7 @@ func TestKindSelection_UnknownKindErrors(t *testing.T) {
 // --- runNext integration: empty project emits the empty-feed one-liner -----
 
 func TestRunNext_EmptyProjectTextOneLiner(t *testing.T) {
+	isolatePATH(t)
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	// Create the bench project dir with no works.
@@ -329,6 +341,7 @@ func TestRunNext_EmptyProjectTextOneLiner(t *testing.T) {
 }
 
 func TestRunNext_EmptyProjectJSONIsEmptyArray(t *testing.T) {
+	isolatePATH(t)
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	if err := mkdirp(filepath.Join(tmp, ".kerf", "projects", "test-proj")); err != nil {
@@ -402,6 +415,7 @@ func TestRunNext_UnknownKindErrors(t *testing.T) {
 // --- runNext with a single active work: bead path renders some content -----
 
 func TestRunNext_SingleWorkTextProducesRanking(t *testing.T) {
+	isolatePATH(t)
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	projDir := filepath.Join(tmp, ".kerf", "projects", "test-proj")
@@ -438,6 +452,7 @@ func TestRunNext_SingleWorkTextProducesRanking(t *testing.T) {
 // L75): status is an open string. A work whose status is outside the
 // known set must NOT be dropped from the feed. Plan 008 / Bead 4 (kerf-1dm).
 func TestNext_UnknownStatus_RemainsVisible(t *testing.T) {
+	isolatePATH(t)
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	projDir := filepath.Join(tmp, ".kerf", "projects", "test-proj")
@@ -485,6 +500,7 @@ func TestNext_UnknownStatus_RemainsVisible(t *testing.T) {
 // "finalized" still suppresses the work. Lock both halves of the contract
 // so a future refactor of the status-exclusion block cannot regress either.
 func TestNext_FinalizedStatus_IsExcluded(t *testing.T) {
+	isolatePATH(t)
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	projDir := filepath.Join(tmp, ".kerf", "projects", "test-proj")
@@ -661,6 +677,7 @@ func TestComputeDriftSummary_FromWarnings(t *testing.T) {
 // array. Bead 11b spec: "Sync cache absent → empty baseline → first-run
 // shows everything as new; text rendering still works."
 func TestRunNext_CacheAbsent_FirstRunDoesNotCrash(t *testing.T) {
+	isolatePATH(t)
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	if err := mkdirp(filepath.Join(tmp, ".kerf", "projects", "test-proj")); err != nil {
