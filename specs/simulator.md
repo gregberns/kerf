@@ -33,7 +33,7 @@ No spec elsewhere in kerf depends on the simulator. Removing `kerfsim` would not
 `kerfsim` is invoked separately from `kerf`. It has no shared state, no shared config, and no implicit project context.
 
 ```
-kerfsim run <scenario.yaml> [--weights w.yaml] [--seed N] [--runs N] [--out dir/] [--agents-sweep "k1,k2,..."]
+kerfsim run <scenario.yaml> [--weights w.yaml] [--seed N] [--runs N] [--out dir/] [--quiet] [--verbose] [--format text|json] [--debug-dispatch path] [--agents-sweep "k1,k2,..."]
 kerfsim diff <runA-dir/> <runB-dir/>
 kerfsim sweep <scenario.yaml> --param weights.rework=5..30:5    # Phase 2
 ```
@@ -46,6 +46,10 @@ Executes one scenario and writes a run directory.
 - `--seed` — overrides the seed in the scenario file. Useful for repeat runs without editing the scenario.
 - `--runs N` — repeats the simulation with seeds `seed, seed+1, …, seed+N-1`, producing one run directory per seed plus an aggregate summary. The scenario generator re-runs per seed, so the dependency DAG, bead counts, and pre-rolled durations all vary across seeds. `kerfsim diff` of two `--runs` directories reports median plus p10/p90 across the N runs.
 - `--out` — output directory. Defaults to a timestamped directory under the current working directory.
+- `--quiet` — suppresses all stdout; only the exit code communicates outcome.
+- `--verbose` — streams the run's events to stdout after the run completes.
+- `--format` — output format for stdout. `text` (default) prints the rendered summary; `json` prints `summary.json`.
+- `--debug-dispatch` — writes per-arrival and per-dispatch JSONL diagnostics for the kerf policy to the given path. Only valid with `--runs=1`.
 - `--agents-sweep "k1,k2,..."` — comma-separated list of agent counts. Runs the scenario once per agent count, overriding the scenario's `agents:` field. Output layout: `<out>/<scenario>/seed_<n>/agents_<k>/<policy>/`. Also writes `<out>/<scenario>/sweep_summary.csv` with one row per `(agent_count, policy, seed)` combination (columns: `agent_count, policy, seed, work_completed, agent_idle_pct, top_of_queue_churn, area_collisions, goal_completion_3d, rework_p95_wait, priority_inversions`). Combines with `--runs N` (sweep is the outer loop). Each agent count must be ≥ 1; duplicates are deduped.
 
 ### `kerfsim diff`
@@ -227,7 +231,9 @@ Minimal example:
     "goal_completion_3d": 24,
     "goal_completion_7d": 28,
     "priority_inversions": 6,
-    "area_collisions": 3
+    "area_collisions": 3,
+    "merges_with_conflict": 2,
+    "merges_happy_path": 26
   },
   "baselines": {
     "random":     { "...": "same shape as metrics" },
@@ -281,6 +287,8 @@ Metrics are flat. No composite score. Each metric is reported on its own; reader
 | `goal_completion_1d`, `goal_completion_3d`, `goal_completion_7d` | Count of works terminal at fixed deadlines, expressed in scenario ticks. |
 | `priority_inversions` | Count of dispatches where a new-work bead was selected while a rework bead was queue-eligible. |
 | `area_collisions` | Count of intervals where two agents were assigned beads in the same area simultaneously. |
+| `merges_with_conflict` | Count of completed beads whose merge phase drew from `conflict_duration` (see Merge Model). Zero when no `merge_model` block is present. |
+| `merges_happy_path` | Count of completed beads whose merge phase drew from `base_duration` (see Merge Model). Zero when no `merge_model` block is present. |
 
 `agent_idle_pct` and `agent_ticks_total` are reported together because either alone misrepresents cost — a policy can beat another on completion while consuming far more agent time.
 

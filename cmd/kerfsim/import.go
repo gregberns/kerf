@@ -5,7 +5,7 @@
 // execute. Phase 1 supports harmonik pilots; kerf-plan ingestion is
 // stubbed for follow-up.
 //
-// Spec: specs/sim_corpus.md and specs/commands.md §kerfsim import.
+// Spec: specs/sim_corpus.md.
 package main
 
 import (

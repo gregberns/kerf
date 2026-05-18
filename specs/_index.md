@@ -56,6 +56,7 @@ The tool provides opinionated, built-in processes (**jigs**) that guide agents t
 ### Engineering
 - [testing.md](testing.md) — Testing strategy, layers, CI approach
 - [simulator.md](simulator.md) — `kerfsim` deterministic queue simulator: CLI, scenarios, weights, metrics, baselines, fidelity-layer phasing
+- [sim_corpus.md](sim_corpus.md) — `kerfsim import`: scenario corpus from harmonik pilots and kerf plans
 
 ### Scope
 - [future.md](future.md) — Explicitly out of scope for v1, with preserved context
