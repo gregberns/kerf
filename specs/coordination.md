@@ -257,6 +257,31 @@ An unmatched bead is a candidate for triage: `kerf triage` reports it as `untria
 
 The `work_no_attached_beads` cleanup detector (a work whose filter matches zero beads) and `untriaged_beads` (a bead matching no work) are complementary — they describe inverse zero-match conditions. They do not double-fire on the same work: a work with a zero-match filter surfaces only as `work_no_attached_beads`; the beads that fail to match are surfaced as `untriaged` items attributed to no specific work.
 
+#### Bead-filter rank labels
+
+A work whose resolved `bead_filter` matches zero open beads is classified into one of three rank labels. This tri-state replaces the earlier single `clean` label, which conflated three distinct conditions:
+
+- **`empty`** — `bead_filter` is declared and syntactically valid, but matches zero open beads in the current store. Likely benign: the work is wired, its beads simply have not been created yet.
+- **`unwired`** — no `bead_filter` key on the work's `spec.yaml`, or the key is present with an empty value. The work needs a filter authored (or bootstrapped from existing labels) before it can attach beads.
+- **`broken`** — `bead_filter` is declared but malformed (parse error, or references a clause shape kerf does not recognize). Surfaces as a configuration error rather than a benign zero-match.
+
+The three labels share the surface previously occupied by `work_no_attached_beads`: a zero-match work surfaces as exactly one of `empty`, `unwired`, or `broken`, not as the generic cleanup item. The detector logic and `kerf next` rendering are specified in [commands.md](commands.md#kerf-next).
+
+When the underlying filter parser cannot distinguish "malformed clause" from "valid clause that matches nothing," `broken` collapses into `empty` and the surface is a two-state classification. The distinction is preserved in this spec so the third label is available when parser support lands.
+
+#### Prefix routing for label-driven suggestions
+
+kerf commands that propose new works or bead-filter clauses from observed labels (notably `kerf triage` suggestions and `kerf bootstrap-filters`) classify label prefixes into two tiers:
+
+- **Tier 1 — cohort-defining prefixes.** Prefixes that identify a work cohort: `codename:`, `spec:`. A label with a tier-1 prefix may seed a `kerf new` suggestion or anchor a per-work `bead_filter` clause.
+- **Tier 2 — cross-cutting prefixes.** Prefixes that group beads orthogonally to work cohorts: `axis:`, `tag:`, `kind:`, `scope:`, plus any prefix not on the tier-1 list. A tier-2 label never seeds a `kerf new` suggestion; it may still appear inside a clause when paired with a tier-1 anchor.
+
+Tier 1 is a small, explicit allow-list rather than a tier-2 deny-list, so an unfamiliar prefix (`subsystem:`, `area:`, etc.) falls to tier 2 by default. This keeps suggestions conservative when a project introduces a prefix kerf has not seen.
+
+When a bead's labels are all tier 2, the suggester falls back to pinning the bead against the lexicographically-earliest active work (see [Pin Layer](#pin-layer)), or to "no auto-suggestion; investigate manually" when no active work exists. Suggesters also consult archive state before proposing `kerf new <codename>` — an archived codename produces a re-pin / unarchive hint instead.
+
+The tier-1 list is currently fixed in code. A project-level override (e.g., a `cohort_prefixes:` slot in `project.yaml`) is contemplated but not specified here; see plan 018.
+
 ### Pin Layer
 
 The **pin layer** attaches specific bead IDs to specific works regardless of filter outcome. Each work's `spec.yaml` carries a `pinned_beads:` list (see [works.md](works.md)). Pins exist for the case where a bead cannot reasonably be caught by any filter clause and editing the filter would over-broaden it.

@@ -164,8 +164,10 @@ areas:                                  # list of strings, optional (empty list 
   - api-gateway
 
 # Bead attachment — see coordination.md
-# Optional. When set, overrides the project-wide bead_filter for this work.
-# When omitted, the project filter (or built-in default) applies.
+# Always emitted by `kerf new` (value may be empty). When set with a non-empty
+# value, overrides the project-wide bead_filter for this work. When the key is
+# present but empty, resolution falls through to the project filter (and then
+# to the built-in default) exactly as if the key were absent.
 bead_filter:                            # object, optional
   any:
     - label: "subsystem:bridge"
@@ -219,7 +221,7 @@ implementation:                         # object, optional
 | `areas` | list\<string\> | no | `[]` | yes | Area names from `areas.yaml`. See [coordination](coordination.md). |
 | `depends_on` | list\<dependency\> | no | `[]` | yes | Work dependencies. See [dependencies](dependencies.md). |
 | `related_to` | list\<relationship\> | no | `[]` | yes | Cross-work relationships beyond dependencies (e.g., co-design). See [coordination](coordination.md). |
-| `bead_filter` | object | no | — | yes | Per-work override for which beads attach to this work. See [coordination](coordination.md#bead-attachment). |
+| `bead_filter` | object | no | empty object emitted by `kerf new` | yes | Per-work override for which beads attach to this work. `kerf new` always emits the key (with an empty value when the user provides no clauses). An absent key and a present-but-empty key resolve identically — both fall through to the project filter — but new works canonicalize on the present-but-empty form. See [coordination](coordination.md#bead-attachment). |
 | `pinned_beads` | list\<string\> | no | `[]` | yes | Explicit bead IDs attached to this work. Single-owner: a bead ID appears in at most one work's `pinned_beads` across the project. See [coordination](coordination.md#pin-layer) and [commands.md](commands.md#kerf-pin). |
 | `implementation` | object | no | `{branch: null, pr: null, commits: []}` | yes | Populated at [finalization](finalization.md). |
 
