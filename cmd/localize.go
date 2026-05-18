@@ -13,6 +13,8 @@ import (
 	"github.com/gberns/kerf/internal/storage"
 )
 
+var localizeCheckFlag bool
+
 var localizeCmd = &cobra.Command{
 	Use:   "localize",
 	Short: "Migrate this project from bench storage to local (in-repo) storage",
@@ -21,6 +23,8 @@ var localizeCmd = &cobra.Command{
 .kerf/config.yaml with storage: local, and creates a symlink on the bench
 pointing at the repo's works directory so cross-project queries still work.
 
+Use --check (alias --dry-run) to preview the migration without touching disk.
+
 To go back to bench storage (no automated command in v1):
   1. mv .kerf/works/* ~/.kerf/projects/{project-id}/
   2. mv .kerf/project.yaml ~/.kerf/projects/{project-id}/project.yaml
@@ -28,12 +32,117 @@ To go back to bench storage (no automated command in v1):
   4. mkdir ~/.kerf/projects/{project-id} and move works back, or just rename
   5. Remove the storage field from .kerf/config.yaml.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if localizeCheckFlag {
+			return runLocalizeCheck()
+		}
 		return runLocalize()
 	},
 }
 
 func init() {
+	localizeCmd.Flags().BoolVar(&localizeCheckFlag, "check", false, "Preview the migration without changing anything on disk")
+	localizeCmd.Flags().BoolVar(&localizeCheckFlag, "dry-run", false, "Alias for --check")
 	rootCmd.AddCommand(localizeCmd)
+}
+
+// runLocalizeCheck performs steps 1–5 of the localize flow (resolution and
+// pre-flight verification) and prints the planned moves without mutating
+// anything on disk. See specs/commands.md `kerf localize --check`.
+func runLocalizeCheck() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+
+	repoRoot, err := project.FindGitRoot(cwd)
+	if err != nil {
+		if projectFlag == "" {
+			return fmt.Errorf("not in a git repository. Use --project <project-id> to specify a project")
+		}
+		return fmt.Errorf("kerf localize must be run from inside the target repo")
+	}
+
+	projectID, err := cmdutil.ResolveProject(projectFlag)
+	if err != nil {
+		return err
+	}
+
+	bp, err := bench.BenchPath()
+	if err != nil {
+		return err
+	}
+
+	repoCfg, err := storage.LoadRepoConfig(repoRoot)
+	if err != nil {
+		return err
+	}
+	if repoCfg.Storage == string(storage.ModeLocal) {
+		fmt.Printf("Already using local storage for project '%s'.\n", projectID)
+		return nil
+	}
+
+	benchProjectDir := filepath.Join(bp, "projects", projectID)
+	if info, err := os.Lstat(benchProjectDir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s is already a symlink; project may already be localized", benchProjectDir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s exists but is not a directory", benchProjectDir)
+		}
+	}
+
+	repoKerfDir := filepath.Join(repoRoot, ".kerf")
+	repoWorksDir := filepath.Join(repoKerfDir, "works")
+	if info, err := os.Stat(repoWorksDir); err == nil {
+		entries, _ := os.ReadDir(repoWorksDir)
+		if info.IsDir() && len(entries) > 0 {
+			return fmt.Errorf("%s already exists and is not empty; aborting", repoWorksDir)
+		}
+	}
+
+	var plannedWorks []string
+	var planProjectYAML, planAreasYAML bool
+	if _, err := os.Stat(benchProjectDir); err == nil {
+		entries, err := os.ReadDir(benchProjectDir)
+		if err != nil {
+			return fmt.Errorf("reading bench project dir: %w", err)
+		}
+		for _, e := range entries {
+			switch e.Name() {
+			case "project.yaml":
+				planProjectYAML = true
+				continue
+			case "areas.yaml":
+				planAreasYAML = true
+				continue
+			}
+			if e.IsDir() {
+				plannedWorks = append(plannedWorks, e.Name())
+			}
+		}
+	}
+
+	fmt.Printf("Preview: would localize project '%s' (no changes made).\n", projectID)
+	fmt.Println()
+	if len(plannedWorks) == 0 {
+		fmt.Printf("No works to move from %s.\n", benchProjectDir)
+	} else {
+		fmt.Printf("Would move %d work directories from %s -> %s:\n", len(plannedWorks), benchProjectDir, repoWorksDir)
+		for _, w := range plannedWorks {
+			fmt.Printf("  %s/%s -> %s/%s\n", benchProjectDir, w, repoWorksDir, w)
+		}
+	}
+	if planProjectYAML {
+		fmt.Printf("Would move %s/project.yaml -> %s/project.yaml\n", benchProjectDir, repoKerfDir)
+	}
+	if planAreasYAML {
+		fmt.Printf("Would move %s/areas.yaml -> %s/areas.yaml\n", benchProjectDir, repoKerfDir)
+	}
+	fmt.Printf("Would replace %s with symlink -> %s\n", benchProjectDir, repoWorksDir)
+	fmt.Printf("Would set storage: local in %s/config.yaml\n", repoKerfDir)
+	fmt.Println()
+	fmt.Println("Re-run without --check to apply.")
+	return nil
 }
 
 func runLocalize() error {

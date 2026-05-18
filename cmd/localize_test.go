@@ -94,6 +94,80 @@ func TestLocalize_MigratesWorksFromBenchToRepo(t *testing.T) {
 	}
 }
 
+func TestLocalize_CheckPreviewDoesNotMutate(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := testutil.SetupGitRepo(t)
+	t.Chdir(repo)
+
+	bp := filepath.Join(tmp, ".kerf")
+
+	captureOutput(t, func() {
+		projectFlag = ""
+		newJigFlag = "bug"
+		newTitle = "test"
+		defer func() { newJigFlag = ""; newTitle = "" }()
+		newCmd.RunE(newCmd, []string{"work-a"})
+	})
+
+	pidBytes, err := os.ReadFile(filepath.Join(repo, ".kerf", "project-identifier"))
+	if err != nil {
+		t.Fatalf("reading project-identifier: %v", err)
+	}
+	projectID := strings.TrimSpace(string(pidBytes))
+
+	benchWorkDir := filepath.Join(bp, "projects", projectID, "work-a")
+	if _, err := os.Stat(benchWorkDir); err != nil {
+		t.Fatalf("work not on bench before localize --check: %v", err)
+	}
+
+	out := captureOutput(t, func() {
+		projectFlag = ""
+		localizeCheckFlag = true
+		defer func() { localizeCheckFlag = false }()
+		if err := localizeCmd.RunE(localizeCmd, nil); err != nil {
+			t.Fatalf("localize --check failed: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "Preview:") {
+		t.Errorf("expected 'Preview:' header in --check output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "work-a") {
+		t.Errorf("expected work-a in preview output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Re-run without --check") {
+		t.Errorf("expected hint to re-run without --check, got:\n%s", out)
+	}
+
+	// Nothing should have been mutated: bench still has the work, and the repo
+	// has no .kerf/works/ directory, no symlink at the bench project path.
+	if _, err := os.Stat(benchWorkDir); err != nil {
+		t.Errorf("--check mutated bench (work-a missing): %v", err)
+	}
+	repoWorks := filepath.Join(repo, ".kerf", "works")
+	if _, err := os.Stat(repoWorks); err == nil {
+		t.Errorf("--check created %s; should be no-op", repoWorks)
+	}
+	link := filepath.Join(bp, "projects", projectID)
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf("bench project dir missing: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("--check replaced bench dir with symlink; should be no-op")
+	}
+
+	cfg, err := storage.LoadRepoConfig(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Storage == "local" {
+		t.Errorf("--check wrote storage: local; should be no-op")
+	}
+}
+
 func TestLocalize_AlreadyLocal(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
