@@ -43,6 +43,8 @@ Harmonik is the user's dogfooding project for kerf. Between 2026-05-15 and 2026-
 - **Spec-only** — agent-setup instruction text, gitignore guidance, filter-syntax convention documentation.
 - **Quick-fix bundle** — `clean` → `evaluated` wording, `kerf triage --kind=multi_matched` zero-handling, "Now matches: N beads" wording, `--quiet` flag on `kerf status` transitions.
 
+Spawned plans 016–020 — see `plans/016_init_ux_overhaul/_plan.md`, `plans/017_storage_reconciliation/_plan.md`, `plans/018_triage_rework/_plan.md`, `plans/019_filter_bootstrap/_plan.md`, `plans/020_jig_review_gate/_plan.md`.
+
 ## Open questions for the user
 
 1. **Should new plans 016–020 collapse into fewer plans?** Five new plans is on the high end. A reasonable alternative: one combined plan ("Plan 016 — bootstrap UX cleanup") for 016 + 017 + 019, leaving 018 (triage) and 020 (jig) standalone. Default: split as proposed — each has distinct surface area.
