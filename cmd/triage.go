@@ -31,9 +31,11 @@ import (
 	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/config"
+	"github.com/gberns/kerf/internal/doctor"
 	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/feed"
 	"github.com/gberns/kerf/internal/spec"
+	"github.com/gberns/kerf/internal/storage"
 )
 
 // Triage item kinds and external_drift sub-kinds (per
@@ -487,6 +489,14 @@ func runTriage(cmd *cobra.Command) error {
 			if rerr := renderTriageText(out, projectID, report, untriaged, multiMatched, external, triageTop, groupBy); rerr != nil {
 				return rerr
 			}
+			// Plan 017 / B12 (kerf-pb4): append the one-line storage-drift
+			// footer when `kerf doctor --detector storage-drift` would
+			// surface any non-green finding. Spec: specs/commands.md
+			// §"kerf triage" §"Storage-drift footer". Suppression
+			// (kerf-bwd) follows in a separate bead; --ack already
+			// short-circuits the render path, so the single-line baseline
+			// confirmation stays clean.
+			renderStorageDriftFooter(out, projectID, r)
 		}
 	}
 
@@ -701,6 +711,49 @@ func renderSectionHeader(out io.Writer, label string, total, hidden int) {
 	} else {
 		fmt.Fprintf(out, "%s (%d):\n", label, total)
 	}
+}
+
+// renderStorageDriftFooter appends the one-line storage-drift footer to
+// `kerf triage` text output when the `storage-drift` doctor detector
+// would surface any non-green finding for the current project. Per
+// specs/commands.md §"kerf triage" §"Storage-drift footer", the footer
+// mirrors the one rendered by `kerf next` and points the agent at
+// `kerf doctor` for details.
+//
+// Failure modes inside the detector (e.g., bench unreadable) are
+// intentionally silent here: a diagnostic surface should never gate the
+// primary triage report on its own infra error. The footer simply
+// elides when the detector cannot answer.
+func renderStorageDriftFooter(out io.Writer, projectID string, r *storage.Resolver) {
+	if r == nil {
+		return
+	}
+	d, ok := doctor.DefaultRegistry.Get("storage-drift")
+	if !ok {
+		return
+	}
+	findings, err := d.Run(&doctor.Context{
+		ProjectID: projectID,
+		Resolver:  r,
+		BenchPath: r.BenchPath,
+	})
+	if err != nil {
+		return
+	}
+	nonGreen := 0
+	for _, f := range findings {
+		if f.Severity != doctor.Green {
+			nonGreen++
+		}
+	}
+	if nonGreen == 0 {
+		return
+	}
+	plural := ""
+	if nonGreen != 1 {
+		plural = "s"
+	}
+	fmt.Fprintf(out, "note: %d storage finding%s — run 'kerf doctor' for details\n", nonGreen, plural)
 }
 
 // renderTruncationFooter prints the "... and X more — use --top 0 for

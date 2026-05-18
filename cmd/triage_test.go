@@ -1187,3 +1187,119 @@ func TestTriage_GroupByRejectsUnknown(t *testing.T) {
 		t.Fatalf("want unknown --group-by rejection, got %v", err)
 	}
 }
+
+// TestTriage_StorageDriftFooter — Plan 017 / B12 (kerf-pb4): when the
+// `storage-drift` doctor detector would surface a non-green finding,
+// the text report appends a one-line footer pointing at `kerf doctor`.
+// A clean project produces no footer; --ack suppresses the footer along
+// with the rest of the report.
+func TestTriage_StorageDriftFooter(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	stubBr(t, `[{"id":"a-1","title":"t","status":"open","labels":["subsystem:alpha"]}]`)
+
+	// Clean: no drift → no footer.
+	resetTriageFlags()
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	clean, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("clean runTriage: %v", err)
+	}
+	if strings.Contains(clean, "storage finding") {
+		t.Fatalf("clean project must not emit drift footer; got:\n%s", clean)
+	}
+
+	// Induce drift: archive entry collides with the live `alpha` work
+	// (bench-mode archive lives at $HOME/.kerf/archive/<projectID>/<codename>).
+	home := os.Getenv("HOME")
+	archDir := filepath.Join(home, ".kerf", "archive", projectID, "alpha")
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
+		t.Fatalf("mkdir archive: %v", err)
+	}
+
+	resetTriageFlags()
+	dirty, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("dirty runTriage: %v", err)
+	}
+	if !strings.Contains(dirty, "note: 1 storage finding — run 'kerf doctor' for details") {
+		t.Fatalf("expected drift footer; got:\n%s", dirty)
+	}
+	// Footer is the tail of the report — last non-empty line.
+	lines := strings.Split(strings.TrimRight(dirty, "\n"), "\n")
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "note: ") {
+		t.Fatalf("footer must be the final line; got last=%q full:\n%s", last, dirty)
+	}
+}
+
+// TestTriage_StorageDriftFooter_AckSuppression — --ack short-circuits
+// the full render path, so the drift footer never appears even when
+// storage drift exists. Uses a real git repo to satisfy the --ack
+// baseline-advancement preconditions.
+func TestTriage_StorageDriftFooter_AckSuppression(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	repo := testutil.SetupGitRepo(t)
+	t.Chdir(repo)
+	projectID := "ack-drift-proj"
+
+	projDir := filepath.Join(tmp, ".kerf", "projects", projectID)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projDir, "project.yaml"), []byte("jigs: []\n"), 0o644); err != nil {
+		t.Fatalf("write project.yaml: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".kerf"), 0o755); err != nil {
+		t.Fatalf("mkdir .kerf: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".kerf", "project-identifier"), []byte(projectID), 0o644); err != nil {
+		t.Fatalf("write project-identifier: %v", err)
+	}
+	workDir := filepath.Join(projDir, "alpha")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatalf("mkdir work: %v", err)
+	}
+	if err := spec.Write(filepath.Join(workDir, "spec.yaml"), &spec.SpecYAML{
+		Codename:     "alpha",
+		Type:         "feature",
+		Project:      spec.Project{ID: projectID},
+		Jig:          "implementation",
+		JigVersion:   1,
+		Status:       "implement",
+		StatusValues: []string{"breakdown", "dispatch", "implement", "review", "squared"},
+		Created:      time.Now(),
+		Updated:      time.Now(),
+		BeadFilter:   &beads.Filter{Label: "subsystem:alpha"},
+	}); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	stubBr(t, `[{"id":"a-1","title":"t","status":"open","labels":["subsystem:alpha"]}]`)
+
+	// Induce drift via archive/live collision on `alpha`.
+	if err := os.MkdirAll(filepath.Join(tmp, ".kerf", "archive", projectID, "alpha"), 0o755); err != nil {
+		t.Fatalf("mkdir archive: %v", err)
+	}
+
+	resetTriageFlags()
+	t.Cleanup(resetTriageFlags)
+	triageAck = true
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("ack runTriage: %v", err)
+	}
+	if strings.Contains(out, "storage finding") {
+		t.Fatalf("--ack must not emit drift footer; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Baseline advanced to") {
+		t.Fatalf("--ack should emit single-line baseline confirmation; got:\n%s", out)
+	}
+}
