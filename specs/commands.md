@@ -167,7 +167,7 @@ kerf list [--status <status>] [--project <project-id>] [--all] [--created-by <se
 | `--status` | No | — | Filter to works with this status. |
 | `--project` | No | Inferred from cwd | Show works for this project. |
 | `--all` | No | `false` | Include archived works. |
-| `--created-by <self\|all>` | No | `all` | Filter by work creator. `self` restricts the list to works created by the current agent's session identity; `all` (the default) lists every work. When multi-agent works are present and `--created-by all` is in effect, each row carries an attribution marker so the active agent can tell its own works apart from others. <!-- TBD: open question 4 from plan 019 — whether per-session attribution lives on spec.yaml or needs a sessions.md schema extension. --> |
+| `--created-by <self\|all>` | No | `all` | Filter by work creator. `self` restricts the list to works whose creator session matches the current agent's session identity; `all` (the default) lists every work. The creator is `sessions[0]` on each work's `spec.yaml` (see [sessions.md](sessions.md#creator-attribution)); no schema addition is needed. The current session identity comes from the `KERF_SESSION_ID` environment variable, or is treated as anonymous when unset. When `--created-by all` is in effect, each row carries an attribution marker — `(you)` for works whose creator matches the current identity, or `(by <id-prefix>)` for works created elsewhere — so the active agent can tell its own works apart from others. |
 
 ### Behavior
 
@@ -177,6 +177,7 @@ kerf list [--status <status>] [--project <project-id>] [--all] [--created-by <se
 4. If `--status` is set, filter to works matching that status.
 5. Sort works by `updated` timestamp, most recent first.
 6. Read dependency information from each work's `spec.yaml`.
+7. If `--created-by self` is set, drop works whose creator session (first entry in `sessions`) does not match the current identity (`KERF_SESSION_ID`, or anonymous when unset). If `--created-by all` (the default) is in effect, retain every row but render an attribution marker next to each codename: `(you)` when the creator matches the current identity, `(by <id-prefix>)` (first 8 characters of the creator session id) when it does not, and `(by anon)` for works whose creator session has no id.
 
 ### Output
 
