@@ -63,6 +63,10 @@ func runShow(cmd *cobra.Command, args []string) error {
 		fmt.Println("Areas: (none)")
 	}
 	fmt.Printf("Jig: %s (v%d)\n", s.Jig, s.JigVersion)
+	// Bead filter slot — always rendered per specs/commands.md §`kerf show`
+	// ("Bead filter ... always rendered as a single line"). Literal value
+	// when present, `(none)` when absent or present-but-empty.
+	fmt.Printf("bead_filter: %s\n", renderBeadFilterSlot(s.BeadFilter))
 	fmt.Printf("Created: %s\n", s.Created.Format(time.RFC3339))
 	fmt.Printf("Updated: %s\n", s.Updated.Format(time.RFC3339))
 	fmt.Println()
@@ -555,6 +559,46 @@ func getAttachedBeadsBlock(s *spec.SpecYAML) string {
 	}
 	// Trim trailing newline so the caller's fmt.Println() does not double-blank.
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// renderBeadFilterSlot returns the single-line literal for a work's
+// bead_filter slot, per specs/commands.md §`kerf show` and `kerf work show`.
+//   - nil / empty filter → "(none)"
+//   - single leaf (label / id_prefix) → "label=<v>" or "id_prefix=<v>"
+//   - any: union → comma-joined leaves in source order
+func renderBeadFilterSlot(f *beads.Filter) string {
+	if f == nil {
+		return "(none)"
+	}
+	if len(f.Any) > 0 {
+		parts := make([]string, 0, len(f.Any))
+		for i := range f.Any {
+			if leaf := renderLeafClause(&f.Any[i]); leaf != "" {
+				parts = append(parts, leaf)
+			}
+		}
+		if len(parts) == 0 {
+			return "(none)"
+		}
+		return strings.Join(parts, ", ")
+	}
+	if leaf := renderLeafClause(f); leaf != "" {
+		return leaf
+	}
+	return "(none)"
+}
+
+func renderLeafClause(f *beads.Filter) string {
+	if f == nil {
+		return ""
+	}
+	if f.Label != "" {
+		return "label=" + f.Label
+	}
+	if f.IDPrefix != "" {
+		return "id_prefix=" + f.IDPrefix
+	}
+	return ""
 }
 
 // isClosedShowStatus is the closed-status predicate used by the attached

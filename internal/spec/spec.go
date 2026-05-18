@@ -1,8 +1,10 @@
 package spec
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"regexp"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -160,9 +162,49 @@ func Write(path string, spec *SpecYAML) error {
 		return fmt.Errorf("marshaling spec.yaml: %w", err)
 	}
 
+	// Per specs/works.md and specs/commands.md `kerf new` step 6: the
+	// `bead_filter` key is always emitted in canonical spec.yaml output,
+	// with an empty value when the work has no per-work filter. The
+	// `omitempty` tag drops the key when BeadFilter is nil; restore it
+	// here so new works canonicalize on the present-but-empty form.
+	// "Absent key" and "present-but-empty key" resolve identically (see
+	// internal/beads/filter.go Resolve and the works.md bead_filter row).
+	data = ensureBeadFilterPresent(data)
+
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("writing spec.yaml: %w", err)
 	}
 
 	return nil
+}
+
+// beadFilterKeyRE matches a top-level `bead_filter:` line — any non-indented
+// occurrence of the key at column 0.
+var beadFilterKeyRE = regexp.MustCompile(`(?m)^bead_filter:`)
+
+// ensureBeadFilterPresent guarantees the serialized spec.yaml contains a
+// `bead_filter:` key at the top level. When the key is already present (in
+// any form — empty, leaf clause, or `any:` union) the input is returned
+// unchanged. When absent — the `omitempty` tag drops a nil pointer — an
+// empty-value key is inserted before `pinned_beads:` (the conventional
+// neighbour per the works.md schema example).
+func ensureBeadFilterPresent(data []byte) []byte {
+	if beadFilterKeyRE.Match(data) {
+		return data
+	}
+	// Insert before pinned_beads: (the field that follows bead_filter in
+	// the canonical works.md layout). If pinned_beads: is missing too,
+	// append at end.
+	marker := []byte("\npinned_beads:")
+	idx := bytes.Index(data, marker)
+	insertion := []byte("bead_filter:\n")
+	if idx < 0 {
+		return append(append([]byte{}, data...), insertion...)
+	}
+	// Insert insertion at the start of the pinned_beads line.
+	out := make([]byte, 0, len(data)+len(insertion))
+	out = append(out, data[:idx+1]...) // include the '\n'
+	out = append(out, insertion...)
+	out = append(out, data[idx+1:]...)
+	return out
 }

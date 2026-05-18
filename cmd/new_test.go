@@ -445,17 +445,19 @@ func TestNewCommand_BeadFilter_Absent(t *testing.T) {
 		t.Fatalf("reading spec.yaml: %v", err)
 	}
 	if s.BeadFilter != nil {
-		t.Errorf("expected BeadFilter to be nil when --bead-filter absent, got %+v", s.BeadFilter)
+		t.Errorf("expected BeadFilter to be nil (parses as absent) when --bead-filter absent, got %+v", s.BeadFilter)
 	}
 
-	// bead_filter key should be omitted (omitempty).
+	// Per Plan 019 (kerf-3ac): bead_filter key is always emitted by
+	// `kerf new`, with an empty value when no clause is supplied. Absent
+	// and present-but-empty resolve identically.
 	raw, err := os.ReadFile(specPath)
 	if err != nil {
 		t.Fatalf("reading raw spec.yaml: %v", err)
 	}
 	rawStr := string(raw)
-	if strings.Contains(rawStr, "bead_filter:") {
-		t.Errorf("expected bead_filter key to be omitted, got:\n%s", rawStr)
+	if !strings.Contains(rawStr, "bead_filter:") {
+		t.Errorf("expected bead_filter key to be present (always-emit), got:\n%s", rawStr)
 	}
 	// pinned_beads: [] must always render.
 	testutil.AssertStringContains(t, rawStr, "pinned_beads: []")
