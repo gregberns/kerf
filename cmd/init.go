@@ -319,9 +319,12 @@ func detectBeadFilter(resolver *storage.Resolver, mode beadFilterMode, stdout io
 	}
 
 	codenames, _ := resolver.ListWorks()
-	prefix, score, _ := beads.DetectFilterPrefix(all, codenames)
+	prefix, score, _, confidence := beads.DetectFilterPrefixConfidence(all, codenames)
 
-	if prefix != "" {
+	// Only ConfidenceConfident produces a suggestion. ConfidenceLow and
+	// ConfidenceNone both stay silent per Plan 016 Open Q 2 — kerf init
+	// leaves bead_filter unset and the agent can set it later.
+	if confidence == beads.ConfidenceConfident && prefix != "" {
 		filter := &beads.Filter{Label: prefix + ":{codename}"}
 		fmt.Fprintf(stdout, "Detected: %d%% of beads use `%s:*` labels. Setting project-wide bead_filter to `%s:{codename}`.\n",
 			int(score*100+0.5), prefix, prefix)

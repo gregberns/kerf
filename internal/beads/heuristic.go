@@ -14,6 +14,43 @@ type PrefixCount struct {
 	Count  int
 }
 
+// Confidence classifies the detector's verdict for a given bead store (kerf-yxl).
+// "Confident" callers may auto-apply the suggested filter; anything else means
+// kerf init stays silent and leaves bead_filter unset. See
+// specs/commands.md §"kerf init" step 9 for the threshold semantics.
+type Confidence int
+
+const (
+	// ConfidenceNone — the store is empty, too small, or has no prefix that
+	// clears either the count floor or the score floor. No suggestion.
+	ConfidenceNone Confidence = iota
+	// ConfidenceLow — a candidate exists but does not clear both floors
+	// (currently: ≥ minPrefixCountFloor beads and match score > minPrefixScoreFloor).
+	// kerf init treats this as "silent" per Plan 016 Open Q 2.
+	ConfidenceLow
+	// ConfidenceConfident — a candidate clears both floors and may be applied.
+	ConfidenceConfident
+)
+
+// String renders the Confidence value for diagnostics.
+func (c Confidence) String() string {
+	switch c {
+	case ConfidenceConfident:
+		return "confident"
+	case ConfidenceLow:
+		return "low-confidence"
+	default:
+		return "none"
+	}
+}
+
+// Floor values for the bead-filter detector (kerf-yxl). Kept as named
+// constants so spec changes have one place to update.
+const (
+	minPrefixCountFloor = 3   // absolute-count floor: a prefix needs at least this many beads
+	minPrefixScoreFloor = 0.5 // score floor: matched/total must exceed this
+)
+
 // DetectFilterPrefix implements the kerf init step 8 auto-detect algorithm
 // (specs/commands.md §"kerf init", step 8).
 //
@@ -88,7 +125,7 @@ func DetectFilterPrefix(all []Bead, codenames []string) (prefix string, matchSco
 		}
 	}
 
-	// Filter to prefixes with at least 3 beads.
+	// Filter to prefixes with at least minPrefixCountFloor beads.
 	type scored struct {
 		prefix string
 		total  int
@@ -96,7 +133,7 @@ func DetectFilterPrefix(all []Bead, codenames []string) (prefix string, matchSco
 	}
 	var candidates []scored
 	for p, s := range prefixStats {
-		if s.total < 3 {
+		if s.total < minPrefixCountFloor {
 			continue
 		}
 		score := 0.0
@@ -126,10 +163,10 @@ func DetectFilterPrefix(all []Bead, codenames []string) (prefix string, matchSco
 		topByCount = append(topByCount, PrefixCount{Prefix: candidates[i].prefix, Count: candidates[i].total})
 	}
 
-	// Pick the highest match_score above 0.5. Ties broken by raw count, then alphabetically.
+	// Pick the highest match_score above minPrefixScoreFloor. Ties broken by raw count, then alphabetically.
 	bestIdx := -1
 	for i := range candidates {
-		if candidates[i].score <= 0.5 {
+		if candidates[i].score <= minPrefixScoreFloor {
 			continue
 		}
 		if bestIdx == -1 {
@@ -152,4 +189,32 @@ func DetectFilterPrefix(all []Bead, codenames []string) (prefix string, matchSco
 		return "", 0, topByCount
 	}
 	return candidates[bestIdx].prefix, candidates[bestIdx].score, topByCount
+}
+
+// DetectFilterPrefixConfidence wraps DetectFilterPrefix with an explicit
+// tri-state verdict (kerf-yxl). It returns the same prefix/score/topByCount as
+// the underlying call plus a Confidence value:
+//
+//   - ConfidenceConfident: a candidate cleared both the count and score floors.
+//     kerf init may auto-apply the returned prefix.
+//   - ConfidenceLow: at least one prefix met the count floor but no candidate
+//     met the score floor. The detector has nothing to confidently suggest;
+//     kerf init stays silent per Plan 016 Open Q 2.
+//   - ConfidenceNone: the bead store is empty, or no prefix carries at least
+//     minPrefixCountFloor beads. Includes the empty-corpus and 1-bead cases.
+//
+// Tests cover empty / 1-bead / mixed-prefix / dominant-prefix corpora.
+func DetectFilterPrefixConfidence(all []Bead, codenames []string) (prefix string, matchScore float64, topByCount []PrefixCount, confidence Confidence) {
+	prefix, matchScore, topByCount = DetectFilterPrefix(all, codenames)
+	switch {
+	case prefix != "":
+		confidence = ConfidenceConfident
+	case len(topByCount) > 0:
+		// A candidate cleared the count floor but no prefix beat the score
+		// floor — low-confidence territory.
+		confidence = ConfidenceLow
+	default:
+		confidence = ConfidenceNone
+	}
+	return prefix, matchScore, topByCount, confidence
 }

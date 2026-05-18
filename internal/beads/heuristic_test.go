@@ -111,6 +111,66 @@ func TestDetectFilterPrefix_CaseSensitive(t *testing.T) {
 	}
 }
 
+// kerf-yxl: empty store returns ConfidenceNone — the detector stays silent.
+func TestDetectFilterPrefixConfidence_EmptyCorpus(t *testing.T) {
+	prefix, score, top, conf := DetectFilterPrefixConfidence(nil, []string{"auth"})
+	if conf != ConfidenceNone {
+		t.Errorf("empty corpus: want ConfidenceNone, got %v", conf)
+	}
+	if prefix != "" || score != 0 || top != nil {
+		t.Errorf("empty corpus: want zero result, got prefix=%q score=%v top=%+v", prefix, score, top)
+	}
+}
+
+// kerf-yxl: a single bead (even at 100%) must NOT clear the count floor —
+// Plan 016 Open Q 2, silent path.
+func TestDetectFilterPrefixConfidence_OneBeadNotConfident(t *testing.T) {
+	all := []Bead{mkBead("a", "subsystem:auth")}
+	prefix, _, _, conf := DetectFilterPrefixConfidence(all, []string{"auth"})
+	if conf == ConfidenceConfident {
+		t.Errorf("1-bead 100%% corpus must not be confident; got %v prefix=%q", conf, prefix)
+	}
+	if prefix != "" {
+		t.Errorf("1-bead corpus: want empty prefix, got %q", prefix)
+	}
+}
+
+// kerf-yxl: a mixed-prefix corpus with no dominant codename correlation
+// produces ConfidenceLow (count floor met, score floor not met).
+func TestDetectFilterPrefixConfidence_MixedNoMatchIsLow(t *testing.T) {
+	all := []Bead{
+		mkBead("1", "subsystem:x"),
+		mkBead("2", "subsystem:y"),
+		mkBead("3", "subsystem:z"),
+	}
+	prefix, _, top, conf := DetectFilterPrefixConfidence(all, []string{"unrelated"})
+	if conf != ConfidenceLow {
+		t.Errorf("mixed-prefix no-match: want ConfidenceLow, got %v", conf)
+	}
+	if prefix != "" {
+		t.Errorf("expected silent (empty prefix), got %q", prefix)
+	}
+	if len(top) == 0 {
+		t.Errorf("expected top-by-count to be populated for diagnostics")
+	}
+}
+
+// kerf-yxl: a dominant prefix above both floors is reported as confident.
+func TestDetectFilterPrefixConfidence_DominantIsConfident(t *testing.T) {
+	all := []Bead{
+		mkBead("1", "subsystem:auth"),
+		mkBead("2", "subsystem:db"),
+		mkBead("3", "subsystem:api"),
+	}
+	prefix, _, _, conf := DetectFilterPrefixConfidence(all, []string{"auth", "db", "api"})
+	if conf != ConfidenceConfident {
+		t.Errorf("dominant: want ConfidenceConfident, got %v", conf)
+	}
+	if prefix != "subsystem" {
+		t.Errorf("want subsystem, got %q", prefix)
+	}
+}
+
 func TestDetectFilterPrefix_DedupePerBead(t *testing.T) {
 	// A bead with two "subsystem:*" labels still only counts once.
 	all := []Bead{
