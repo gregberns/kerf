@@ -3,6 +3,7 @@ package spec
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -335,6 +336,44 @@ func TestRoundTripBeadFilter_AnyForm(t *testing.T) {
 	}
 	if err := got.BeadFilter.Validate(); err != nil {
 		t.Errorf("loaded bead_filter failed Validate: %v", err)
+	}
+}
+
+// TestWrite_BeadFilterAlwaysEmitted verifies the Plan 019 invariant: every
+// spec.yaml written by Write contains a top-level `bead_filter:` key, even
+// when the SpecYAML's BeadFilter pointer is nil. See specs/works.md row
+// for bead_filter and specs/commands.md §`kerf new` step 6.
+func TestWrite_BeadFilterAlwaysEmitted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yaml")
+
+	s := &SpecYAML{
+		Codename:   "unwired",
+		Type:       "plan",
+		Project:    Project{ID: "proj"},
+		Jig:        "plan",
+		Status:     "research",
+		Created:    time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		BeadFilter: nil,
+	}
+	if err := Write(path, s); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !regexp.MustCompile(`(?m)^bead_filter:`).Match(raw) {
+		t.Errorf("expected top-level bead_filter: key in output, got:\n%s", raw)
+	}
+	// Round-trip: reading the file back must yield a nil BeadFilter (absent /
+	// empty resolve identically).
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.BeadFilter != nil {
+		t.Errorf("expected BeadFilter to be nil after round-trip of empty key, got %+v", got.BeadFilter)
 	}
 }
 
