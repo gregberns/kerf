@@ -1,0 +1,7 @@
+#!/bin/sh
+# Shim: kerf hardcodes the bead-tool name to `br` (internal/beads/beads.go
+# DefaultToolName), but this repo's .beads/config.yaml is incompatible with
+# the installed `br` (0.1.45) — `br list` errors with JSON_ERROR.
+# This shim redirects kerf's bead reads to `bd`, which understands the store.
+# Used during the dogfood bootstrap (2026-05-18).
+exec /Users/gb/.local/bin/bd "$@"
