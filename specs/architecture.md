@@ -115,6 +115,48 @@ The bench symlink is created by `kerf localize` and re-created if missing by `ke
 
 Symlinks rely on `os.Symlink`. On platforms where symlink creation fails, kerf surfaces a clear error rather than silently falling back; local storage is effectively unavailable on those platforms in v1.
 
+### Drift Detection (storage layout)
+
+The storage modes name a single canonical location for each class of file. **Storage-layout drift** is anything that contradicts the active mode's canonical layout. This is the surface inspected by `kerf doctor` (see [commands.md](commands.md#kerf-doctor)) and reported as a one-line footer on `kerf next` and `kerf triage` when findings exist.
+
+This is a distinct concept from **bead-store drift** (see [coordination.md](coordination.md#drift-detection)), which tracks changes in the external bead store against an acknowledged baseline. The two surfaces use the same word but answer different questions:
+
+- Bead-store drift: "did the bead store change behind kerf's back?"
+- Storage-layout drift: "do kerf's own files sit where the active storage mode says they should?"
+
+#### What counts as storage-layout drift (v1)
+
+Detection is presence-level only. Content-level comparison (file-hash diffs between bench and repo copies) is out of scope for v1 — kerf reports a finding when files appear in the wrong place, not when their contents disagree. <!-- TBD: open question from plan 017 — whether presence-level drift is enough in practice or a hash layer is needed -->
+
+A finding is raised when any of the following are observed:
+
+- A work directory (or `project.yaml` / `areas.yaml`) lives in the non-canonical location for the active mode — for example, a `.kerf/works/<codename>/` directory in a bench-mode project, or a real `~/.kerf/projects/<id>/<codename>/` directory in a local-mode project.
+- A work directory appears in both the canonical and the non-canonical location simultaneously.
+- The bench symlink (local mode) is broken, missing, points outside the resolver's expected target, or is a real directory instead of a symlink.
+- `project.yaml` or `areas.yaml` exists in both the repo's `.kerf/` and the bench `~/.kerf/projects/<id>/` simultaneously.
+- An archive entry (`~/.kerf/archive/<id>/<codename>/`) shares its codename with a live work under the same project.
+
+The diagnostic surface is read-only. Each finding names the command that would reconcile it (commonly `kerf localize` for a bench→local migration, or a manual move for the inverse). An auto-fix flag is deferred until the failure modes are catalogued from real usage.
+
+### Where state lives (cheat-sheet)
+
+A condensed, agent-readable map of which side of the bench/repo boundary owns each file class. The active storage mode picks one column; mixing columns is drift.
+
+| File class | Bench mode | Local mode |
+|------------|------------|------------|
+| Project identity (`.kerf/project-identifier`) | repo | repo |
+| Repo config (`.kerf/config.yaml`) | repo (when present) | repo |
+| Drift baseline (`.kerf/sync-cache.json`) | repo | repo |
+| Per-project config (`project.yaml`) | `~/.kerf/projects/<id>/` | `<repo>/.kerf/` |
+| Area definitions (`areas.yaml`) | `~/.kerf/projects/<id>/` | `<repo>/.kerf/` |
+| Work directories (`<codename>/`) | `~/.kerf/projects/<id>/` | `<repo>/.kerf/works/` |
+| Bench symlink | n/a | `~/.kerf/projects/<id>` → `<repo>/.kerf/works/` |
+| Archive | `~/.kerf/archive/<id>/` | `~/.kerf/archive/<id>/` |
+| Global config (`config.yaml`), user jigs | `~/.kerf/` | `~/.kerf/` |
+| Finalized artifacts | repo (under `finalize.repo_spec_path`) | repo |
+
+This table is the cheat-sheet referenced by the agent-setup instruction block emitted by `kerf init` / `kerf setup`.
+
 ### Git Worktrees
 
 `.kerf/` lives in the working tree, not in `.git/`. With local storage and multiple worktrees, each worktree has its own `.kerf/works/`; the bench symlink can point to only one of them. Worktree users who need cross-worktree visibility via the bench should stay on bench storage in v1.
@@ -206,10 +248,21 @@ For a spec-first project, both are used during finalization: process artifacts g
 
 The file `~/.kerf/projects/{project-id}/project.yaml` contains per-project settings. It is optional — projects without it use all available jigs with default settings.
 
+This section is the canonical home for the `project.yaml` schema. Other specs that refer to specific fields link back here rather than redefining them.
+
 ### Schema
 
 ```yaml
 # ~/.kerf/projects/{project-id}/project.yaml
+
+# Default jig for this project. When set, `kerf new` without --jig uses this
+# value. When absent, the bench-wide `default_jig` from ~/.kerf/config.yaml
+# applies; when both are absent, `kerf new` emits the onboarding error
+# described in commands.md.
+# Per-project value takes precedence over the bench-wide setting.
+# default_jig: spec
+# <!-- TBD: open question 3 from plan 016 — whether default_jig persists in
+#      project.yaml or is dropped from init's output entirely -->
 
 # Jigs active for this project.
 # When set, only these jigs are available for `kerf new` in this project.
@@ -247,8 +300,36 @@ The file `~/.kerf/projects/{project-id}/project.yaml` contains per-project setti
 # Resolution order: per-work bead_filter (in spec.yaml) → this project filter →
 # built-in default `label: "work:{codename}"`. First hit wins.
 # See coordination.md#bead-attachment.
+#
+# Canonical form. The key is always present in writes produced by `kerf init`
+# and `kerf bootstrap-filters` (value may be empty / null when no confident
+# candidate exists). A missing key and a present-but-empty key are equivalent
+# at resolution time; emitting the empty key is the canonical shape because
+# the slot's visibility is itself a usability signal (see plan 019).
+# Single-clause example:
 # bead_filter:
 #   label: "subsystem:{codename}"
+# Multi-clause union (composed via `kerf work edit --bead-filter-add` for
+# per-work filters; for project-wide filters, edit this file directly):
+# bead_filter:
+#   any:
+#     - label: "subsystem:{codename}"
+#     - label: "{codename}"
+# <!-- TBD: open question 1 from plan 019 — bootstrap surface name (top-level
+#      verb vs flag on `kerf work edit`) -->
+# <!-- TBD: open question 5 from plan 019 — whether the filter parser
+#      distinguishes malformed clauses from zero-match clauses; affects the
+#      `broken` vs `empty` rank labels -->
+
+# Drift-detection footer suppression for `kerf next` and `kerf triage`.
+# When storage-layout drift exists (see Drift Detection above), kerf appends
+# a one-line footer pointing at `kerf doctor`. Setting this to false
+# suppresses the footer for this project; the env var `KERF_DOCTOR_FOOTER=0`
+# achieves the same effect ad-hoc. Default: true.
+# <!-- TBD: open question from plan 017 — opt-in vs opt-out default for the
+#      drift footer; plan 017 currently picks opt-out, captured here -->
+# doctor:
+#   footer: true
 ```
 
 ### Semantics
@@ -257,7 +338,7 @@ The file `~/.kerf/projects/{project-id}/project.yaml` contains per-project setti
 - **Created by `kerf init`.** When `kerf init` runs in a project, it creates `project.yaml` with the user's jig selections. The user is prompted to choose active jigs and configure composable passes.
 - **Updated by `kerf setup`.** Running `kerf setup` re-reads `project.yaml` to generate fresh agent config. It does not modify `project.yaml` — that is the user's configuration.
 - **Unknown keys.** kerf ignores unrecognized keys without error.
-- **Relationship to `config.yaml`.** `project.yaml` contains project-specific jig configuration. `config.yaml` contains bench-wide defaults (default_jig, snapshot settings, etc.). `project.yaml` settings take precedence over `config.yaml` for the given project.
+- **Relationship to `config.yaml`.** `project.yaml` contains project-specific jig configuration. `config.yaml` contains bench-wide defaults (snapshot settings, finalization defaults, etc.). For fields that appear in both (e.g., `default_jig`), the `project.yaml` value takes precedence for that project.
 
 ### Interaction with `kerf jig list`
 
