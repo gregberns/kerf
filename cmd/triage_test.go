@@ -31,6 +31,7 @@ func resetTriageFlags() {
 	triageAck = false
 	triageKinds = nil
 	triageFormat = "text"
+	triageTop = 0
 	triageLastExitCode = 0
 }
 
@@ -885,5 +886,109 @@ func TestTriage_AckQuietMode_JSON(t *testing.T) {
 	// record, no full report stream.
 	if strings.Contains(out, "\"items\":") || strings.Contains(out, "\"summary\":") {
 		t.Errorf("--ack JSON should be a summary record only; got:\n%s", out)
+	}
+}
+
+// TestTriage_TopTruncation — Plan 018 / B4 (kerf-x5s).
+// --top N truncates each non-empty section to N items, the section header
+// shows shown-of-total, and a footer documents how to see the rest. The
+// Beads: header line (kerf-baf, Plan 018 / B6) is unaffected.
+func TestTriage_TopTruncation(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{
+			"alpha": "subsystem:alpha",
+			"beta":  "subsystem:beta",
+		},
+		nil,
+	)
+	// Five untriaged orphans (label matches no work) + one multi-matched
+	// (matches both filters). With --top 3, untriaged should show 3-of-5,
+	// multi-matched stays at 1 (no truncation needed, no "showing" header).
+	stubBr(t, `[
+		{"id":"u-1","title":"o1","status":"open","labels":["weird:1"]},
+		{"id":"u-2","title":"o2","status":"open","labels":["weird:2"]},
+		{"id":"u-3","title":"o3","status":"open","labels":["weird:3"]},
+		{"id":"u-4","title":"o4","status":"open","labels":["weird:4"]},
+		{"id":"u-5","title":"o5","status":"open","labels":["weird:5"]},
+		{"id":"m-1","title":"shared","status":"open","labels":["subsystem:alpha","subsystem:beta"]}
+	]`)
+
+	resetTriageFlags()
+	triageTop = 3
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage: %v", err)
+	}
+	// Section header must show shown-of-total when truncated.
+	testutil.AssertStringContains(t, out, "Untriaged beads (showing 3 of 5):")
+	// Truncation footer should point at the override sentinel.
+	testutil.AssertStringContains(t, out, "and 2 more — use --top 0 for full list")
+	// Sections under the cap render with the plain header (no noise).
+	testutil.AssertStringContains(t, out, "Multi-matched beads (1):")
+	// kerf-baf header is intact.
+	testutil.AssertStringContains(t, out, "Beads: ")
+	// Earlier IDs render; later ones are hidden.
+	testutil.AssertStringContains(t, out, "u-1")
+	testutil.AssertStringContains(t, out, "u-3")
+	if contains(out, "u-5") {
+		t.Errorf("expected u-5 to be truncated under --top 3:\n%s", out)
+	}
+}
+
+// TestTriage_TopUnlimitedSentinel — --top 0 means "show all", overriding
+// any externally-imposed default. With no flag set the same all-items
+// shape is rendered (default behavior unchanged).
+func TestTriage_TopUnlimitedSentinel(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	stubBr(t, `[
+		{"id":"u-1","title":"o1","status":"open","labels":["weird:1"]},
+		{"id":"u-2","title":"o2","status":"open","labels":["weird:2"]},
+		{"id":"u-3","title":"o3","status":"open","labels":["weird:3"]}
+	]`)
+
+	// First: --top 0 (explicit sentinel).
+	resetTriageFlags()
+	triageTop = 0
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage --top 0: %v", err)
+	}
+	testutil.AssertStringContains(t, out, "Untriaged beads (3):")
+	if contains(out, "showing") {
+		t.Errorf("--top 0 should not render 'showing X of Y':\n%s", out)
+	}
+	if contains(out, "use --top 0 for full list") {
+		t.Errorf("--top 0 should not emit a truncation footer:\n%s", out)
+	}
+	testutil.AssertStringContains(t, out, "u-3")
+}
+
+// TestTriage_TopNegativeRejected — guard against accidental --top -1.
+func TestTriage_TopNegativeRejected(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	stubBr(t, `[{"id":"u-1","title":"o","status":"open","labels":["x:1"]}]`)
+	resetTriageFlags()
+	triageTop = -1
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	_, err := runTriageCapturing(t)
+	if err == nil || !contains(err.Error(), "--top must be >= 0") {
+		t.Fatalf("want negative-top rejection, got %v", err)
 	}
 }
