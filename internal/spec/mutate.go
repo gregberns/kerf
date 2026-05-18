@@ -237,9 +237,11 @@ func AddBeadFilterClause(path, clause string) error {
 
 // RemoveBeadFilterClause removes a matching clause from bead_filter.
 // Collapsing rules:
-//   - 0 clauses remain → bead_filter key removed entirely.
+//   - 0 clauses remain → bead_filter key retained with an empty value, so the
+//     work-edit path canonicalises on the same present-but-empty form that
+//     `kerf new` emits (per specs/works.md bead_filter row and Plan 019).
 //   - 1 clause remains in an `any:` list → collapse to direct leaf form.
-//   - direct leaf form matches → bead_filter key removed entirely.
+//   - direct leaf form matches → bead_filter key retained with empty value.
 //
 // No-op if the clause is not present.
 func RemoveBeadFilterClause(path, clause string) error {
@@ -275,7 +277,7 @@ func RemoveBeadFilterClause(path, clause string) error {
 		}
 		switch len(kept) {
 		case 0:
-			removeMappingKey(root, bfIdx)
+			clearBeadFilterValue(root, bfIdx)
 		case 1:
 			// Collapse to direct leaf form.
 			c := readLeafClauseMapping(kept[0])
@@ -295,8 +297,19 @@ func RemoveBeadFilterClause(path, clause string) error {
 	if existing == nil || !beads.FilterClauseEquals(existing, parsed) {
 		return nil
 	}
-	removeMappingKey(root, bfIdx)
+	clearBeadFilterValue(root, bfIdx)
 	return writeYAMLNode(path, doc)
+}
+
+// clearBeadFilterValue replaces the value node at root.Content[keyIdx+1] with
+// a null scalar, leaving the `bead_filter:` key in place with an empty value.
+// Used when removing the last clause so the work-edit path matches the
+// canonical present-but-empty form `kerf new` emits.
+func clearBeadFilterValue(root *yaml.Node, keyIdx int) {
+	if root == nil || keyIdx < 0 || keyIdx+1 >= len(root.Content) {
+		return
+	}
+	root.Content[keyIdx+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null"}
 }
 
 // buildLeafClauseNode produces a mapping node containing a single key
