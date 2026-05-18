@@ -217,6 +217,18 @@ func runTriage(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	// Archive scan (Plan 018 / B2 — archive-aware codename check). Performed
+	// once per triage invocation and cached as a set so the suggester does
+	// not re-emit `kerf new <archived>` for codenames already in
+	// ~/.kerf/archive/<project-id>/. Failures (archive dir missing,
+	// unreadable) degrade gracefully to "no known archive entries" rather
+	// than failing the whole report — per the bench helper's contract.
+	archivedSet := make(map[string]bool)
+	if archived, aerr := r.ListArchivedWorks(); aerr == nil {
+		for _, cn := range archived {
+			archivedSet[cn] = true
+		}
+	}
 	works := make([]*spec.SpecYAML, 0, len(codenames))
 	for _, cn := range codenames {
 		s, rerr := spec.Read(filepath.Join(r.WorkDir(cn), "spec.yaml"))
@@ -332,7 +344,7 @@ func runTriage(cmd *cobra.Command) error {
 				Status:        b.Status,
 				Labels:        append([]string(nil), b.Labels...),
 				WorkCodenames: []string{},
-				Suggest:       strPtr(triageSuggestUntriaged(b, codenames)),
+				Suggest:       strPtr(triageSuggestUntriaged(b, codenames, archivedSet)),
 				Reason:        "matches no work's filter and is not pinned",
 			})
 		case len(matches) >= 2:
@@ -513,7 +525,15 @@ func triagePickTier1Label(labels []string) string {
 //   - All tier-2 labels → fall back to `kerf pin <codename> <bead-id>`
 //     against the lexicographically-earliest active work.
 //   - No active work to pin against → "no auto-suggestion".
-func triageSuggestUntriaged(b beads.Bead, existingCodenames []string) string {
+//
+// Plan 018 / B2 — archive-aware codename check. When the tier-1 route
+// would emit `kerf new <value>` but <value> already exists in the
+// project archive (archivedSet), the suggestion is replaced with a
+// restore/pin hint per specs/commands.md §"Archive-aware suggestions".
+// The bead-filter-add path is unaffected — it points at a live work.
+// archivedSet may be nil/empty (no archive entries known); callers
+// must not rely on identity, only on membership.
+func triageSuggestUntriaged(b beads.Bead, existingCodenames []string, archivedSet map[string]bool) string {
 	tier1 := triagePickTier1Label(b.Labels)
 	if tier1 != "" {
 		parts := strings.SplitN(tier1, ":", 2)
@@ -526,6 +546,12 @@ func triageSuggestUntriaged(b beads.Bead, existingCodenames []string) string {
 			if strings.Contains(cn, value) {
 				return fmt.Sprintf("kerf work edit %s --bead-filter-add '%s'", cn, clause)
 			}
+		}
+		// Archive-aware: avoid suggesting `kerf new <value>` when <value>
+		// is already an archived codename for this project.
+		if archivedSet[value] {
+			return fmt.Sprintf("codename '%s' is archived — consider 'kerf restore %s' to unarchive, or 'kerf pin <codename> %s' to attach this bead to a different live work.",
+				value, value, b.ID)
 		}
 		return fmt.Sprintf("kerf new %s --bead-filter '%s'", value, clause)
 	}
