@@ -90,6 +90,27 @@ Warnings are non-fatal. They are emitted inline with output, prefixed with `Warn
 
 Warnings never block command execution.
 
+### State-Change Summary (init)
+
+`kerf init` ends its normal output with a single fenced state-change summary: one line per artifact it touched (`project.yaml`, `.kerf/project-identifier`, `default_jig`, `bead_filter`), each marked `created`, `updated`, or `unchanged`. The summary is the stable place an agent looks to learn what landed on disk; init does not claim to have set anything that the summary does not report. This shape is scoped to init for now — whether it generalizes to other state-changing commands is a separate question.
+
+### Diagnostic Output
+
+Diagnostic commands (for example `kerf doctor`) are read-only by default. They report findings without changing state, and each non-green finding names the command that would address it. A `--fix` style mutating mode, if introduced later, is an explicit opt-in rather than the default.
+
+### Bounded Informational Output
+
+Informational commands that can grow with project size (for example `kerf triage`) bound their output by default or expose flags (`--top N`, `--group-by`) that do. Headers report both shown and total counts when truncation is in effect, so an agent can tell at a glance how much was hidden. Empty-filter results print a single line rather than a full report header.
+
+### `--quiet` and `--compact` Conventions
+
+Two flag names recur across commands and carry consistent meaning:
+
+- `--quiet` suppresses the normal narrative output and leaves only the minimum needed for scripted use — typically a one-line confirmation, an identifier, or nothing at all on success. State-changing commands that support it still perform the state change; only the rendering is reduced.
+- `--compact` is read-only and applies to display commands. It collapses multi-section output into a single short summary line or block while preserving the same information density an agent needs for routing.
+
+Commands adopt these flag names rather than coining synonyms (`--silent`, `--short`, `--brief`) so the surface stays predictable. <!-- TBD: open question 3 from plan 020 — whether --quiet stays per-command or is promoted to a universal opt-in -->
+
 ## Agent Discovery
 
 Agents learn about kerf and the project's workflow through three mechanisms:
