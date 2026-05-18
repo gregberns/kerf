@@ -85,7 +85,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 3. **Resolve codename.** If no codename argument is provided, auto-generate an `adjective-noun` slug (e.g., `blue-bear`, `swift-maple`). Validate the codename format. Error if a work with this codename already exists in the project.
 4. **Resolve jig.** Look up the jig via the resolution order (see [jig-system.md](jig-system.md)). Error if the jig is not found.
 5. **Create the work directory** at the location dictated by the project's storage mode: `~/.kerf/projects/{project-id}/{codename}/` in bench mode, or `{repo}/.kerf/works/{codename}/` in local mode. If local mode is active and the bench symlink at `~/.kerf/projects/{project-id}` does not yet exist, kerf creates it pointing at `{repo}/.kerf/works/`. See [architecture.md](architecture.md#storage-modes).
-6. **Initialize `spec.yaml`** with: codename, title, type, project ID, jig name, jig version, initial status (first value in the jig's `status_values`), `created` and `updated` timestamps, empty `sessions` list, empty `depends_on` list, empty `related_to` list, null `implementation` fields, the jig's `status_values` list, the `areas` list from `--area` flags (empty if none provided), an empty `pinned_beads` list, and — when `--bead-filter` is given — a `bead_filter` value built from the supplied clause. The clause is written as a direct (non-union) clause; multi-clause `any:` unions are composed post-creation via `kerf work edit --bead-filter-add` (see [coordination.md](coordination.md#bead-attachment)). Drift baseline is not advanced (see [coordination.md](coordination.md#baseline-advancement)).
+6. **Initialize `spec.yaml`** with: codename, title, type, project ID, jig name, jig version, initial status (first value in the jig's `status_values`), `created` and `updated` timestamps, empty `sessions` list, empty `depends_on` list, empty `related_to` list, null `implementation` fields, the jig's `status_values` list, the `areas` list from `--area` flags (empty if none provided), an empty `pinned_beads` list, and a `bead_filter` key. The `bead_filter` key is **always present** in the emitted `spec.yaml`: when `--bead-filter` is given, its value is built from the supplied clause (written as a direct, non-union clause); when omitted, the key is emitted with an empty value (`bead_filter:`) so the work is identifiable as `unwired` rather than silently absent. Multi-clause `any:` unions are composed post-creation via `kerf work edit --bead-filter-add` (see [coordination.md](coordination.md#bead-attachment)). For filter resolution, "absent key" and "present-but-empty key" are equivalent — only the latter is canonical for new works (the schema detail lives in [works.md](works.md)). Drift baseline is not advanced (see [coordination.md](coordination.md#baseline-advancement)).
 7. **Check area overlap.** If `--area` flags were provided, scan other active (non-archived) works in the project for overlapping areas. If any other work shares an area, emit an overlap warning in the output (see Output below). This is informational — it does not block creation.
 8. **Record session.** Append a session entry to `sessions` with the current timestamp and `ended: null`. Set `active_session`.
 9. **Take a snapshot** of the initial state (see [snapshots.md](snapshots.md)).
@@ -101,6 +101,14 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 - The jig's process overview: list of passes with descriptions.
 - Agent instructions for the first pass (from the jig's markdown body).
 - Next steps block: how to begin the first pass, where to write artifacts.
+- A fenced final block naming the work's storage location, so an agent that scrolls to the end of the output can find the canonical paths without re-deriving them:
+
+  ```
+  working directory: {bench-or-local-path-to-the-work}
+  repo-side files:   .kerf/project-identifier (committed); add agent instructions to your config file (CLAUDE.md, AGENTS.md, etc.)
+  ```
+
+  The `working directory:` line resolves to `~/.kerf/projects/{project-id}/{codename}/` in bench mode or `{repo}/.kerf/works/{codename}/` in local mode. The block always appears as the last lines of `kerf new` output.
 
 ### Errors
 
@@ -149,7 +157,7 @@ Show all works on the bench.
 ### Syntax
 
 ```
-kerf list [--status <status>] [--project <project-id>] [--all]
+kerf list [--status <status>] [--project <project-id>] [--all] [--created-by <self|all>]
 ```
 
 ### Flags
@@ -159,6 +167,7 @@ kerf list [--status <status>] [--project <project-id>] [--all]
 | `--status` | No | — | Filter to works with this status. |
 | `--project` | No | Inferred from cwd | Show works for this project. |
 | `--all` | No | `false` | Include archived works. |
+| `--created-by <self\|all>` | No | `all` | Filter by work creator. `self` restricts the list to works created by the current agent's session identity; `all` (the default) lists every work. When multi-agent works are present and `--created-by all` is in effect, each row carries an attribution marker so the active agent can tell its own works apart from others. <!-- TBD: open question 4 from plan 019 — whether per-session attribution lives on spec.yaml or needs a sessions.md schema extension. --> |
 
 ### Behavior
 
@@ -208,14 +217,15 @@ Display full details for a work.
 ### Syntax
 
 ```
-kerf show <codename>
+kerf show <codename> [--compact]
 ```
 
-### Arguments
+### Arguments and Flags
 
-| Argument | Required | Description |
-|----------|----------|-------------|
+| Argument/Flag | Required | Description |
+|---------------|----------|-------------|
 | `codename` | Yes | The work to display. |
+| `--compact` | No | One-line-per-section summary: status, next-pass name, file count, last-session marker. Skips the full jig instructions, file tree, attached-beads listing, and session history. Useful when an agent only needs to know "where is this work and what's next." |
 
 ### Behavior
 
@@ -231,7 +241,8 @@ kerf show <codename>
 The output includes:
 
 - **Metadata**: codename, title, type, status, project ID, jig name and version, created and updated timestamps.
-- **Jig context**: the pass corresponding to the current status, with the jig's agent instructions for that pass.
+- **Bead filter**: the work's `bead_filter` slot, always rendered as a single line. The literal value is shown when present (e.g., `bead_filter: label=subsystem:bridge`); when the key is absent or empty, the line reads `bead_filter: (none)` so an agent can tell `unwired` apart from a populated filter at a glance.
+- **Jig context**: the pass corresponding to the current status, with the jig's agent instructions for that pass. The pass-list rendering uses a stable per-pass line of the form `Pass N: <name> → Output: NN-<filename>.md` so an agent can locate the canonical output path for each pass without re-deriving the filename convention. The convention itself (`NN-<short-name>.md` for content passes) lives in [jig-system.md](jig-system.md).
 - **File tree**: all files in the work directory (excluding `.history/`).
 - **Session history**: the `sessions` list from `spec.yaml`, with active session highlighted.
 - **Dependencies**: each dependency's codename, project, relationship, and current status.
@@ -272,6 +283,19 @@ Commands:
   kerf square <codename>                 Verify completeness
   kerf shelve <codename>                 Pause work
 ```
+
+#### `--compact` output
+
+Under `--compact`, the output collapses to four lines plus the bead-filter slot:
+
+```
+{codename}  status: {current-status} → next: {next-pass-name}
+bead_filter: {value or (none)}
+files:       {n} in work directory
+last session: {relative-time} ({active|ended})
+```
+
+The compact form omits jig instructions, file tree, attached-beads listing, and session history. Errors and command-line resolution behave identically to the full form.
 
 ### Errors
 
@@ -492,6 +516,123 @@ If `05-spec-drafts/` is empty or missing:
 
 ---
 
+## `kerf review`
+
+### Purpose
+
+Emit the canonical reviewer prompt for the work's current pass. `kerf review` is the harness-agnostic surface for the jig's review gate: it prints the review criteria, the artifact paths the reviewer is asked to read, and references to prior-pass output. The calling harness then dispatches its own reviewer primitive — a sub-agent via the Agent tool, the parent orchestrator's own attention, or a fresh-context re-read of the artifact — against this prompt. See [jig-system.md](jig-system.md) for the three review-primitive fallback paths in preference order.
+
+### Syntax
+
+```
+kerf review <codename> [--pass <name>] [--format <format>] [--project <project-id>]
+```
+
+### Arguments and Flags
+
+| Argument/Flag | Required | Default | Description |
+|---------------|----------|---------|-------------|
+| `codename` | Yes | — | The work to review. |
+| `--pass <name>` | No | Current pass | Render the reviewer prompt for a specific pass instead of the current one. Useful when the agent wants to re-trigger a review on a previously-completed pass. |
+| `--format <format>` | No | `text` | Output format. `text` (default) or `json`. |
+| `--project <project-id>` | No | Inferred from cwd | The project containing the work. |
+
+### Behavior
+
+1. Resolve the project ID.
+2. Read the target work's `spec.yaml`. Error if the work does not exist.
+3. Resolve the pass — either `--pass` if given, or the pass corresponding to the work's current status.
+4. Load the jig's review block for that pass: the `Done when reviewer approves on:` criteria list (the single normative block replacing the prior split between "What done looks like" and "Review Criteria" — see [jig-spec.md](jig-spec.md) for the spec-jig instance and [jig-system.md](jig-system.md) for the convention).
+5. Render the prompt as stdout text (or a JSON record under `--format=json`). `kerf review` does not dispatch the reviewer itself. <!-- TBD: open question 1 from plan 020 — whether kerf review should optionally auto-dispatch when an Agent tool is detected; spec follows the plan's print-only default. -->
+
+### Output (text)
+
+```
+Reviewer prompt for {codename} — pass: {pass-name}
+
+Artifacts to read:
+  {path/to/current-pass-output}
+  {path/to/prior-pass-output (if referenced)}
+
+Done when the reviewer approves on:
+  - {criterion-1}
+  - {criterion-2}
+  - {criterion-N}
+
+The reviewer returns either:
+  - "Approved" — the pass is ready to advance via 'kerf status {codename} <next>'
+  - "Changes requested: <list>" — the agent addresses each item and re-requests review
+```
+
+### Output (`--format=json`)
+
+```
+{
+  "codename":  "{codename}",
+  "pass":      "{pass-name}",
+  "artifacts": ["..."],
+  "criteria":  ["..."]
+}
+```
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| Work not found | `Error: work '{codename}' not found in project '{project-id}'.` |
+| Unknown pass name in `--pass` | `Error: pass '{value}' is not declared in jig '{jig-name}'. Known passes: {list}.` |
+| Jig has no review block for the resolved pass | `Error: jig '{jig-name}' declares no review criteria for pass '{pass-name}'.` |
+
+---
+
+## `kerf preview`
+
+### Purpose
+
+Read-only render of a future pass's instructions without advancing status. `kerf preview` is the look-ahead surface for the spec jig (and any other multi-pass jig): the agent inspects what the next pass will require before committing to the transition.
+
+### Syntax
+
+```
+kerf preview <codename> <status> [--project <project-id>]
+```
+
+### Arguments and Flags
+
+| Argument/Flag | Required | Default | Description |
+|---------------|----------|---------|-------------|
+| `codename` | Yes | — | The work to preview against. |
+| `status` | Yes | — | The status whose pass instructions should be rendered. May be any value in the jig's `status_values` list. |
+| `--project` | No | Inferred from cwd | The project containing the work. |
+
+### Behavior
+
+1. Resolve the project ID.
+2. Read the target work's `spec.yaml`. Error if the work does not exist.
+3. Resolve the jig and look up the pass corresponding to `status`. Error if `status` is not in the jig's `status_values`.
+4. Render the pass instructions using the same renderer as [`kerf show`](#kerf-show), scoped to the named pass. The output is marked read-only in the header so an agent does not mistake the preview for a transition confirmation.
+
+### Output
+
+```
+Preview for {codename} — pass: {pass-name} (read-only, status unchanged)
+
+{full jig instructions for that pass}
+
+Output: NN-{filename}.md
+```
+
+The status on disk is not touched. Re-running `kerf preview` is always idempotent.
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| Work not found | `Error: work '{codename}' not found in project '{project-id}'.` |
+| Status not in jig's status_values | `Error: status '{value}' is not declared in jig '{jig-name}'. Known statuses: {list}.` |
+
+---
+
 ## `kerf square`
 
 ### Purpose
@@ -552,15 +693,16 @@ Get or set a work's status.
 ### Syntax
 
 ```
-kerf status <codename> [new-status]
+kerf status <codename> [new-status] [--quiet]
 ```
 
-### Arguments
+### Arguments and Flags
 
-| Argument | Required | Description |
-|----------|----------|-------------|
+| Argument/Flag | Required | Description |
+|---------------|----------|-------------|
 | `codename` | Yes | The work to query or update. |
 | `new-status` | No | The status value to set. If omitted, displays current status. |
+| `--quiet` | No | On a write, suppress the full jig-instructions block and emit only the single-line transition confirmation. Intended for scripted transitions and chains of status advances. Has no effect on read mode. |
 
 ### Behavior (read — no new-status)
 
@@ -576,7 +718,8 @@ kerf status <codename> [new-status]
 4. Update `status` in `spec.yaml` to the new value.
 5. Update the `updated` timestamp.
 6. Take a [snapshot](snapshots.md).
-7. Load the jig's agent instructions for the pass corresponding to the new status.
+7. **Pre-create the next pass's output directory.** Look up the resolved jig's pass list, find the pass corresponding to the new status, and `mkdir -p` any directory prefix in the pass's declared output paths that does not yet exist. The operation is idempotent — re-running on an existing directory does nothing. When the pass produces per-component output (e.g., pass-3 research, where one directory per affected spec area is needed), only the top-level pass directory is created from the status advance; component subdirectories are created when their names become known (typically from the prior pass's output). If a per-pass template ships with the jig, copy the template into place when the target file does not already exist. See [jig-system.md](jig-system.md) for the directory and template conventions.
+8. Load the jig's agent instructions for the pass corresponding to the new status. Under `--quiet`, the instructions are suppressed and only the transition confirmation is printed.
 
 ### Output (read)
 
@@ -1161,14 +1304,14 @@ Work '{codename}' deleted.
 
 ### Purpose
 
-Bootstrap kerf in a project. Creates the project identifier, prompts the user to select active jigs, creates `project.yaml`, optionally sets the default workflow, and runs `kerf setup` to generate agent instructions.
+Bootstrap kerf in a project. Creates the project identifier, records the active jigs, creates `project.yaml`, optionally sets the default workflow, and runs `kerf setup` to generate agent instructions.
 
-This is the entry point for adopting kerf in any project. The user runs `kerf init` (or tells their AI agent to run it), and the output contains everything needed to complete the setup.
+This is the entry point for adopting kerf in any project. The user (or their agent) runs `kerf init`, and the output contains everything needed to complete the setup. `kerf init` is non-interactive: it never prompts and never blocks waiting for input.
 
 ### Syntax
 
 ```
-kerf init [--jig <plan|spec>] [--force]
+kerf init [--jig <plan|spec>] [--force] [--yes] [--no] [--bead-filter <expr>]
 ```
 
 ### Arguments and Flags
@@ -1176,7 +1319,10 @@ kerf init [--jig <plan|spec>] [--force]
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `--jig` | No | None | Set the default workflow. Must be `plan` or `spec`. If omitted and `default_jig` is not configured, a note is printed instructing the user to choose. |
-| `--force` | No | `false` | Re-run init even when `project.yaml` already exists. See "Re-running on an existing project" below. |
+| `--force` | No | `false` | Re-run init even when `project.yaml` already exists. See "Re-running on an existing project" below. Controls overwrite only — does not affect bead-filter resolution. |
+| `--yes` | No | `false` | Accept the bead-filter detector's suggestion when one clears the confidence threshold. When the detector has no confident suggestion, `--yes` leaves `bead_filter` unset (silent). |
+| `--no` | No | `false` | Skip bead-filter detection entirely. `bead_filter` is left unset. |
+| `--bead-filter` | No | — | Set the project-wide `bead_filter` to an explicit literal value, bypassing the detector. Accepts the same clause forms as `kerf new --bead-filter`. Takes precedence over `--yes` and `--no`. |
 
 ### Behavior
 
@@ -1187,22 +1333,16 @@ kerf init [--jig <plan|spec>] [--force]
 5. If `.kerf/project-identifier` does not exist, create it and print the derived ID.
 6. If `--jig` is provided, set `default_jig` in config and print confirmation.
 7. If `--jig` is not provided and `default_jig` is not set, print a note with the two options (`kerf config default_jig plan` and `kerf config default_jig spec`).
-8. **Prompt the user to select active jigs** for the project. Present the available jigs (from the jig library) and allow the user to choose which ones to activate. For composable jigs (e.g., `implementation`), also prompt for which passes to include.
-9. **Auto-detect `bead_filter`.** Reads the bead store using kerf's existing bead-read path (the same one `kerf next` uses). If the bead tool is unavailable, silently skip auto-detect — the built-in default (`label: "work:{codename}"`) applies. Otherwise:
-   1. Collect existing work codenames from `~/.kerf/projects/{project-id}/` (or the bench equivalent under local storage).
-   2. If zero codenames exist, skip auto-detect; init proceeds without setting `bead_filter`.
-   3. List label prefixes that appear in the bead store with at least 3 beads. For each prefix `P:`, compute `match_score = (beads matching some codename via "P:{codename}") / (total beads with prefix "P:")`. Pick the highest `match_score` above 0.5.
-   4. If a candidate is selected, prompt:
-      ```
-      Detected: 87% of beads use `subsystem:*` labels.
-      Set project-wide bead_filter to `subsystem:{codename}`? [Y/n]
-      ```
-   5. If no candidate scores above 0.5, fall back to a manual prompt offering the top 5 prefixes by raw count plus a "type your own" option (or skip).
-   6. The chosen filter is written into `project.yaml`. It is always editable later via the standard config files. See [coordination.md](coordination.md#bead-attachment).
-   7. If the bead store is empty or unreachable, skip detection silently — the built-in default applies.
-   8. If kerf is invoked non-interactively (stdin not a TTY), auto-detect runs but does not prompt; if a confident candidate exists it is written, otherwise no `bead_filter` is set.
-10. **Create `project.yaml`** with the selected jig and pass configuration, plus the chosen `bead_filter` (if any). If `.kerf/config.yaml` already declares `storage: local`, write it to `{repo}/.kerf/project.yaml` and create the bench symlink at `~/.kerf/projects/{project-id}` pointing at `{repo}/.kerf/works/`. Otherwise write it to `~/.kerf/projects/{project-id}/project.yaml`. See [architecture.md](architecture.md) for the `project.yaml` schema and storage modes.
-11. **Run `kerf setup`** to generate agent-facing instructions from the project's active jigs. The setup output is included in the init output (see Output below).
+8. **Resolve active jigs.** Record the default jig (from `--jig` or `default_jig`) and any other jigs the project will use. Jig selection is not interactive — the default-jig resolution drives the active set, and additional jigs are added later by editing `project.yaml` directly. For composable jigs (e.g., `implementation`), pass selection follows the jig's default pass list; users override by editing `project.yaml`.
+9. **Resolve `bead_filter`.** Flag precedence: `--bead-filter <expr>` wins outright; otherwise `--no` skips detection; otherwise `--yes` accepts the detector's suggestion if confident; otherwise the default behavior is identical to `--yes` (detector runs, confident suggestion is written, low-confidence suggestion is dropped). Detection runs as follows:
+   1. Read the bead store using kerf's existing bead-read path (the same one `kerf next` uses). If the bead tool is unavailable, the bead store is empty, or no work codenames yet exist in the project, the detector returns no suggestion.
+   2. List label prefixes that appear in the bead store. For each prefix `P:`, compute `match_score = (beads matching some codename via "P:{codename}") / (total beads with prefix "P:")`.
+   3. A prefix is *confident* when both an absolute-count floor and a score floor are met. The detector returns the highest-scoring confident prefix, or no suggestion otherwise. <!-- TBD: open question 2 from plan 016 — exact floor values; in the silent-on-tiny-corpus direction the plan recommends. -->
+   4. When the detector returns a confident suggestion and the flags allow it, the suggestion is written to `project.yaml` as the project-wide `bead_filter`. When the detector returns no suggestion, `bead_filter` is left unset; the state-change summary names the post-init command (`kerf config bead_filter ...`) for setting it later.
+   5. The chosen filter is editable later via the standard config files. See [coordination.md](coordination.md#bead-attachment).
+10. **Create `project.yaml`** with the selected jig and pass configuration, plus the resolved `bead_filter` (if any). If `.kerf/config.yaml` already declares `storage: local`, write it to `{repo}/.kerf/project.yaml` and create the bench symlink at `~/.kerf/projects/{project-id}` pointing at `{repo}/.kerf/works/`. Otherwise write it to `~/.kerf/projects/{project-id}/project.yaml`. See [architecture.md](architecture.md) for the `project.yaml` schema and storage modes.
+11. **Run `kerf setup`** to generate agent-facing instructions from the project's active jigs. `kerf init` does not emit its own inline instruction block — `kerf setup` is the single source. The setup output is included in the init output (see Output below).
+12. **Emit the state-change summary** as the last block of output (see Output below).
 
 ### Re-running on an existing project
 
@@ -1217,8 +1357,8 @@ The detection and dispatch rules:
    - Exit status is 0. The output ends with a hint: `Use 'kerf init --force' to overwrite project.yaml, or edit it directly.`
 
 2. **Existing `project.yaml`, with `--force`** — kerf prints a warning naming the file it is about to overwrite, then re-runs the full init flow (steps 8–10) as if no `project.yaml` were present:
-   - Interactive jig selection runs again.
-   - Bead-filter auto-detection runs again. If a `bead_filter` was previously set in `project.yaml`, kerf includes its literal value as a default in the auto-detect prompt so the user can keep it with a single keystroke; non-interactively (no TTY), the previously-set `bead_filter` is **preserved** verbatim — `--force` does not silently discard a user-set filter when there is no human to confirm a replacement.
+   - Active-jig resolution runs again from `--jig` / `default_jig`.
+   - Bead-filter resolution runs again under the flag precedence above. A previously-set `bead_filter` is preserved verbatim unless `--bead-filter`, `--yes` (with a new confident suggestion), or `--no` is supplied — `--force` alone does not silently discard a user-set filter.
    - The resulting `project.yaml` overwrites the existing file.
    - `--force` is the only way to overwrite via `kerf init`. There is no `--merge` mode in v1; users who want to add a single field edit `project.yaml` directly.
 
@@ -1228,18 +1368,25 @@ The `.kerf/project-identifier` file is not considered part of "already initialis
 
 ### Output
 
-The output includes:
+The output includes, in order:
 
 1. Project initialization status (created or already exists).
 2. Default jig status (set, or instructions to set it).
-3. Active jig selection summary (which jigs and passes were selected).
-4. Bead-filter detection summary: the detected filter (if any), or a note that the built-in default applies.
-5. `project.yaml` creation confirmation.
-6. The full output of `kerf setup` (see [`kerf setup`](#kerf-setup)), which includes:
-   - Agent setup instructions: process instructions from each active jig, tool requirements, jig sequencing, references to kerf commands
-   - What to add to `.gitignore` (`.kerf/` but commit `.kerf/project-identifier`)
-   - Agent-agnostic instructions to add to the agent's configuration file (CLAUDE.md, .cursorrules, etc.)
-7. A verification step the agent can run to confirm the setup works.
+3. Active jig summary (which jigs and passes are recorded in `project.yaml`).
+4. Bead-filter resolution summary: the resolved filter (if any), the detector's finding (confident, low-confidence, or no suggestion), and the source (`--bead-filter`, `--yes`, `--no`, or default).
+5. The full output of `kerf setup` (see [`kerf setup`](#kerf-setup)) — the single source of the agent-setup instruction block.
+6. A verification step the agent can run to confirm the setup works.
+7. **State-change summary block.** One fenced block at the end of normal output, with one line per artifact init touched. Each line names the artifact and reports `created`, `updated`, or `unchanged`. The summary is the diffable signal that what init claims matches what landed on disk; an artifact that init did not write is not listed.
+
+   ```
+   State changes:
+     .kerf/project-identifier   created
+     project.yaml               created
+     default_jig                updated (set to 'spec')
+     bead_filter                unchanged (detector returned no confident suggestion; run 'kerf config bead_filter <expr>' to set)
+   ```
+
+   The summary covers `.kerf/project-identifier`, `project.yaml`, `default_jig`, and `bead_filter`. Artifacts whose persistence is not yet wired (see open question 3 in plan 016) are not advertised on this block — init only reports what it actually writes. <!-- TBD: open question 3 from plan 016 — whether default_jig lands in project.yaml or stays in config.yaml. -->
 
 The instructions are agent-agnostic. kerf does not know or reference any specific AI tool. The agent reading the output determines where to put the instructions based on its own configuration conventions.
 
@@ -1249,6 +1396,8 @@ The instructions are agent-agnostic. kerf does not know or reference any specifi
 |-----------|---------|
 | Not in a git repository | `Error: not in a git repository. kerf requires a git repo.` |
 | `--jig` value not `plan` or `spec` | `Error: --jig must be 'plan' or 'spec', got '{value}'.` |
+| `--yes` and `--no` both given | `Error: --yes and --no are mutually exclusive.` |
+| `--bead-filter` value does not parse | `Error: --bead-filter expects 'label=<value>' or 'id_prefix=<value>', got '{value}'.` |
 | Existing `project.yaml` detected, no `--force` | Not an error. kerf prints `project.yaml already exists at {path} — skipping re-initialisation. Use 'kerf init --force' to overwrite, or edit the file directly.` and exits 0 after running the safe-to-repeat steps (project-identifier creation, `--jig` update, `kerf setup`). |
 | `--force` passed but `project.yaml` could not be read for the pre-overwrite summary | `Error: --force requested but existing project.yaml at {path} is unreadable: {details}. Move or delete the file manually before re-running.` |
 
@@ -1263,13 +1412,14 @@ Migrate a project from bench storage to local storage. Moves all in-progress wor
 ### Syntax
 
 ```
-kerf localize [--project <project-id>]
+kerf localize [--check] [--project <project-id>]
 ```
 
 ### Arguments and Flags
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
+| `--check` | No | `false` | Dry-run preview. Print the moves that would happen — work directories, `project.yaml`, `areas.yaml`, the symlink swap, and the `storage: local` write — without changing anything on disk. Equivalent alias: `--dry-run`. |
 | `--project` | No | inferred from `.kerf/project-identifier` | Project ID to localize. Must be run from inside the target repo. |
 
 ### Behavior
@@ -1285,6 +1435,10 @@ kerf localize [--project <project-id>]
 9. Remove the now-empty `~/.kerf/projects/{project-id}/` and replace it with a symlink to `{repo}/.kerf/works/`.
 10. Write `storage: local` to `{repo}/.kerf/config.yaml`.
 11. Print a summary including next-step git commands.
+
+### `--check` (preview)
+
+When `--check` is given, kerf runs steps 1–5 (resolution and pre-flight verification) and then prints the move plan without mutating the filesystem. The output names each work directory that would move, the destination path, the bench → symlink swap, and the `storage: local` write target. Steps 6–11 are skipped. Exit status is 0 when the move would succeed, non-zero with the same Errors table when the pre-flight checks fail (so an agent can use `--check` as a guard before the real run).
 
 ### Atomicity
 
@@ -1356,12 +1510,16 @@ kerf setup
 
 ### Output
 
+`kerf setup` is the single source of the `AGENT SETUP INSTRUCTIONS` block. `kerf init` calls into this command and does not emit its own inline copy.
+
 The output is a clearly delimited block of agent-facing instructions containing:
 
 - **Process instructions** from each active jig: the full agent-facing process for each jig's passes.
 - **Tool requirements**: which external tools are needed (e.g., `br` for bead management, `ntm` for orchestration), as declared by the active jigs.
 - **Jig sequencing**: the composition chain for this project — which jigs are available and in what SDLC order.
-- **References to kerf commands**: the kerf commands relevant to each phase (e.g., `kerf new --jig plan` for planning, `kerf new --jig implementation` for implementation).
+- **References to kerf commands**: the kerf commands relevant to each phase (e.g., `kerf new --jig plan` for planning, `kerf new --jig implementation` for implementation). The block names the daily-driver commands explicitly, with one-line descriptions: `kerf next` (ranked feed of things to do), `kerf triage` (drift report on the bead store), `kerf pin` (attach a specific bead to a work), `kerf map` (portfolio view across areas), `kerf areas` (define and list areas), and `kerf work edit` (mutate a work's bead-filter).
+- **`.gitignore` pattern**: the exact two-line pattern to add — `.kerf/` on the first line and `!.kerf/project-identifier` on the second — so the bench-side state stays out of git while project identity is committed.
+- **Bench location** (one-line placeholder; expanded by `specs/architecture.md`'s "Where state lives" cheat-sheet — see plan 017): names `~/.kerf/projects/<project-id>/` as the bench path and the repo-side files agents should touch. <!-- TBD: plan 017 fills this slot once the architecture cheat-sheet lands. -->
 
 When no `project.yaml` exists:
 
@@ -1379,6 +1537,101 @@ All available jigs can be used with `kerf new --jig <name>`.
 |-----------|---------|
 | Not in a git repository | `Error: not in a git repository. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
 | No `.kerf/project-identifier` found | `Error: project not initialized. Run 'kerf init' first.` |
+
+---
+
+## `kerf doctor`
+
+### Purpose
+
+Health check for the current project. Reports green / yellow / red findings on `project.yaml` shape, storage drift between the repo's `.kerf/` and the bench at `~/.kerf/projects/<project-id>/`, symlink integrity (in local mode), per-work `bead_filter` coverage, and archive orphans. `kerf doctor` is read-only by default: it surfaces findings and names the command that would fix each. It does not mutate any state.
+
+### Syntax
+
+```
+kerf doctor [--format <format>] [--detector <id>] [--quiet] [--strict] [--project <project-id>]
+```
+
+### Flags
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--format <format>` | No | `text` | Output format. `text` (default) or `json`. |
+| `--detector <id>` | No | — | Repeatable. Run only the named detectors (e.g., `--detector storage-drift`). When omitted, all detectors run. |
+| `--quiet` | No | `false` | Suppress green findings; emit only yellow and red. |
+| `--strict` | No | `false` | Exit non-zero when any red finding is present. Without `--strict`, the command exits 0 regardless of findings. <!-- TBD: open question 4 from plan 017 — exact exit-code defaults. --> |
+| `--project <project-id>` | No | Inferred from cwd | Project to inspect. |
+
+### Behavior
+
+1. Resolve the project ID and the active storage mode (bench or local) for the project. See [architecture.md](architecture.md#storage-modes).
+2. Run the detectors selected by `--detector` (or all detectors when unspecified):
+   - **`project-yaml`** — checks `project.yaml` exists at the location dictated by the active storage mode, parses cleanly, declares at least one jig, and (when applicable) names a `default_jig`. Reports against whatever schema `project.yaml` carries; the schema itself lives in [architecture.md](architecture.md).
+   - **`storage-drift`** — presence-level only. Reports drift when a work directory, `project.yaml`, or `areas.yaml` lives in the non-canonical location for the active mode (a `.kerf/works/<codename>/` directory under bench mode, or a real `~/.kerf/projects/<project-id>/<codename>/` directory under local mode), when a work appears in both locations, or when `project.yaml` / `areas.yaml` exist in both at once. Content-level (hash) drift is out of scope in v1.
+   - **`symlink-integrity`** (local mode only) — checks that `~/.kerf/projects/<project-id>` is a symlink, that the target exists, and that the target matches the resolver's expected path. Reports broken, missing, or real-directory-where-symlink-expected cases.
+   - **`bead-filter-coverage`** — reports each active work whose `bead_filter` resolves to zero beads, labelled by the rank-label vocabulary documented under [`kerf next`](#kerf-next) (`empty`, `unwired`, `broken`). The hint for an unwired work names the filter-bootstrap entry point (see [plan 019]).
+   - **`archive-orphans`** — reports any `~/.kerf/archive/<project-id>/<codename>/` entry whose codename also appears as a live work in the project.
+3. Aggregate findings, assign severity (`green` for healthy, `yellow` for warnings without immediate damage, `red` for findings that block normal use), and render.
+
+Each finding names the canonical fix command in its hint line. `kerf doctor` does not run those commands itself.
+
+### Output (default: compact text)
+
+```
+kerf doctor — project: {project-id} ({mode} mode)
+
+[green]  project-identifier: {project-id}
+[green]  project.yaml: present, default_jig={jig}, {n} jigs declared
+[yellow] storage drift: 1 finding
+         - work '{codename}' exists on bench but not in .kerf/works/
+           hint: kerf localize --check  (preview what reconcile would do)
+[green]  bench symlink: ~/.kerf/projects/{project-id} -> {repo}/.kerf/works
+[red]    bead_filter coverage: 2 of 6 works unwired
+         - works without bead_filter: {codename-1}, {codename-2}
+           hint: see 'kerf next' warning rows for per-work next steps
+[green]  archive: 1 entry, no live collisions
+```
+
+The header line names the project and active storage mode. Each detector reports one row with its severity tag, summary, and (when not green) an indented finding list followed by a `hint:` line naming the fix command.
+
+When all detectors return green, the body collapses to one summary line per detector and the final line reads `All checks green.`
+
+### Output (`--format=json`)
+
+```
+{
+  "project_id": "{project-id}",
+  "storage_mode": "{bench|local}",
+  "findings": [
+    {
+      "detector":  "{detector-id}",
+      "severity":  "{green|yellow|red}",
+      "summary":   "{one-line summary}",
+      "items":     [ { "target": "{codename or path}", "detail": "..." } ],
+      "hint":      "{fix command}"
+    }
+  ]
+}
+```
+
+Detector ids are stable. Future detectors append to the list; consumers should treat unknown detectors as informational.
+
+### Exit codes
+
+| Condition | Exit |
+|-----------|------|
+| No red findings, `--strict` absent or present | 0 |
+| Red findings present, `--strict` not given | 0 |
+| Red findings present, `--strict` given | 1 |
+| Bead store unreadable, project not initialised, or other infrastructure error | 1 |
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+| Unknown detector id in `--detector` | `Error: unknown detector '{value}'. Known detectors: {list}.` |
+| Unknown value in `--format` | `Error: unknown format '{value}'. Supported: text, json.` |
 
 ---
 
@@ -1492,10 +1745,15 @@ Every item carries a `kind` and a `target`:
 3. **Assemble candidate items** from each source:
    - **Beads** — from the bead store, filtered per work via the resolved `bead_filter` (see [coordination.md](coordination.md#bead-attachment)). Beads that are blocked, in progress, or closed are excluded. Each ready bead becomes a `bead` item attributed to every work it matches.
    - **Cleanup detectors** — pure functions over current state, run on every invocation. v1 detectors:
-     - `work_no_attached_beads` — fires when a work's resolved `bead_filter` matches zero beads (attached_count == 0). Suggested action: edit the work's `spec.yaml` or the project filter.
+     - `work_no_attached_beads` — fires when a work's resolved `bead_filter` matches zero beads (attached_count == 0). The cleanup item carries one of three **rank labels** to distinguish the three failure modes that previously collapsed under `clean`:
+       - `empty` — `bead_filter` declared and syntactically valid, but matches zero open beads. Likely benign; the work is wired but its beads have not been created yet.
+       - `unwired` — no `bead_filter` key on `spec.yaml`, or key present with empty value. The agent needs to bootstrap or edit. Suggested action: `kerf work edit <codename> --bead-filter-add '<clause>'` or the project-wide bootstrap entry point. <!-- TBD: open question 1 from plan 019 — whether bootstrap is a new top-level verb or a flag on kerf work edit. -->
+       - `broken` — `bead_filter` declared but malformed, or referencing a clause shape that does not parse. Suggested action: edit the filter to a valid clause. <!-- TBD: open question 5 from plan 019 — whether the existing parser can distinguish "malformed" from "valid but zero-match"; if not, broken collapses into empty. -->
      - `work_beads_done_status_open` — fires when a work has attached_count > 0, every attached bead is closed, and the work's jig status is not terminal. Suggested action: advance status (`kerf status <codename> <next-stage>`) or `kerf shelve <codename>`.
 
      The two detectors are mutually exclusive by construction (the attached-count guard on `work_beads_done_status_open` ensures a zero-bead work is reported only by `work_no_attached_beads`).
+
+   - **Near-match advisor.** For each work tagged `empty` whose codename is one prefix-swap away from a heavily-populated label family in the bead store (e.g., `codename:foo` ↔ bare `foo`, `subsystem:foo` ↔ `foo`), the warning row appends ` — try: kerf work edit <codename> --bead-filter '<proposed>'`. The advisor only emits a suggestion when exactly one alternate clause would lift the work out of `empty`; ambiguous or zero-candidate cases stay silent.
    - **Warning detectors** — project-level state checks. v1 detectors:
      - `untriaged_beads`: count of beads in the store that are (a) open status (not blocked, in progress, or closed — same readiness filter applied to candidate beads above), (b) match no work's resolved `bead_filter`, and (c) not pinned. Surfaced once as a single warning item. When a drift baseline is recorded, the count is rendered as the `untriaged` segment of the drift summary line below rather than as a separate warning block.
      - Filter literal yields zero matches: when the project-wide `bead_filter`'s literal prefix matches nothing in the bead store, surface a warning suggesting a case-mismatch check (e.g., `Subsystem:` vs `subsystem:`). Matching is case sensitive — see [coordination.md](coordination.md#bead-attachment).
@@ -1511,7 +1769,7 @@ Every item carries a `kind` and a `target`:
 
 ### Default kind selection
 
-Without flags, the feed includes `bead` and `cleanup` items. Beads are ranked first; cleanup items follow after all beads, ordered by their parent work's would-be bead score. `warning` items, when present, are rendered as a header block above the ranked list — they are project-wide, not ranked entries.
+Without flags, the feed includes `bead` and `cleanup` items. Beads are ranked first; cleanup items follow after all beads, ordered by their parent work's would-be bead score. `warning` items, when present, render as a short stanza **after** the ranked payload and the drift footer — not as a header block above it. The payload-first ordering is so an agent reading the top of the output sees actionable work first, not diagnostics.
 
 ### Flag precedence
 
@@ -1538,10 +1796,10 @@ Each line shows rank, kind, target identifier, title or reason, and (for `bead` 
 
 Text output is for humans (and for an agent reading it as prose at the top of a cycle). It is not a parsing contract: column positions, spacing, and exact phrasing may change between versions. Agents or scripts that need stable structured output use `--format=json`.
 
-When drift counters are non-zero, the feed prepends a one-line drift summary above any warning block:
+When drift counters are non-zero, the feed appends a one-line drift summary **after** the ranked payload and before any warning stanza:
 
 ```
-! 6 untriaged beads · ! 2 beads multi-matched · ! 1 bead changed externally — run 'kerf triage'
+drift: 6 untriaged · 2 multi-matched · 1 external — run 'kerf triage'
 ```
 
 Each segment is omitted when its count is zero; the whole line is omitted when all three counts are zero. The segments correspond to the `untriaged_beads`, `multi_matched`, and `external_drift` detectors above. The summary line is the agent's pull signal that `kerf triage` has new work to surface — it appears whether or not the agent is invoking `kerf triage` directly.
@@ -1552,7 +1810,25 @@ When untriaged beads are present and the drift-summary line is rendered, the old
 warning: 12 beads match no work — check bead_filter in project.yaml
 ```
 
+After the drift footer, the warning stanza (when any work-level cleanup items are present) renders compactly — one row per affected work, prefixed with the rank label (`empty`, `unwired`, `broken`) and the codename, followed by the near-match advisor line when applicable:
+
+```
+unwired: phase-3-dot — try: kerf work edit phase-3-dot --bead-filter 'label=phase-3-dot'
+empty:   bridge      — try: kerf work edit bridge --bead-filter 'label=subsystem:bridge'
+broken:  scratch     — bead_filter clause does not parse; edit spec.yaml
+```
+
 If no items exist, the output says so.
+
+#### Storage-drift footer
+
+When `kerf doctor` would report any non-green storage finding for the current project (see [`kerf doctor`](#kerf-doctor)), `kerf next` appends a one-line footer below the ranked list and any drift summary:
+
+```
+note: {n} storage finding{s} — run 'kerf doctor' for details
+```
+
+The footer is on by default. It is suppressed when `kerf config doctor.footer false` is set or when the environment variable `KERF_DOCTOR_FOOTER=0` is set at invocation time. The footer is independent of the bead-store `drift_summary` line above — bead-store drift and storage-layout drift are distinct surfaces.
 
 ### Output (`--format=json`)
 
@@ -1668,7 +1944,7 @@ Triage reads bead state and the drift baseline at `.kerf/sync-cache.json` (see [
 ### Syntax
 
 ```
-kerf triage [--resolved] [--ack] [--kind <kind>...] [--format <format>] [--project <project-id>]
+kerf triage [--resolved] [--ack] [--kind <kind>...] [--top <n>] [--group-by <field>] [--format <format>] [--project <project-id>]
 ```
 
 ### Item kinds
@@ -1690,6 +1966,8 @@ The `--kind` flag selects which kinds are shown; see Flags below.
 | `--resolved` | No | `false` | Exit-code mode (see Exit codes). With `--resolved`, kerf still emits the report so an agent loop can capture the latest state; the load-bearing piece is the exit code. |
 | `--ack` | No | `false` | Acknowledge the current bead-store snapshot as the new drift baseline. Writes `.kerf/sync-cache.json`. No other state changes. Mutually exclusive with `--resolved`. |
 | `--kind <kind>` | No | All kinds | Repeatable. Show only items of this kind. Accepts `untriaged`, `multi_matched`, `external_drift` (or any `external_*` sub-kind). |
+| `--top <n>` | No | Unlimited | Truncate each section to the top `n` items after sorting. The section header reports both shown and total counts. `external_drift` is not truncated by `--top` unless `--top` is given on the command line explicitly — its findings are the smallest section and the most actionable. |
+| `--group-by <field>` | No | — | Group `untriaged` items by the first label whose prefix matches the tier-1 cohort-defining list (see Suggester routing). Currently the only accepted value is `codename-label`. Ties between groups break lexicographically. The grouped section emits one header per group with items nested under it. |
 | `--format <format>` | No | `text` | Output format. `text` (default) or `json`. |
 | `--project <project-id>` | No | Inferred from cwd | Show triage for this project. |
 
@@ -1705,9 +1983,9 @@ The `--kind` flag selects which kinds are shown; see Flags below.
    - Matches no work's filter and not pinned → `untriaged`.
    - Matches more than one work's filter and not pinned → `multi_matched`.
 5. Compute drift categories by diffing current snapshot against baseline (see [coordination.md](coordination.md#drift-categories)).
-6. If `--kind` is given, filter the item list to the selected kinds.
-7. Render the report.
-8. **If `--ack` was given**: capture the current snapshot, write it to `.kerf/sync-cache.json`, replacing the previous baseline. Items already rendered are still listed in the report; only the cache file is mutated.
+6. If `--kind` is given, filter the item list to the selected kinds. When the resulting set is empty, skip the full report header and emit a single line: `No {kind} items.` (or, with multiple `--kind` flags, `No items in selected kinds: {list}.`) The command exits normally.
+7. Render the report — but only when `--ack` is absent. With `--ack`, the render step is skipped; stdout sees only the single-line baseline confirmation in step 8.
+8. **If `--ack` was given**: capture the current snapshot, write it to `.kerf/sync-cache.json`, replacing the previous baseline. Print one line: `Baseline advanced to {timestamp}.` Under `--ack --format=json`, emit a one-record summary `{ "baseline_advanced_at": "{timestamp}", "items_captured": {n} }` in place of the item stream. <!-- TBD: open question 4 from plan 018 — silent vs. summary record under --ack --format=json; spec follows the plan's leaning toward the summary record. -->
 9. **If `--resolved` was given**: compute the exit code per the table below and exit.
 
 `kerf triage` does not mutate works, `spec.yaml` files, or beads — only `.kerf/sync-cache.json` (on `--ack`).
@@ -1718,6 +1996,7 @@ The text report is structured by section. Sections with zero items are omitted.
 
 ```
 Triage for {project-id} (baseline: 2026-05-13T09:14:00Z, 5 days ago):
+Beads scanned: 163 open · 168 total.
 
 Untriaged beads (3):
   hk-cb-077  open  "audit log rotation"      labels: subsystem:audit
@@ -1750,12 +2029,42 @@ Each per-bead suggestion is a templated, ready-to-paste command. Agents copy lit
 - `multi_matched` — `kerf pin <codename> <bead-id>` for the lexicographically-earliest matching codename (single deterministic suggestion).
 - `external_drift` — informational; the remediation is `kerf triage --ack` after the agent investigates.
 
+#### Count reconciliation and `--top` rendering
+
+The header line `Beads scanned: N open · M total` is always present. The two numbers are accurate against different status filters — `open` excludes closed beads and is the population the per-section item counts apply to; `total` is the unfiltered population. Each section header that follows reports a single count against its kind's natural filter (e.g., `Untriaged beads (3):` counts open beads matching no work).
+
+When `--top N` is given, each truncated section's header reports both counts, e.g., `Untriaged beads (showing 20 of 168):`. Truncation happens after sorting and never reorders items.
+
+#### Suggester routing
+
+The `untriaged` suggester ranks a bead's labels into two tiers before proposing a `kerf new`:
+
+- **Tier-1 (cohort-defining)** — `codename:` and `spec:`. Labels in this tier may seed a new work; the suggester emits `kerf new <derived-codename> --bead-filter 'label=<tier-1-label>'`.
+- **Tier-2 (cross-cutting)** — every other prefix, including `axis:`, `tag:`, `kind:`, `scope:`, `subsystem:`, `area:`, and any prefix not in the tier-1 allow-list. The tier-1 list is a small explicit allow-list, not a tier-2 deny-list: an unfamiliar prefix falls to tier-2 by default. Tier-2 labels never seed a `kerf new`.
+
+When all of a bead's labels are tier-2, the suggester falls back to `kerf pin <codename> <bead-id>` against the lexicographically-earliest active work, or — when no active work exists — emits a one-line `no auto-suggestion; investigate manually` note. <!-- TBD: open question 1 from plan 018 — whether the tier-1 list becomes per-project configurable. -->
+
+#### Archive-aware suggestions
+
+Before emitting `kerf new <codename>` for an `untriaged` bead, the suggester checks the archive index at `~/.kerf/archive/<project-id>/`. When the proposed codename already exists in the archive, the `suggest:` line is replaced with:
+
+```
+suggest: codename '{codename}' is archived — consider 'kerf restore {codename}' to unarchive,
+         or 'kerf pin <codename> {bead-id}' to attach this bead to a different live work.
+```
+
+The archive scan is performed once per `kerf triage` invocation and cached for the run.
+
 When no items exist, the output says so and prints the baseline timestamp:
 
 ```
 Triage for {project-id} (baseline: 2026-05-15T11:02:00Z, 0 days ago):
   No untriaged, multi-matched, or externally-changed beads. Project is clean.
 ```
+
+#### Storage-drift footer
+
+The same footer documented under [`kerf next`](#storage-drift-footer) is appended to `kerf triage` text output when `kerf doctor` would report any non-green storage finding. The footer respects the same suppression switches (`kerf config doctor.footer false` or `KERF_DOCTOR_FOOTER=0`). Storage-layout drift is distinct from the bead-store drift reported in the body of `kerf triage`.
 
 ### Output (`--format=json`)
 
@@ -1807,7 +2116,16 @@ The "previous run" comparison is in-memory across a single agent loop; kerf does
 
 ### Help text
 
-`kerf triage --help` covers, in fixed order: what triage returns (drift report), the three item kinds with one-line meanings, the `--resolved` exit-code semantics including the stuck-loop guidance, and `--ack` as the only baseline-advancement command. Changes to the help text require a spec change.
+`kerf triage --help` covers, in fixed order: what triage returns (drift report), the three item kinds with one-line meanings, the `--resolved` exit-code semantics including the stuck-loop guidance, `--ack` as the only baseline-advancement command, and a **Baseline lifecycle** paragraph that walks through the loop end-to-end. The lifecycle paragraph names each phase explicitly:
+
+- First run on a fresh project shows `baseline: never` and the full current state — every untriaged or multi-matched bead is surfaced.
+- Subsequent runs without `--ack` show drift accumulating since the previous baseline.
+- After the agent investigates and resolves items, `kerf triage --ack` advances the baseline to the current bead-store snapshot.
+- The `--resolved` exit-code loop (`until kerf triage --resolved; do <act>; done`) terminates when drift returns to zero.
+
+A recipe line (`First run on a large project: kerf triage --top 20 --group-by codename-label`) is included so the agent has a concrete entry point.
+
+Changes to the help text require a spec change.
 
 ### Errors
 
@@ -1892,7 +2210,7 @@ kerf does not validate that the bead ID exists in the bead store — pin is a ke
 
 ### Purpose
 
-Edit a work's bead-attachment configuration in place. `kerf work edit` mutates the work's `spec.yaml` — primarily the `bead_filter` — without forcing the user to hand-edit YAML. It is the primary remediation path when a work's filter is too narrow (the `work_no_attached_beads` cleanup item) or too broad (a bead surfaces as `multi_matched`).
+Edit a work's bead-attachment configuration in place. `kerf work edit` mutates the work's `spec.yaml` (resolved to `~/.kerf/projects/{project-id}/{codename}/spec.yaml` in bench mode or `{repo}/.kerf/works/{codename}/spec.yaml` in local mode) — primarily the `bead_filter` — without forcing the user to hand-edit YAML. The `--help` output names the resolved path so an agent does not have to derive it. It is the primary remediation path when a work's filter is too narrow (the `work_no_attached_beads` cleanup item) or too broad (a bead surfaces as `multi_matched`).
 
 ### Syntax
 
@@ -1936,10 +2254,10 @@ Updated bead_filter for {codename}:
   + label=subsystem:audit
   - label=subsystem:gateway
 
-Now matches: 5 beads (was: 2 beads).
+Now matches: 5 (3 open / 2 closed). Previously: 2 (2 open / 0 closed).
 ```
 
-The match-count delta is informational. When the filter is removed entirely (zero clauses remain), the output notes the fallback to the project filter or built-in default.
+The match-count delta is informational and breaks out open vs. closed beads on both sides so an agent can tell whether the broader filter is picking up live work or just historical clutter. When the filter is removed entirely (zero clauses remain), the output notes the fallback to the project filter or built-in default.
 
 ### Errors
 
@@ -1955,6 +2273,123 @@ A `--bead-filter-remove` clause that matches no existing clause emits a warning 
 ```
 Warning: --bead-filter-remove 'label=subsystem:legacy' did not match any existing clause. No change for that clause.
 ```
+
+---
+
+## `kerf work show`
+
+### Purpose
+
+Print a single work's `spec.yaml` field-by-field, without forcing the agent to read or parse YAML. The output is a flat, human-readable rendering of the work's metadata, filter, sessions, dependencies, and areas — the same data `kerf show` summarises, scoped tightly to one work and skipping the jig-pass, file-tree, SESSION.md, and bead-listing sections.
+
+### Syntax
+
+```
+kerf work show <codename> [--project <project-id>]
+```
+
+### Arguments and Flags
+
+| Argument/Flag | Required | Default | Description |
+|---------------|----------|---------|-------------|
+| `codename` | Yes | — | The work to dump. |
+| `--project` | No | Inferred from cwd | The project containing the work. |
+
+### Behavior
+
+1. Resolve the project ID.
+2. Read the target work's `spec.yaml`. Error if the work does not exist.
+3. Emit each top-level field on its own line, in the order they appear in `spec.yaml`. List-valued fields render as one entry per indented line. The `bead_filter` slot is always rendered (literal value when present, `(none)` when absent or empty).
+
+### Output
+
+```
+codename:       bridge
+title:          Adapter retry envelope
+type:           feature
+status:         decompose
+project_id:     harmonik
+jig:            spec (v1)
+created:        2026-05-12T14:03:00Z
+updated:        2026-05-18T09:21:00Z
+bead_filter:    label=subsystem:bridge
+areas:          api-gateway, auth
+depends_on:     (none)
+pinned_beads:   hk-cb-099
+active_session: 2026-05-18T08:00:00Z
+sessions:
+  - started: 2026-05-12T14:03:00Z   ended: 2026-05-12T17:40:00Z
+  - started: 2026-05-18T08:00:00Z   ended: null
+```
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| Work not found | `Error: work '{codename}' not found in project '{project-id}'.` |
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+
+---
+
+## `kerf bootstrap-filters`
+
+### Purpose
+
+One-shot helper that proposes a `bead_filter` for every work whose resolved filter currently matches zero beads, then applies the accepted proposals. `kerf bootstrap-filters` is the remediation entry point for the `unwired` and `empty` rank labels surfaced by [`kerf next`](#kerf-next): instead of running four `kerf work edit` invocations by hand, the agent runs one command and confirms the diff.
+
+The sampler is convention-aware: it recognises both prefixed (`codename:foo`) and bare (`foo`) label families and proposes the dominant pattern per work — not a single project-wide assumption.
+
+### Syntax
+
+```
+kerf bootstrap-filters [--apply] [--yes] [--codename <name>...] [--format <format>] [--project <project-id>]
+```
+
+### Flags
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--apply` | No | `false` | Mutate `spec.yaml` for each accepted proposal. Without `--apply`, the command is a dry-run preview that prints the proposals and exits without changes. |
+| `--yes` | No | `false` | Skip the confirmation prompt and apply all proposals. Implies `--apply`. |
+| `--codename <name>` | No | All eligible works | Repeatable. Restrict bootstrap to the named works. |
+| `--format <format>` | No | `text` | Output format. `text` (default) or `json`. |
+| `--project <project-id>` | No | Inferred from cwd | Project to bootstrap. |
+
+### Behavior
+
+1. Resolve the project ID and the active works.
+2. Identify eligible works: those whose resolved `bead_filter` matches zero open beads (rank label `empty` or `unwired`). Works tagged `broken` are eligible only when the malformed clause can be parsed enough to extract a codename candidate; otherwise they are listed under "not auto-fixable" and skipped.
+3. For each eligible work, the sampler:
+   1. Builds a candidate label set — the work's codename, the codename combined with common prefixes (`codename:`, `subsystem:`, `area:`, `kind:`), and the bare codename slug.
+   2. Counts open-bead matches for each candidate against the bead store.
+   3. If exactly one candidate dominates (≥ 80% of total candidate matches with an absolute-count floor), proposes that single clause.
+   4. If two or more candidates carry non-trivial counts and none dominates, proposes an `any:` union of the qualifying clauses.
+   5. If no candidate yields any matches, leaves the work in the "no proposal" bucket with a one-line note that no label resembles its codename.
+4. Render the proposal block. Under `--apply` (with `--yes`, or after the operator confirms), each accepted proposal is written via the same `kerf work edit --bead-filter-add` path. Without `--apply`, no changes occur.
+5. Print a summary: works proposed, works applied, works skipped, works left without a proposal.
+
+### Output (default: text, dry-run)
+
+```
+Bootstrap proposals for {project-id}:
+
+  bridge       proposes: label=subsystem:bridge       (currently empty, would match 7 open beads)
+  phase-3-dot  proposes: label=phase-3-dot            (currently unwired, would match 12 open beads)
+  scratch      no proposal — no label resembles 'scratch' in the bead store
+
+Dry-run: no changes made. Re-run with --apply to write the proposals to spec.yaml.
+```
+
+Under `--apply`, the summary line names each work that was written and the resulting match count (open / closed) in the same shape as `kerf work edit`.
+
+### Errors
+
+| Condition | Message |
+|-----------|---------|
+| No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+| Bead store unreadable | `Error: cannot read bead store: {detail}.` |
+| Unknown codename in `--codename` | `Error: work '{value}' not found in project '{project-id}'.` |
+| `--yes` given without `--apply` | `--yes` implies `--apply`; no error. |
 
 ---
 
