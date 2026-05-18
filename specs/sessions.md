@@ -34,7 +34,9 @@ kerf sets the `ended` timestamp on the active session entry when:
 
 The `notes` field is not set by kerf. It is available for agents or orchestrators to annotate via direct `spec.yaml` edits.
 
-<!-- TBD: open question 4 from plan 019 — per-session creator attribution for `kerf list --created-by self`. The existing `sessions` list is ordered, so the first entry could be read as the creator without a schema change; this needs confirmation before adding a dedicated field. If a schema change is needed, it lands here. -->
+### Creator Attribution
+
+The first entry in `sessions` is the **creator** session — the session that ran `kerf new`. Downstream commands that need creator attribution (e.g., `kerf list --created-by self`; see [commands.md](commands.md#kerf-list)) read it directly from `sessions[0]`; no dedicated `created_by` field is stored on `spec.yaml`. When the creator session was recorded with `id: null`, the creator is treated as anonymous.
 
 
 ### `active_session` Field

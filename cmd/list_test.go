@@ -297,6 +297,158 @@ implementation:
 	testutil.AssertStringContains(t, out, "depends-on-target -> dep-target")
 }
 
+// writeSpecWithCreator writes a minimal spec whose first session entry
+// (the creator, per specs/sessions.md §"Creator Attribution") has the
+// given id. If creatorID is empty the session is recorded with id: null
+// (anonymous creator).
+func writeSpecWithCreator(t *testing.T, path, codename, projectID, creatorID string) {
+	t.Helper()
+	idLine := "null"
+	if creatorID != "" {
+		idLine = creatorID
+	}
+	content := `codename: ` + codename + `
+type: plan
+project:
+  id: ` + projectID + `
+jig: plan
+jig_version: 1
+status: problem-space
+status_values: [problem-space, analyze, decompose, research, change-spec, integration, tasks, ready]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions:
+  - id: ` + idLine + `
+    started: 2026-04-09T00:00:00Z
+depends_on: []
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	os.MkdirAll(filepath.Dir(path), 0755)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("writeSpecWithCreator: %v", err)
+	}
+}
+
+func TestListCommand_CreatedBy_SelfFiltersToMatchingCreator(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("KERF_SESSION_ID", "alice-session")
+
+	benchDir := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(benchDir, "projects", "test-proj")
+	writeSpecWithCreator(t,
+		filepath.Join(projDir, "mine-work", "spec.yaml"),
+		"mine-work", "test-proj", "alice-session")
+	writeSpecWithCreator(t,
+		filepath.Join(projDir, "their-work", "spec.yaml"),
+		"their-work", "test-proj", "bob-session")
+
+	out := captureOutput(t, func() {
+		projectFlag = "test-proj"
+		listCreatedBy = "self"
+		defer func() {
+			projectFlag = ""
+			listCreatedBy = "all"
+		}()
+		listCmd.RunE(listCmd, []string{})
+	})
+
+	testutil.AssertStringContains(t, out, "mine-work")
+	if containsString(out, "their-work") {
+		t.Errorf("expected their-work to be filtered out, got:\n%s", out)
+	}
+}
+
+func TestListCommand_CreatedBy_AllShowsAttributionMarkers(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("KERF_SESSION_ID", "alice-session")
+
+	benchDir := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(benchDir, "projects", "test-proj")
+	writeSpecWithCreator(t,
+		filepath.Join(projDir, "mine-work", "spec.yaml"),
+		"mine-work", "test-proj", "alice-session")
+	writeSpecWithCreator(t,
+		filepath.Join(projDir, "their-work", "spec.yaml"),
+		"their-work", "test-proj", "bob-cafebabe-and-more")
+	writeSpecWithCreator(t,
+		filepath.Join(projDir, "anon-work", "spec.yaml"),
+		"anon-work", "test-proj", "")
+
+	out := captureOutput(t, func() {
+		projectFlag = "test-proj"
+		listCreatedBy = "all"
+		defer func() {
+			projectFlag = ""
+			listCreatedBy = "all"
+		}()
+		listCmd.RunE(listCmd, []string{})
+	})
+
+	testutil.AssertStringContains(t, out, "mine-work")
+	testutil.AssertStringContains(t, out, "(you)")
+	testutil.AssertStringContains(t, out, "their-work")
+	testutil.AssertStringContains(t, out, "(by bob-cafe")
+	testutil.AssertStringContains(t, out, "anon-work")
+	testutil.AssertStringContains(t, out, "(by anon)")
+}
+
+func TestListCommand_CreatedBy_SingleAgentBaseline(t *testing.T) {
+	// No KERF_SESSION_ID set: --created-by self should match works with
+	// anonymous (null id) creator sessions — i.e., the single-agent
+	// default with no regression.
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("KERF_SESSION_ID", "")
+
+	benchDir := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(benchDir, "projects", "test-proj")
+	writeMinimalSpec(t,
+		filepath.Join(projDir, "blue-bear", "spec.yaml"),
+		"blue-bear", "test-proj")
+
+	out := captureOutput(t, func() {
+		projectFlag = "test-proj"
+		listCreatedBy = "self"
+		defer func() {
+			projectFlag = ""
+			listCreatedBy = "all"
+		}()
+		listCmd.RunE(listCmd, []string{})
+	})
+
+	testutil.AssertStringContains(t, out, "blue-bear")
+}
+
+func TestListCommand_CreatedBy_InvalidValueErrors(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	benchDir := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(benchDir, "projects", "test-proj")
+	writeMinimalSpec(t,
+		filepath.Join(projDir, "blue-bear", "spec.yaml"),
+		"blue-bear", "test-proj")
+
+	projectFlag = "test-proj"
+	listCreatedBy = "bogus"
+	defer func() {
+		projectFlag = ""
+		listCreatedBy = "all"
+	}()
+	err := listCmd.RunE(listCmd, []string{})
+	if err == nil {
+		t.Fatal("expected error for invalid --created-by value, got nil")
+	}
+	if !containsString(err.Error(), "invalid --created-by") {
+		t.Errorf("expected 'invalid --created-by' in error, got: %v", err)
+	}
+}
+
 func containsString(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {

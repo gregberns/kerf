@@ -17,6 +17,7 @@ import (
 var (
 	listStatusFilter string
 	listAll          bool
+	listCreatedBy    string
 )
 
 var listCmd = &cobra.Command{
@@ -27,7 +28,8 @@ var listCmd = &cobra.Command{
 Examples:
   kerf list                 List active works
   kerf list --status research  Filter by status
-  kerf list --all           Include archived works`,
+  kerf list --all           Include archived works
+  kerf list --created-by self  Only works this session created`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runList()
 	},
@@ -36,6 +38,7 @@ Examples:
 func init() {
 	listCmd.Flags().StringVar(&listStatusFilter, "status", "", "Filter to works with this status")
 	listCmd.Flags().BoolVar(&listAll, "all", false, "Include archived works")
+	listCmd.Flags().StringVar(&listCreatedBy, "created-by", "all", "Filter by creator: 'self' (current session) or 'all' (default, with attribution markers)")
 	rootCmd.AddCommand(listCmd)
 }
 
@@ -46,6 +49,54 @@ type workEntry struct {
 	updated  time.Time
 	archived bool
 	deps     []spec.Dependency
+	// creatorID is the `id` of the first session entry on spec.yaml.
+	// nil when sessions is empty or sessions[0].ID is null. The first
+	// entry is the creator session per specs/sessions.md §"Creator
+	// Attribution" (kerf new is what appends it; see internal/session
+	// and cmd/new.go).
+	creatorID *string
+}
+
+// currentSessionID returns the active agent's session identity for the
+// purpose of --created-by self filtering and attribution. Today the only
+// source is the KERF_SESSION_ID environment variable; the empty string
+// is the "anonymous" sentinel and matches works whose creator session
+// has a null id. There is no other session-id wiring in cmd/new or
+// cmd/resume yet (both pass "" to internal/session.StartSession), so
+// most works have anonymous creators in practice. See specs/sessions.md
+// §"Creator Attribution".
+func currentSessionID() string {
+	return os.Getenv("KERF_SESSION_ID")
+}
+
+// creatorMatches reports whether the given creator id (from sessions[0])
+// equals the current session identity. Both nil-creator and unset-env
+// resolve to anonymous, so an anonymous creator matches an anonymous
+// current session.
+func creatorMatches(creator *string, current string) bool {
+	if creator == nil {
+		return current == ""
+	}
+	return *creator == current
+}
+
+// attributionMarker renders the per-row marker shown next to a
+// codename when --created-by all is in effect. Format:
+//   - "(you)"        — creator matches the current session
+//   - "(by <8-char>)" — creator session has an id that does not match
+//   - "(by anon)"    — creator session has no id (null)
+func attributionMarker(creator *string, current string) string {
+	if creatorMatches(creator, current) {
+		return "(you)"
+	}
+	if creator == nil {
+		return "(by anon)"
+	}
+	id := *creator
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	return "(by " + id + ")"
 }
 
 func runList() error {
@@ -89,12 +140,13 @@ func runList() error {
 				continue
 			}
 			entries = append(entries, workEntry{
-				codename: s.Codename,
-				workType: s.Type,
-				status:   s.Status,
-				updated:  s.Updated,
-				archived: true,
-				deps:     s.DependsOn,
+				codename:  s.Codename,
+				workType:  s.Type,
+				status:    s.Status,
+				updated:   s.Updated,
+				archived:  true,
+				deps:      s.DependsOn,
+				creatorID: creatorIDFromSpec(s),
 			})
 		}
 	}
@@ -108,6 +160,25 @@ func runList() error {
 			}
 		}
 		entries = filtered
+	}
+
+	// Filter by creator. The "self" identity comes from KERF_SESSION_ID
+	// (see currentSessionID); empty env matches works whose creator
+	// session has a null id. See specs/commands.md §`kerf list`.
+	currentSession := currentSessionID()
+	switch listCreatedBy {
+	case "", "all":
+		// keep all, attribution markers applied at render time
+	case "self":
+		var filtered []workEntry
+		for _, e := range entries {
+			if creatorMatches(e.creatorID, currentSession) {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	default:
+		return fmt.Errorf("invalid --created-by value '%s': expected 'self' or 'all'", listCreatedBy)
 	}
 
 	// Sort by updated, most recent first.
@@ -143,17 +214,31 @@ func runList() error {
 		}
 	}
 
+	// Attribution markers shown in 'all' mode only; in 'self' mode every
+	// row is "(you)" so the marker is omitted as visual noise.
+	showAttribution := listCreatedBy == "" || listCreatedBy == "all"
+
 	for _, e := range entries {
 		statusStr := e.status
 		if e.archived {
 			statusStr += " [archived]"
 		}
-		fmt.Printf("  %-*s  %-*s  %-*s  %s\n",
-			maxCN, e.codename,
-			maxType, e.workType,
-			maxStatus, statusStr,
-			relativeTime(e.updated),
-		)
+		if showAttribution {
+			fmt.Printf("  %-*s  %-*s  %-*s  %s  %s\n",
+				maxCN, e.codename,
+				maxType, e.workType,
+				maxStatus, statusStr,
+				relativeTime(e.updated),
+				attributionMarker(e.creatorID, currentSession),
+			)
+		} else {
+			fmt.Printf("  %-*s  %-*s  %-*s  %s\n",
+				maxCN, e.codename,
+				maxType, e.workType,
+				maxStatus, statusStr,
+				relativeTime(e.updated),
+			)
+		}
 	}
 
 	// Dependencies section.
@@ -216,13 +301,24 @@ func readWorkEntry(r *storage.Resolver, codename string, archived bool) (workEnt
 		return workEntry{}, false
 	}
 	return workEntry{
-		codename: s.Codename,
-		workType: s.Type,
-		status:   s.Status,
-		updated:  s.Updated,
-		archived: archived,
-		deps:     s.DependsOn,
+		codename:  s.Codename,
+		workType:  s.Type,
+		status:    s.Status,
+		updated:   s.Updated,
+		archived:  archived,
+		deps:      s.DependsOn,
+		creatorID: creatorIDFromSpec(s),
 	}, true
+}
+
+// creatorIDFromSpec returns the id of the first session entry (the
+// creator session, per specs/sessions.md §"Creator Attribution"), or
+// nil if sessions is empty or sessions[0].ID is null.
+func creatorIDFromSpec(s *spec.SpecYAML) *string {
+	if len(s.Sessions) == 0 {
+		return nil
+	}
+	return s.Sessions[0].ID
 }
 
 func lookupDepStatus(r *storage.Resolver, d spec.Dependency) string {
