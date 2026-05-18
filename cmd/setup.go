@@ -221,6 +221,14 @@ func printProjectInstructions(projectID string, projCfg *config.ProjectConfig, s
 	fmt.Println("### kerf commands")
 	fmt.Println()
 	printKerfUsage()
+	fmt.Println()
+
+	// .gitignore pattern
+	printGitignoreBlock()
+	fmt.Println()
+
+	// Bench location (placeholder — Plan 017 fills in cheat-sheet body)
+	printBenchLocationBlock(projectID)
 
 	fmt.Println("--- END AGENT INSTRUCTIONS ---")
 }
@@ -234,6 +242,30 @@ func printKerfUsage() {
 	fmt.Println("  kerf resume <codename>           Pick up where you left off")
 	fmt.Println("  kerf square <codename>           Verify the work is complete")
 	fmt.Println("  kerf finalize <codename> --branch <name>  Package for implementation")
+	fmt.Println("  kerf list                        List active works in the project")
+	fmt.Println("  kerf next                        Ranked feed of things to do")
+	fmt.Println("  kerf triage                      Drift report on the bead store")
+	fmt.Println("  kerf pin <codename> <bead>       Attach a specific bead to a work")
+	fmt.Println("  kerf map                         Portfolio view across areas")
+	fmt.Println("  kerf areas                       Define and list areas")
+	fmt.Println("  kerf work edit <codename>        Mutate a work's bead-filter")
+}
+
+func printGitignoreBlock() {
+	fmt.Println("### .gitignore")
+	fmt.Println()
+	fmt.Println("Add these two lines to the repo's `.gitignore` so bench-side state stays out of git while project identity stays committed:")
+	fmt.Println()
+	fmt.Println("```")
+	fmt.Println(".kerf/")
+	fmt.Println("!.kerf/project-identifier")
+	fmt.Println("```")
+}
+
+func printBenchLocationBlock(projectID string) {
+	fmt.Println("### Bench location")
+	fmt.Println()
+	fmt.Printf("Bench path for this project: `~/.kerf/projects/%s/`. See the \"Where state lives\" cheat-sheet in `specs/architecture.md` for which files live on the bench vs. in the repo. <!-- placeholder: plan 017 expands this section -->\n", projectID)
 }
 
 func fileExists(path string) bool {
