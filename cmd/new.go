@@ -270,6 +270,15 @@ func runNew(cn string) error {
 	fmt.Printf("  1. Begin the first pass: write artifacts in %s\n", workDir)
 	fmt.Printf("  2. Advance status: kerf status %s <next-status>\n", cn)
 	fmt.Printf("  3. When done: kerf shelve %s\n", cn)
+	fmt.Println()
+
+	// Fenced final block: storage location + repo-side hint.
+	// Always the last lines of output so an agent that scrolls to the end can
+	// find the canonical paths without re-deriving them.
+	fmt.Println("```")
+	fmt.Printf("working directory: %s\n", workDir)
+	fmt.Println("repo-side files:   .kerf/project-identifier (committed); add agent instructions to your config file (CLAUDE.md, AGENTS.md, etc.)")
+	fmt.Println("```")
 
 	return nil
 }
