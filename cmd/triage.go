@@ -431,24 +431,52 @@ func runTriage(cmd *cobra.Command) error {
 	report.Items = append(report.Items, external...)
 
 	// --- Render ----------------------------------------------------------
-	switch format {
-	case "json":
-		if rerr := renderTriageJSON(out, report); rerr != nil {
-			return rerr
-		}
-	default:
-		if rerr := renderTriageText(out, projectID, report, untriaged, multiMatched, external); rerr != nil {
-			return rerr
+	// Per specs/commands.md §"kerf triage" step 7: with --ack, the render
+	// step is skipped — stdout sees only the single-line baseline
+	// confirmation (or summary record under --format=json) emitted in
+	// step 8 below.
+	if !triageAck {
+		switch format {
+		case "json":
+			if rerr := renderTriageJSON(out, report); rerr != nil {
+				return rerr
+			}
+		default:
+			if rerr := renderTriageText(out, projectID, report, untriaged, multiMatched, external); rerr != nil {
+				return rerr
+			}
 		}
 	}
 
 	// --- --ack: advance the drift baseline -------------------------------
+	// Per specs/commands.md §"kerf triage" step 8: capture the current
+	// snapshot, write it to .kerf/sync-cache.json, and emit a single-line
+	// confirmation (text) or a one-record summary (json).
 	if triageAck {
 		if cachePath == "" {
 			return errors.New("cannot advance baseline: no repo root resolved (run inside the project's git repo)")
 		}
 		if werr := drift.Advance(cachePath, current); werr != nil {
 			return fmt.Errorf("advancing baseline: %w", werr)
+		}
+		ts := current.CapturedAt.UTC().Format("2006-01-02T15:04:05Z")
+		itemsCaptured := len(current.Beads)
+		switch format {
+		case "json":
+			summary := struct {
+				BaselineAdvancedAt string `json:"baseline_advanced_at"`
+				ItemsCaptured      int    `json:"items_captured"`
+			}{
+				BaselineAdvancedAt: ts,
+				ItemsCaptured:      itemsCaptured,
+			}
+			enc := json.NewEncoder(out)
+			enc.SetIndent("", "  ")
+			if eerr := enc.Encode(summary); eerr != nil {
+				return eerr
+			}
+		default:
+			fmt.Fprintf(out, "Baseline advanced to %s.\n", ts)
 		}
 	}
 
