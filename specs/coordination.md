@@ -259,15 +259,14 @@ The `work_no_attached_beads` cleanup detector (a work whose filter matches zero 
 
 #### Bead-filter rank labels
 
-A work whose resolved `bead_filter` matches zero open beads is classified into one of three rank labels. This tri-state replaces the earlier single `clean` label, which conflated three distinct conditions:
+A work whose resolved `bead_filter` matches zero open beads is classified by rank label. Today the vocabulary is two labels; a third (`broken`) is reserved for when parser support lands. This replaces the earlier single `clean` label, which conflated distinct conditions:
 
-- **`empty`** — `bead_filter` is declared and syntactically valid, but matches zero open beads in the current store. Likely benign: the work is wired, its beads simply have not been created yet.
+- **`empty`** — `bead_filter` is declared and syntactically valid, but matches zero open beads in the current store. Likely benign: the work is wired, its beads simply have not been created yet. A malformed filter that the parser rejects up front also surfaces here today, because `spec.Read` refuses to load a spec whose `bead_filter` clause does not parse — the work never reaches the zero-match detector with a malformed clause intact.
 - **`unwired`** — no `bead_filter` key on the work's `spec.yaml`, or the key is present with an empty value. The work needs a filter authored (or bootstrapped from existing labels) before it can attach beads.
-- **`broken`** — `bead_filter` is declared but malformed (parse error, or references a clause shape kerf does not recognize). Surfaces as a configuration error rather than a benign zero-match.
 
-The three labels share the surface previously occupied by `work_no_attached_beads`: a zero-match work surfaces as exactly one of `empty`, `unwired`, or `broken`, not as the generic cleanup item. The detector logic and `kerf next` rendering are specified in [commands.md](commands.md#kerf-next).
+<!-- TBD: open question 5 from plan 019 — `broken` lands when the parser can distinguish a malformed clause from a valid clause that matches nothing. Until then, malformed filters are rejected at parse time and the surface is two-state. -->
 
-When the underlying filter parser cannot distinguish "malformed clause" from "valid clause that matches nothing," `broken` collapses into `empty` and the surface is a two-state classification. The distinction is preserved in this spec so the third label is available when parser support lands.
+The two labels share the surface previously occupied by `work_no_attached_beads`: a zero-match work surfaces as exactly one of `empty` or `unwired`, not as the generic cleanup item. The detector logic and `kerf next` rendering are specified in [commands.md](commands.md#kerf-next).
 
 #### Prefix routing for label-driven suggestions
 

@@ -1569,7 +1569,7 @@ kerf doctor [--format <format>] [--detector <id>] [--quiet] [--strict] [--projec
    - **`project-yaml`** — checks `project.yaml` exists at the location dictated by the active storage mode, parses cleanly, declares at least one jig, and (when applicable) names a `default_jig`. Reports against whatever schema `project.yaml` carries; the schema itself lives in [architecture.md](architecture.md).
    - **`storage-drift`** — presence-level only. Reports drift when a work directory, `project.yaml`, or `areas.yaml` lives in the non-canonical location for the active mode (a `.kerf/works/<codename>/` directory under bench mode, or a real `~/.kerf/projects/<project-id>/<codename>/` directory under local mode), when a work appears in both locations, or when `project.yaml` / `areas.yaml` exist in both at once. Content-level (hash) drift is out of scope in v1.
    - **`symlink-integrity`** (local mode only) — checks that `~/.kerf/projects/<project-id>` is a symlink, that the target exists, and that the target matches the resolver's expected path. Reports broken, missing, or real-directory-where-symlink-expected cases.
-   - **`bead-filter-coverage`** — reports each active work whose `bead_filter` resolves to zero beads, labelled by the rank-label vocabulary documented under [`kerf next`](#kerf-next) (`empty`, `unwired`, `broken`). The hint for an unwired work names the filter-bootstrap entry point (see [plan 019]).
+   - **`bead-filter-coverage`** — reports each active work whose `bead_filter` resolves to zero beads, labelled by the rank-label vocabulary documented under [`kerf next`](#kerf-next) (`empty` or `unwired` today; `broken` lands when parser support arrives — see plan 019 OQ5). The hint for an unwired work names the filter-bootstrap entry point (see [plan 019]).
    - **`archive-orphans`** — reports any `~/.kerf/archive/<project-id>/<codename>/` entry whose codename also appears as a live work in the project.
 3. Aggregate findings, assign severity (`green` for healthy, `yellow` for warnings without immediate damage, `red` for findings that block normal use), and render.
 
@@ -1745,10 +1745,10 @@ Every item carries a `kind` and a `target`:
 3. **Assemble candidate items** from each source:
    - **Beads** — from the bead store, filtered per work via the resolved `bead_filter` (see [coordination.md](coordination.md#bead-attachment)). Beads that are blocked, in progress, or closed are excluded. Each ready bead becomes a `bead` item attributed to every work it matches.
    - **Cleanup detectors** — pure functions over current state, run on every invocation. v1 detectors:
-     - `work_no_attached_beads` — fires when a work's resolved `bead_filter` matches zero beads (attached_count == 0). The cleanup item carries one of three **rank labels** to distinguish the three failure modes that previously collapsed under `clean`:
+     - `work_no_attached_beads` — fires when a work's resolved `bead_filter` matches zero beads (attached_count == 0). The cleanup item carries a **rank label** to distinguish the failure modes that previously collapsed under `clean`. Today the vocabulary is two labels; a third (`broken`) lands when parser support arrives:
        - `empty` — `bead_filter` declared and syntactically valid, but matches zero open beads. Likely benign; the work is wired but its beads have not been created yet.
        - `unwired` — no `bead_filter` key on `spec.yaml`, or key present with empty value. The agent needs to bootstrap or edit. Suggested action: `kerf work edit <codename> --bead-filter-add '<clause>'` or the project-wide bootstrap entry point. <!-- TBD: open question 1 from plan 019 — whether bootstrap is a new top-level verb or a flag on kerf work edit. -->
-       - `broken` — `bead_filter` declared but malformed, or referencing a clause shape that does not parse. Suggested action: edit the filter to a valid clause. <!-- TBD: open question 5 from plan 019 — whether the existing parser can distinguish "malformed" from "valid but zero-match"; if not, broken collapses into empty. -->
+       <!-- TBD: open question 5 from plan 019 — `broken` lands when the parser can distinguish a malformed clause from a valid clause that matches nothing. Until then, `spec.Read` rejects malformed filters at parse time, so the malformed-clause case never reaches this detector and the surface is two-state. -->
      - `work_beads_done_status_open` — fires when a work has attached_count > 0, every attached bead is closed, and the work's jig status is not terminal. Suggested action: advance status (`kerf status <codename> <next-stage>`) or `kerf shelve <codename>`.
 
      The two detectors are mutually exclusive by construction (the attached-count guard on `work_beads_done_status_open` ensures a zero-bead work is reported only by `work_no_attached_beads`).
@@ -1810,13 +1810,15 @@ When untriaged beads are present and the drift-summary line is rendered, the old
 warning: 12 beads match no work — check bead_filter in project.yaml
 ```
 
-After the drift footer, the warning stanza (when any work-level cleanup items are present) renders compactly — one row per affected work, prefixed with the rank label (`empty`, `unwired`, `broken`) and the codename, followed by the near-match advisor line when applicable:
+After the drift footer, the warning stanza (when any work-level cleanup items are present) renders compactly — one row per affected work, prefixed with the rank label (`empty` or `unwired` today) and the codename, followed by the near-match advisor line when applicable:
 
 ```
 unwired: phase-3-dot — try: kerf work edit phase-3-dot --bead-filter 'label=phase-3-dot'
 empty:   bridge      — try: kerf work edit bridge --bead-filter 'label=subsystem:bridge'
-broken:  scratch     — bead_filter clause does not parse; edit spec.yaml
 ```
+
+<!-- TBD: open question 5 from plan 019 — a `broken:` row joins this stanza when the parser can distinguish a malformed clause from a valid clause that matches nothing. -->
+
 
 If no items exist, the output says so.
 
@@ -2358,7 +2360,7 @@ kerf bootstrap-filters [--apply] [--yes] [--codename <name>...] [--format <forma
 ### Behavior
 
 1. Resolve the project ID and the active works.
-2. Identify eligible works: those whose resolved `bead_filter` matches zero open beads (rank label `empty` or `unwired`). Works tagged `broken` are eligible only when the malformed clause can be parsed enough to extract a codename candidate; otherwise they are listed under "not auto-fixable" and skipped.
+2. Identify eligible works: those whose resolved `bead_filter` matches zero open beads (rank label `empty` or `unwired`). <!-- TBD: open question 5 from plan 019 — when the parser learns to distinguish malformed clauses, works tagged `broken` become eligible only if the malformed clause can be parsed enough to extract a codename candidate; otherwise they are listed under "not auto-fixable" and skipped. -->
 3. For each eligible work, the sampler:
    1. Builds a candidate label set — the work's codename, the codename combined with common prefixes (`codename:`, `subsystem:`, `area:`, `kind:`), and the bare codename slug.
    2. Counts open-bead matches for each candidate against the bead store.
