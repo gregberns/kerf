@@ -1,0 +1,36 @@
+stop_reason          ticks-cap
+agents               2
+wall_ticks           59826
+warmup_skipped       false
+scenario_sha256      86fbd07c646861b13299510542b3a60ba34536c0268a321b3e54304f9bc34f6d
+weights_sha256       3fa2d71238a5eb2b4842780da4370828c699b476d45adcc06cd5b261006f7d33
+
+[full]
+work_completed       27
+work_total           8
+wall_ticks           59826
+agent_idle_pct       0.176345
+agent_ticks_total    98552
+rework_p50_wait      1587
+rework_p95_wait      18151
+top_of_queue_churn   0.826233
+goal_completion_1d   0
+goal_completion_3d   0
+goal_completion_7d   27
+priority_inversions  111
+area_collisions      115
+
+[warmup]
+work_completed       27
+work_total           8
+wall_ticks           53844
+agent_idle_pct       0.195936
+agent_ticks_total    86588
+rework_p50_wait      1737
+rework_p95_wait      20074
+top_of_queue_churn   0.808168
+goal_completion_1d   0
+goal_completion_3d   0
+goal_completion_7d   27
+priority_inversions  88
+area_collisions      104

@@ -1,0 +1,42 @@
+seed: 43
+ticks: 60000
+agents: 2
+works:
+  - codename: cp
+    areas: [invariant req schema test-infra]
+    deps: [hc]
+    bead_count: 85
+  - codename: hc
+    areas: [error-taxonomy invariant req schema test-infra]
+    deps: [pl]
+    bead_count: 80
+  - codename: meta
+    areas: [workflow]
+    bead_count: 42
+  - codename: on
+    areas: [error-taxonomy invariant req test-infra]
+    deps: [cp hc pl rc]
+    bead_count: 84
+  - codename: pl
+    areas: [invariant req schema test-infra]
+    deps: [rc wm]
+    bead_count: 59
+  - codename: rc
+    areas: [error-taxonomy invariant req schema test-infra]
+    deps: [wm]
+    bead_count: 79
+  - codename: sh
+    areas: [error-taxonomy invariant req schema]
+    deps: [hc on pl wm]
+    bead_count: 53
+  - codename: wm
+    areas: [error-taxonomy invariant req schema test-infra]
+    bead_count: 71
+bead_arrivals:
+  generator:
+    rework_rate_per_tick: 0.008
+    target_works: [cp hc meta on pl rc sh wm]
+agent_model:
+  duration:
+    kind: from_distribution
+    sigma: 0
