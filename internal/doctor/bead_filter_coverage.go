@@ -140,7 +140,7 @@ func (beadFilterCoverageDetector) Run(ctx *Context) ([]Finding, error) {
 	var findings []Finding
 	if len(unwired) > 0 {
 		findings = append(findings, Finding{
-			Severity: Yellow,
+			Severity: Red,
 			Summary:  fmt.Sprintf("bead_filter coverage: %d of %d works unwired", len(unwired), totalWorks),
 			Items:    unwired,
 			Hint:     beadFilterCoverageHint,
