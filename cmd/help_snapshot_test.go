@@ -15,6 +15,7 @@ package cmd
 // tests enforce.
 
 import (
+	"bytes"
 	"regexp"
 	"testing"
 )
@@ -87,6 +88,56 @@ func TestHelpSnapshot_KerfTriage(t *testing.T) {
 				el.name, h[cursor:])
 		}
 		cursor += loc[1]
+	}
+}
+
+// --- kerf init help — flag-surface contract -------------------------------
+
+// TestHelpSnapshot_KerfInit locks the post-Plan-016 `kerf init` flag surface
+// from specs/commands.md §"kerf init" — every documented flag must appear in
+// `kerf init --help`, and the command is non-interactive (no prompt).
+//
+// Plan 016 / B8 (kerf-3lz) added --yes, --no, --bead-filter and removed the
+// y/N prompt; this test catches regressions if any of those flags are dropped
+// or renamed, and asserts the pre-existing --jig / --force flags survive.
+func TestHelpSnapshot_KerfInit(t *testing.T) {
+	var buf bytes.Buffer
+	initCmd.SetOut(&buf)
+	initCmd.SetErr(&buf)
+	defer func() {
+		initCmd.SetOut(nil)
+		initCmd.SetErr(nil)
+	}()
+
+	if err := initCmd.Help(); err != nil {
+		t.Fatalf("initCmd.Help() returned error: %v", err)
+	}
+	out := buf.String()
+
+	// Presence-only (flag layout is alphabetical via cobra; order is not a
+	// spec contract). Each flag's long form plus a snippet of its
+	// description is asserted so a silent rename of either side fails the
+	// test.
+	flags := []struct {
+		name    string
+		pattern *regexp.Regexp
+	}{
+		{"--jig flag present", regexp.MustCompile(`--jig\b.*(?i)workflow`)},
+		{"--force flag present", regexp.MustCompile(`--force\b.*(?i)project\.yaml`)},
+		{"--yes flag present", regexp.MustCompile(`--yes\b.*(?i)bead-filter`)},
+		{"--no flag present", regexp.MustCompile(`--no\b.*(?i)bead-filter`)},
+		{"--bead-filter flag present", regexp.MustCompile(`--bead-filter\b.*(?i)literal`)},
+	}
+	for _, f := range flags {
+		if !f.pattern.MatchString(out) {
+			t.Fatalf("kerf init help missing element %q.\nFull output:\n%s", f.name, out)
+		}
+	}
+
+	// Non-interactive: no leftover y/N prompt mention from the pre-Plan-016
+	// interactive flow.
+	if regexp.MustCompile(`\[y/N\]|\(y/N\)`).MatchString(out) {
+		t.Fatalf("kerf init help still mentions a y/N prompt; init is non-interactive post-Plan-016.\nFull output:\n%s", out)
 	}
 }
 
