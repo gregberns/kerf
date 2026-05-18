@@ -54,7 +54,15 @@ var (
 	triageAck      bool
 	triageKinds    []string
 	triageFormat   string
+	triageTop      int
 )
+
+// triageTopUnlimited is the sentinel meaning "show all items" for --top.
+// Per specs/commands.md §"kerf triage" §Flags: --top defaults to unlimited
+// (flag absent). Passing --top 0 explicitly also means unlimited so an
+// agent can opt out of a default-bounded recipe. Any positive N truncates
+// each section to N items after sorting.
+const triageTopUnlimited = 0
 
 // Help-text contract per specs/commands.md §"kerf triage" §"Help text":
 // fixed order — what triage returns, the three item kinds with one-line
@@ -104,6 +112,7 @@ func init() {
 	triageCmd.Flags().BoolVar(&triageAck, "ack", false, "Acknowledge current snapshot as the new drift baseline")
 	triageCmd.Flags().StringArrayVar(&triageKinds, "kind", nil, "Show only items of this kind (repeatable): untriaged, multi_matched, external_drift")
 	triageCmd.Flags().StringVar(&triageFormat, "format", "text", "Output format: text or json")
+	triageCmd.Flags().IntVar(&triageTop, "top", 0, "Truncate each section to the top N items after sorting (0 = unlimited; large-project recipe: --top 20)")
 	rootCmd.AddCommand(triageCmd)
 }
 
@@ -185,6 +194,12 @@ func runTriage(cmd *cobra.Command) error {
 	kindSet, err := parseTriageKinds(triageKinds)
 	if err != nil {
 		return err
+	}
+	// Per spec, --top defaults to unlimited and 0 is the explicit
+	// "show all" sentinel; both map to the same render path. A positive N
+	// truncates each section to N items after sorting.
+	if triageTop < 0 {
+		return fmt.Errorf("--top must be >= 0 (got %d)", triageTop)
 	}
 
 	// --- Resolve project + storage ---------------------------------------
@@ -442,7 +457,7 @@ func runTriage(cmd *cobra.Command) error {
 				return rerr
 			}
 		default:
-			if rerr := renderTriageText(out, projectID, report, untriaged, multiMatched, external); rerr != nil {
+			if rerr := renderTriageText(out, projectID, report, untriaged, multiMatched, external, triageTop); rerr != nil {
 				return rerr
 			}
 		}
@@ -637,9 +652,45 @@ func buildExternalDriftItems(d drift.Diff, byID map[string]beads.Bead, baseline 
 	return out
 }
 
+// truncateSection returns (shown, hidden) for a section under --top
+// semantics. n==0 (the unlimited sentinel) returns all items, zero hidden.
+// Truncation never reorders — callers have already sorted.
+func truncateSection(items []triageItem, n int) (shown []triageItem, hidden int) {
+	if n <= 0 || len(items) <= n {
+		return items, 0
+	}
+	return items[:n], len(items) - n
+}
+
+// renderSectionHeader chooses between the "(N):" and "(showing K of N):"
+// header shapes per specs/commands.md §"Count reconciliation and --top
+// rendering". The "showing K of N" form is only used when --top was given
+// AND truncation actually applies (hidden > 0); a section that fits under
+// the cap renders with the plain "(N):" header so a clean project does
+// not gain noise from `--top 20`.
+func renderSectionHeader(out io.Writer, label string, total, hidden int) {
+	if hidden > 0 {
+		fmt.Fprintf(out, "%s (showing %d of %d):\n", label, total-hidden, total)
+	} else {
+		fmt.Fprintf(out, "%s (%d):\n", label, total)
+	}
+}
+
+// renderTruncationFooter prints the "... and X more — use --top 0 for
+// full list" line when a section was truncated. Per the bead body's
+// rendering contract: section header carries totals; footer carries the
+// recovery hint so an agent never has to guess how to see the rest.
+func renderTruncationFooter(out io.Writer, hidden int) {
+	if hidden > 0 {
+		fmt.Fprintf(out, "  ... and %d more — use --top 0 for full list\n", hidden)
+	}
+}
+
 // renderTriageText writes the compact human-readable report. Sections
-// with zero items are omitted, per spec.
-func renderTriageText(out io.Writer, projectID string, report triageReport, untriaged, multiMatched, external []triageItem) error {
+// with zero items are omitted, per spec. When top > 0 each section is
+// truncated to that many items after sorting; top == 0 is the unlimited
+// sentinel (matches the flag-absent default).
+func renderTriageText(out io.Writer, projectID string, report triageReport, untriaged, multiMatched, external []triageItem, top int) error {
 	// Header — `Triage for <project> (baseline: <ts>):` followed by the
 	// canonical bead-count line. Per Plan 018 / B6, each count is labeled
 	// with its status filter so 'open' and 'total' never appear ambiguous.
@@ -661,34 +712,47 @@ func renderTriageText(out io.Writer, projectID string, report triageReport, untr
 		return nil
 	}
 
+	// Per the bead body / specs/commands.md §--top: a positive N truncates
+	// each section after sorting. top == 0 is the unlimited sentinel (the
+	// flag-absent default and the explicit "show all" override) and
+	// short-circuits through truncateSection's n<=0 guard. external_drift
+	// items are bounded by the same N when --top is given — the spec
+	// exempts them from implicit defaults only, and an explicit --top is
+	// always intentional.
+	untriagedShown, untriagedHidden := truncateSection(untriaged, top)
+	multiMatchedShown, multiMatchedHidden := truncateSection(multiMatched, top)
+	externalShown, externalHidden := truncateSection(external, top)
+
 	if len(untriaged) > 0 {
 		fmt.Fprintln(out)
-		fmt.Fprintf(out, "Untriaged beads (%d):\n", len(untriaged))
-		for _, it := range untriaged {
+		renderSectionHeader(out, "Untriaged beads", len(untriaged), untriagedHidden)
+		for _, it := range untriagedShown {
 			fmt.Fprintf(out, "  %s  %s  %q  labels: %s\n",
 				it.BeadID, it.Status, it.Title, joinOrDash(it.Labels))
 			if it.Suggest != nil {
 				fmt.Fprintf(out, "    suggest: %s\n", *it.Suggest)
 			}
 		}
+		renderTruncationFooter(out, untriagedHidden)
 	}
 
 	if len(multiMatched) > 0 {
 		fmt.Fprintln(out)
-		fmt.Fprintf(out, "Multi-matched beads (%d):\n", len(multiMatched))
-		for _, it := range multiMatched {
+		renderSectionHeader(out, "Multi-matched beads", len(multiMatched), multiMatchedHidden)
+		for _, it := range multiMatchedShown {
 			fmt.Fprintf(out, "  %s  %s  %q  matches: %s\n",
 				it.BeadID, it.Status, it.Title, strings.Join(it.WorkCodenames, ", "))
 			if it.Suggest != nil {
 				fmt.Fprintf(out, "    suggest: %s\n", *it.Suggest)
 			}
 		}
+		renderTruncationFooter(out, multiMatchedHidden)
 	}
 
 	if len(external) > 0 {
 		fmt.Fprintln(out)
-		fmt.Fprintf(out, "External changes since last triage (%d):\n", len(external))
-		for _, it := range external {
+		renderSectionHeader(out, "External changes since last triage", len(external), externalHidden)
+		for _, it := range externalShown {
 			sk := ""
 			if it.SubKind != nil {
 				sk = *it.SubKind
@@ -696,6 +760,7 @@ func renderTriageText(out io.Writer, projectID string, report triageReport, untr
 			fmt.Fprintf(out, "  %s  %s  %q  %s\n",
 				it.BeadID, sk, it.Title, it.Reason)
 		}
+		renderTruncationFooter(out, externalHidden)
 	}
 
 	if len(report.Works) > 0 {
