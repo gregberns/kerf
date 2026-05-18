@@ -90,12 +90,17 @@ func TestInit_OutputIncludesSetup(t *testing.T) {
 		}
 	})
 
-	// Should include bootstrap instructions
-	testutil.AssertStringContains(t, out, "AGENT SETUP INSTRUCTIONS")
-
-	// Should include setup output (agent-facing instructions from kerf setup)
+	// Spec §kerf init step 11: kerf setup is the single source of the agent
+	// instruction block; kerf init no longer emits its own inline copy. The
+	// block must appear exactly once in init's stdout.
 	testutil.AssertStringContains(t, out, "START AGENT INSTRUCTIONS")
 	testutil.AssertStringContains(t, out, "END AGENT INSTRUCTIONS")
+	if got := strings.Count(out, "START AGENT INSTRUCTIONS"); got != 1 {
+		t.Errorf("expected exactly 1 'START AGENT INSTRUCTIONS' block, got %d", got)
+	}
+	if got := strings.Count(out, "END AGENT INSTRUCTIONS"); got != 1 {
+		t.Errorf("expected exactly 1 'END AGENT INSTRUCTIONS' block, got %d", got)
+	}
 }
 
 func TestInit_BootstrapInstructionsMentionsAllJigTypes(t *testing.T) {

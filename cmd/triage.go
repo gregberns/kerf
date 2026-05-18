@@ -131,6 +131,7 @@ type triageWorkHealth struct {
 
 type triageReport struct {
 	BaselineCapturedAt string             `json:"baseline_captured_at"`
+	BeadCounts         triageBeadCounts   `json:"bead_counts"`
 	Works              []triageWorkHealth `json:"works"`
 	Items              []triageItem       `json:"items"`
 	// Summary is a kerf-internal field for machine consumers; not part of
@@ -143,6 +144,20 @@ type triageSummary struct {
 	Untriaged     int `json:"untriaged"`
 	MultiMatched  int `json:"multi_matched"`
 	ExternalDrift int `json:"external_drift"`
+}
+
+// triageBeadCounts is the canonical "N open · M total" pair surfaced in
+// the report header per Plan 018 / B6 (count reconciliation). Both
+// numbers are accurate; the previous bug was emitting them unlabeled in
+// different places, which read as a discrepancy. `Open` excludes statuses
+// in the closedSet (closed/done/complete/completed); `Total` is every
+// bead in the store. `Ready` is the subset of `Open` that is also not
+// blocked / in-progress — the population the untriaged / multi_matched
+// classifications run over.
+type triageBeadCounts struct {
+	Open  int `json:"open"`
+	Ready int `json:"ready"`
+	Total int `json:"total"`
 }
 
 // notInitializedJSON is emitted on stdout for --format=json when
@@ -277,6 +292,21 @@ func runTriage(cmd *cobra.Command) error {
 		diff = drift.Compute(baseline, current, closedSet)
 	}
 
+	// --- Canonical bead counts (Plan 018 / B6) ---------------------------
+	// Compute the canonical open/ready/total triple once so the header,
+	// summary, and any downstream consumer see the same numbers. open
+	// excludes closedSet; ready additionally excludes blocked /
+	// in-progress (the population classification runs over).
+	beadCounts := triageBeadCounts{Total: len(allBeads)}
+	for _, b := range allBeads {
+		if !closedSet[strings.ToLower(b.Status)] {
+			beadCounts.Open++
+		}
+		if triageIsReady(b) {
+			beadCounts.Ready++
+		}
+	}
+
 	// --- Classify beads --------------------------------------------------
 	byID := make(map[string]beads.Bead, len(allBeads))
 	for _, b := range allBeads {
@@ -373,7 +403,8 @@ func runTriage(cmd *cobra.Command) error {
 
 	// --- Build report + summary ------------------------------------------
 	report := triageReport{
-		Works: health,
+		BeadCounts: beadCounts,
+		Works:      health,
 		Summary: triageSummary{
 			Untriaged:     len(untriaged),
 			MultiMatched:  len(multiMatched),
@@ -555,12 +586,16 @@ func buildExternalDriftItems(d drift.Diff, byID map[string]beads.Bead, baseline 
 // renderTriageText writes the compact human-readable report. Sections
 // with zero items are omitted, per spec.
 func renderTriageText(out io.Writer, projectID string, report triageReport, untriaged, multiMatched, external []triageItem) error {
-	// Header — `Triage for <project> (baseline: <ts>):`.
+	// Header — `Triage for <project> (baseline: <ts>):` followed by the
+	// canonical bead-count line. Per Plan 018 / B6, each count is labeled
+	// with its status filter so 'open' and 'total' never appear ambiguous.
 	if report.BaselineCapturedAt != "" {
 		fmt.Fprintf(out, "Triage for %s (baseline: %s):\n", projectID, report.BaselineCapturedAt)
 	} else {
 		fmt.Fprintf(out, "Triage for %s (baseline: never):\n", projectID)
 	}
+	fmt.Fprintf(out, "  Beads: %d open · %d ready · %d total\n",
+		report.BeadCounts.Open, report.BeadCounts.Ready, report.BeadCounts.Total)
 
 	totalItems := len(untriaged) + len(multiMatched) + len(external)
 	if totalItems == 0 {

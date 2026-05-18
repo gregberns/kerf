@@ -129,9 +129,8 @@ func runInit() error {
 		// ran above or run below.
 		printExistingProjectSummary(projCfgPath, existingCfg)
 
-		// Print bootstrap and run kerf setup (steps 11 and the agent
-		// instructions are safe to re-emit).
-		fmt.Print(bootstrapInstructions(projectID, cfg.EffectiveDefaultJig()))
+		// Run kerf setup — the single source of the AGENT SETUP INSTRUCTIONS
+		// block (specs/commands.md §kerf init step 11).
 		fmt.Println()
 		if err := runSetup(); err != nil {
 			fmt.Printf("Note: could not generate setup instructions: %v\n", err)
@@ -262,13 +261,19 @@ func isInteractiveStdin(in *os.File) bool {
 func detectBeadFilter(resolver *storage.Resolver, stdin *os.File, stdout io.Writer, priorFilter *beads.Filter) *beads.Filter {
 	interactive := isInteractiveStdin(stdin)
 
-	if !beads.IsAvailable() {
+	// Honor project.yaml tools.tasks (default "br") so detection runs against
+	// the same bead store the rest of kerf will use after init.
+	detectTool := beads.DefaultToolName
+	if cfg, cerr := config.LoadProjectConfig(resolver.ProjectConfigPath()); cerr == nil && cfg != nil {
+		detectTool = beads.ResolveToolName(cfg.Tools)
+	}
+	if !beads.IsAvailableNamed(detectTool) {
 		// Tool missing: cannot detect. Preserve any prior filter rather than
 		// silently dropping it on a --force re-run.
 		return priorFilter
 	}
 
-	all, err := beads.List()
+	all, err := beads.ListNamed(detectTool)
 	if err != nil || len(all) == 0 {
 		// Bead store empty or unreachable → silent skip; preserve prior.
 		return priorFilter
@@ -415,87 +420,3 @@ func printExistingProjectSummary(path string, cfg *config.ProjectConfig) {
 	}
 }
 
-func bootstrapInstructions(projectID string, defaultJig string) string {
-	jigNote := ""
-	if defaultJig == "" {
-		jigNote = `
-NOTE: You must set the default workflow before proceeding:
-  Run: kerf config default_jig plan    (for existing projects)
-  Or:  kerf config default_jig spec    (for spec-driven projects)
-`
-	}
-
-	return fmt.Sprintf(`
-================================================================================
-AGENT SETUP INSTRUCTIONS
-================================================================================
-
-kerf has been initialized for this project (ID: %s).
-%s
-Complete the following setup steps:
-
-1. ADD TO .gitignore (if not already present):
-   .kerf/
-
-   But DO commit .kerf/project-identifier — it links this repo to its works.
-
-2. ADD THESE INSTRUCTIONS to your agent configuration file.
-   For Claude Code: CLAUDE.md
-   For Cursor: .cursorrules
-   For other agents: wherever the agent reads project instructions.
-
---- START AGENT INSTRUCTIONS ---
-
-## Planning with kerf
-
-This project uses kerf for structured planning. Before implementing non-trivial
-changes (new features, refactors, bug investigations), create a kerf work:
-
-  kerf new <codename>
-
-This creates a work on the bench and shows the process to follow. The jig
-(process template) guides you through structured passes — problem space,
-decomposition, research, detailed spec, integration, and tasks.
-
-### Key commands
-
-  kerf new <codename>              Create a new work
-  kerf show <codename>             See current state + jig instructions for next steps
-  kerf status <codename>           Check current status
-  kerf status <codename> <status>  Advance to next pass
-  kerf shelve <codename>           Save progress when ending a session
-  kerf resume <codename>           Pick up where you left off
-  kerf square <codename>           Verify the work is complete
-  kerf finalize <codename> --branch <name>  Package for implementation
-
-### When to use kerf
-
-- New features or subsystems → kerf new --jig plan (or spec)
-- Bug investigations → kerf new --jig bug
-- Implementation from existing spec → kerf new --jig implementation
-- Quick explorations → kerf new --jig spike
-- Retrofitting specs to existing code → kerf new --jig retrofit
-- Trivial changes (typos, one-line fixes) → skip kerf, just make the change
-
-### Workflow
-
-1. kerf new <codename> — read the output, it tells you exactly what to do
-2. Follow each pass: write the artifacts, advance status
-3. kerf show <codename> — if you lose context, this shows where you are
-4. kerf shelve / kerf resume — for multi-session work
-5. kerf square — verify everything is complete
-6. kerf finalize — package into a git branch for implementation
-
-Don't skip the planning process. Measure twice, cut once.
-
---- END AGENT INSTRUCTIONS ---
-
-3. VERIFY the setup by running:
-   kerf new test-setup --title "Verify kerf setup"
-   kerf show test-setup
-   kerf delete test-setup --yes
-
-That's it. kerf is ready to use.
-================================================================================
-`, projectID, jigNote)
-}

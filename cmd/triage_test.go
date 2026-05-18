@@ -574,6 +574,79 @@ func TestTriage_HelpTextOrder(t *testing.T) {
 	}
 }
 
+// TestTriage_HeaderBeadCounts_LabeledByStatus verifies Plan 018 / B6:
+// the canonical header line surfaces both 'open' and 'total' counts with
+// explicit labels so the previously-ambiguous discrepancy (e.g. 163 vs
+// 168 in the harmonik dogfood) is no longer silent. Seeds a store with a
+// mix of open, closed, blocked, and in_progress beads so all three
+// counts (open, ready, total) carry distinct values.
+func TestTriage_HeaderBeadCounts_LabeledByStatus(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	// Status mix: 2 open ready, 1 in_progress (open but not ready),
+	// 1 blocked (open but not ready), 2 closed (neither open nor ready).
+	// Expected: open=4, ready=2, total=6.
+	stubBr(t, `[
+		{"id":"a-1","title":"o1","status":"open","labels":["subsystem:alpha"]},
+		{"id":"a-2","title":"o2","status":"open","labels":["subsystem:alpha"]},
+		{"id":"a-3","title":"ip","status":"in_progress","labels":["subsystem:alpha"]},
+		{"id":"a-4","title":"bl","status":"blocked","labels":["subsystem:alpha"]},
+		{"id":"a-5","title":"c1","status":"closed","labels":["subsystem:alpha"]},
+		{"id":"a-6","title":"c2","status":"done","labels":["subsystem:alpha"]}
+	]`)
+
+	resetTriageFlags()
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage: %v", err)
+	}
+	testutil.AssertStringContains(t, out, "Beads: 4 open · 2 ready · 6 total")
+}
+
+// TestTriage_HeaderBeadCounts_JSON verifies the parallel JSON shape from
+// Plan 018 / B6.
+func TestTriage_HeaderBeadCounts_JSON(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	stubBr(t, `[
+		{"id":"a-1","title":"o1","status":"open","labels":["subsystem:alpha"]},
+		{"id":"a-2","title":"ip","status":"in_progress","labels":["subsystem:alpha"]},
+		{"id":"a-3","title":"c1","status":"closed","labels":["subsystem:alpha"]}
+	]`)
+
+	resetTriageFlags()
+	triageFormat = "json"
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage: %v", err)
+	}
+	var report struct {
+		BeadCounts struct {
+			Open  int `json:"open"`
+			Ready int `json:"ready"`
+			Total int `json:"total"`
+		} `json:"bead_counts"`
+	}
+	if jerr := json.Unmarshal([]byte(out), &report); jerr != nil {
+		t.Fatalf("decode JSON: %v\nraw: %s", jerr, out)
+	}
+	if report.BeadCounts.Open != 2 || report.BeadCounts.Ready != 1 || report.BeadCounts.Total != 3 {
+		t.Errorf("bead_counts = %+v, want {Open:2 Ready:1 Total:3}", report.BeadCounts)
+	}
+}
+
 // TestTriage_SuggestUntriaged_TierRouting exercises Plan 018 / B1's
 // tier-1 vs tier-2 prefix routing:
 //   - tier-1 only (codename: / spec:): seeds kerf new / kerf work edit.
