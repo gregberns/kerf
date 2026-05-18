@@ -89,11 +89,29 @@ In this jig, the `{component}` placeholder expands differently depending on the 
 
 This is different from other jigs where `{component}` refers to feature components. Here it refers to spec files because the unit of work is a spec file, not a code module.
 
+## Per-Pass Templates
+
+Each content pass ships a template file alongside the jig in the kerf binary, under `internal/jig/builtin/templates/spec/`. Templates are skeletons — section headings and `<TODO: ...>` markers — that give the agent a structured starting point. When status advances into a pass, kerf pre-creates the pass output directory and copies the template into the output path if no file is there yet (see [jig-system.md](jig-system.md) §Pass-Directory Pre-Creation).
+
+The templates are:
+
+| Pass | Template |
+|------|----------|
+| 1. Problem Space | `01-problem-space.md.template` |
+| 2. Decompose | `02-components.md.template` |
+| 3. Research | `03-research.findings.md.template` |
+| 4. Change Design | `04-design.component-design.md.template` |
+| 5. Spec Draft | `05-spec-drafts.component.md.template`, `05-changelog.md.template` |
+| 6. Integration | `06-integration.md.template` |
+| 7. Tasks | `07-tasks.md.template` |
+
+For passes with `{component}`-templated outputs, the same template is copied per resolved component.
+
 ## Passes
 
 ### Pass 1: Problem Space (problem-space)
 
-**Output:** `01-problem-space.md`
+**Output:** `01-problem-space.md` (template: `01-problem-space.md.template`)
 
 Clarify what needs to change in the system and why. Identify which aspects of the system are affected.
 
@@ -119,7 +137,7 @@ Advance status to `decompose`.
 
 ### Pass 2: Decompose (decompose)
 
-**Output:** `02-components.md`
+**Output:** `02-components.md` (template: `02-components.md.template`)
 
 Identify which existing spec files are affected and what new spec files are needed. Define the scope of changes for each.
 
@@ -135,45 +153,37 @@ Identify which existing spec files are affected and what new spec files are need
 6. Ask the user: walk through each affected area together (guided), or complete the full breakdown for review (autonomous)? Default to autonomous if no user is present. In guided mode: present each affected area individually, get approval before proceeding. Track progress ("Area 3/5: commands.md").
 7. Save to `02-components.md`.
 
-**What done looks like:**
+**Done when reviewer approves on:**
 
+Inputs the reviewer reads: `02-components.md`, `01-problem-space.md`, the existing spec files listed as affected.
+
+Criteria:
 - `02-components.md` lists each affected spec file (existing and new) with: a one-line description of the change, concrete requirements for what the spec should describe after the change, and dependencies on other spec changes
-- Every goal from `01-problem-space.md` maps to at least one spec change
-- No spec change exists that isn't driven by a goal or requirement
-
-Advance status to `research`.
-
-#### Review Criteria
-
-After completing the decomposition, spawn a review sub-agent (see [jig-system.md](jig-system.md) §Review Pattern for the sub-agent delegation protocol) with:
-- The `02-components.md` file
-- The `01-problem-space.md` for scope validation
-- The existing spec files listed as affected
-
-The reviewer checks:
 - Every goal from `01-problem-space.md` maps to at least one spec area
 - No spec area is listed that isn't justified by a goal or requirement
 - Requirements describe what should be true, not how the text should change
 - All relevant existing spec files are accounted for (no missing affected areas)
 - Dependencies between spec changes are correctly identified
 
-Up to 3 review rounds. Save findings to `decompose-review.md`. After that, present artifacts and any remaining findings to the user for approval.
+Review follows the protocol in [jig-system.md](jig-system.md) §Review Pattern. Up to 3 review rounds. Save findings to `decompose-review.md`. After approval (or escalation after the final round), advance status to `research`.
 
 ### Pass 3: Research (research)
 
-**Output:** `03-research/{component}/findings.md` (one file per affected spec area)
+**Output:** `03-research/{component}/findings.md` (one file per affected spec area; template: `03-research.findings.md.template`)
 
 Investigate each affected area to inform the design. The `{component}` placeholder expands to one directory per affected spec area from Pass 2.
 
 #### Agent Instructions
 
+**Parent owns the write.** Research is delegated per area to a sub-agent with fresh context, but the sub-agent returns findings as text — it does not write files. The parent agent collects the returned text and writes each area's `findings.md`. This keeps the pattern portable across harnesses that restrict sub-agent file writes (see [jig-system.md](jig-system.md) §Sub-agent file writes). The parent is the single accountable writer for these artifacts.
+
 **What to do:**
 
 1. Read `02-components.md` to understand what each spec area needs.
 2. For each affected area, identify 3-5 research questions. Examples: "What does the current spec say about finalization?" "How do other spec files cross-reference this one?" "Are there existing patterns in the spec corpus for this kind of structure?" "What does the source material say about this topic?"
-3. Delegate research to a sub-agent with fresh context. Provide the sub-agent with the component requirements from `02-components.md` and access to the existing specs and any source material.
-4. The sub-agent reads existing spec files, checks source material, identifies patterns and constraints, and reports findings.
-5. Save findings per area to `03-research/{component}/findings.md`.
+3. Delegate research per area to a sub-agent with fresh context. Provide the component requirements from `02-components.md`, read access to the existing specs and any source material, and the research questions. Instruct the sub-agent to return findings as a single text payload — not to write to disk.
+4. The sub-agent reads existing spec files, checks source material, identifies patterns and constraints, and returns findings.
+5. As the parent agent, write each returned payload to `03-research/{component}/findings.md`. One file per area.
 6. Present key findings to the user. Flag decisions needed — especially where existing specs have patterns that should be followed or where the proposed change conflicts with existing content.
 
 **What done looks like:**
@@ -186,11 +196,13 @@ Advance status to `change-design`.
 
 ### Pass 4: Change Design (change-design)
 
-**Output:** `04-design/{component}-design.md` (one file per affected spec area)
+**Output:** `04-design/{component}-design.md` (one file per affected spec area; template: `04-design.component-design.md.template`)
 
 Document the intended changes for each affected spec area. This is the design document — it explains the *intent* of each spec change, not the spec text itself.
 
 #### Agent Instructions
+
+**One design file per affected spec area is the default.** Each design document covers a single spec area's change. Co-located designs are easier to review independently, easier to traceback from `05-changelog.md`, and easier to revise without re-touching unrelated areas. For very small changes that touch only one or two spec areas with tightly coupled intent, a single aggregate `04-design/design.md` is acceptable; if used, the changelog still names each affected spec file individually. Default to per-area files unless the change is clearly aggregate in nature.
 
 **What to do:**
 
@@ -202,35 +214,24 @@ Document the intended changes for each affected spec area. This is the design do
 6. Ask the user: guided or autonomous? Default to autonomous if no user is present. In guided mode: present each area's design individually, get approval before proceeding.
 7. Save per area to `04-design/{component}-design.md`.
 
-**What done looks like:**
+**Done when reviewer approves on:**
 
+Inputs the reviewer reads: all files in `04-design/`, `02-components.md`, the relevant `03-research/` findings, the existing spec files being modified.
+
+Criteria:
 - For each affected area, `04-design/{component}-design.md` contains: current state, target state, rationale, and requirements traceability
 - Every requirement from `02-components.md` is addressed by a target state
-- The target state is specific enough that a spec writer can produce the final text from it
-
-Advance status to `spec-draft`.
-
-#### Review Criteria
-
-After completing all change designs, spawn a review sub-agent with:
-- All files in `04-design/`
-- The `02-components.md` requirements document
-- The relevant `03-research/` findings
-- The existing spec files being modified
-
-The reviewer checks:
-- Every requirement from `02-components.md` has a corresponding target state
 - No target state exists that isn't backed by a requirement
 - Current state accurately reflects what the spec says now
-- Target state is specific enough to write spec text from
+- Target state is specific enough that a spec writer can produce the final text from it
 - Rationale references research findings where applicable
 - No contradictions between different areas' target states
 
-Up to 3 review rounds. Save findings to `change-design-review.md`. After that, present artifacts and any remaining findings to the user for approval.
+Review follows the protocol in [jig-system.md](jig-system.md) §Review Pattern. Up to 3 review rounds. Save findings to `change-design-review.md`. After approval (or escalation after the final round), advance status to `spec-draft`.
 
 ### Pass 5: Spec Draft (spec-draft)
 
-**Output:** `05-spec-drafts/{component}.md` (one file per target spec file), `05-changelog.md`
+**Output:** `05-spec-drafts/{component}.md` (one file per target spec file; template: `05-spec-drafts.component.md.template`), `05-changelog.md` (template: `05-changelog.md.template`)
 
 Write the actual spec text as it should appear in the system specs. This is the most critical pass — the drafted text will become the normative specification at finalization.
 
@@ -277,40 +278,30 @@ This naming convention makes finalization a direct copy: each file in `05-spec-d
 **Driven by:** 04-design/jig-spec-design.md
 ```
 
-**What done looks like:**
+**Done when reviewer approves on:**
 
+**This is the most critical review** — the drafted text becomes normative at finalization.
+
+Inputs the reviewer reads: all files in `05-spec-drafts/`, all files in `04-design/`, the existing spec files being modified, `05-changelog.md`.
+
+Criteria:
 - `05-spec-drafts/` contains one file per target spec file, named to match the target
 - Each draft for an existing spec contains the full updated file (not a diff)
 - Each draft for a new spec follows project conventions
-- Spec text is normative (describes what the system does, not why decisions were made)
-- Cross-references between spec files are valid
-- `05-changelog.md` accounts for every draft with changes and traceability
-
-Advance status to `integration`.
-
-#### Review Criteria
-
-After completing all spec drafts and the changelog, spawn a review sub-agent with:
-- All files in `05-spec-drafts/`
-- All files in `04-design/` (the change designs)
-- The existing spec files being modified (for comparison)
-- The `05-changelog.md`
-
-**This is the most critical review.** The reviewer checks:
 - Every target state from the change designs is accurately reflected in the drafted spec text
 - No spec content was added that isn't backed by a change design
 - No existing spec content was accidentally removed or altered beyond what the change design calls for
-- Spec text is normative, not rationale or design discussion
+- Spec text is normative (describes what the system does, not why decisions were made), not rationale or design discussion
 - Cross-references between drafted specs are valid (and consistent with unchanged specs)
 - Draft filenames match their target spec files exactly
-- The changelog accurately describes all changes and traces each to a change design
+- `05-changelog.md` accounts for every draft with changes and traceability to a change design
 - Formatting and structure are consistent with the project's existing spec files
 
-Up to 3 review rounds. Save findings to `spec-draft-review.md`. After that, present artifacts and any remaining findings to the user for approval.
+Review follows the protocol in [jig-system.md](jig-system.md) §Review Pattern. Up to 3 review rounds. Save findings to `spec-draft-review.md`. After approval (or escalation after the final round), advance status to `integration`.
 
 ### Pass 6: Integration (integration)
 
-**Output:** `06-integration.md`
+**Output:** `06-integration.md` (template: `06-integration.md.template`)
 
 Cross-reference consistency check across all drafted spec changes and the existing system specs.
 
@@ -326,33 +317,23 @@ Cross-reference consistency check across all drafted spec changes and the existi
 6. Verify that the changelog in `05-changelog.md` is complete and accurate against the actual drafts.
 7. Save review notes to `06-integration.md`.
 
-**What done looks like:**
+**Done when reviewer approves on:**
 
+Inputs the reviewer reads: `06-integration.md`, all files in `05-spec-drafts/`, all existing system spec files.
+
+Criteria:
 - `06-integration.md` contains: a list of all cross-reference checks performed, any contradictions found (with resolution), any consistency issues found (with resolution), and a final assessment of overall spec coherence
-- All contradictions are resolved (either by updating drafts or documenting why the apparent contradiction is acceptable)
-- All cross-references are valid
-
-Advance status to `tasks`.
-
-#### Review Criteria
-
-After completing the integration check, spawn a review sub-agent with:
-- The `06-integration.md` file
-- All files in `05-spec-drafts/`
-- All existing system spec files
-
-The reviewer checks:
 - The integration check examined all system specs, not just modified ones
+- All contradictions are resolved (either by updating drafts or documenting why the apparent contradiction is acceptable)
 - Cross-references are valid in both directions (nothing links to removed content, nothing was orphaned)
 - Terminology is consistent across the spec corpus
-- No contradictions remain unresolved
 - The changelog matches the actual drafted changes
 
-Up to 3 review rounds. Save findings to `integration-review.md`. After that, present artifacts and any remaining findings to the user for approval.
+Review follows the protocol in [jig-system.md](jig-system.md) §Review Pattern. Up to 3 review rounds. Save findings to `integration-review.md`. After approval (or escalation after the final round), advance status to `tasks`.
 
 ### Pass 7: Tasks (tasks)
 
-**Output:** `07-tasks.md`
+**Output:** `07-tasks.md` (template: `07-tasks.md.template`)
 
 Break the spec changes into implementation tasks. Each task defines what code changes are needed to make the codebase match the updated specs.
 
@@ -372,32 +353,21 @@ Break the spec changes into implementation tasks. Each task defines what code ch
 5. Keep the format implementation-agnostic — tasks should be portable to any tracker or execution system.
 6. Save to `07-tasks.md`.
 
-**What done looks like:**
+**Done when reviewer approves on:**
 
+Inputs the reviewer reads: `07-tasks.md`, `05-changelog.md`, all files in `05-spec-drafts/`.
+
+Criteria:
 - `07-tasks.md` contains: a task list with spec traceability, a dependency graph, and a parallelization plan
-- Every spec change from the changelog has at least one corresponding task
-- Every task traces back to a specific spec section
-- Dependencies are correct (no circular dependencies, no missing prerequisites)
-- Tasks are concrete enough for an implementing agent to execute without additional design decisions
-
-Advance status to `ready`.
-
-#### Review Criteria
-
-After completing the task breakdown, spawn a review sub-agent with:
-- The `07-tasks.md` file
-- The `05-changelog.md` for completeness checking
-- All files in `05-spec-drafts/` for spec traceability
-
-The reviewer checks:
 - Every changelog entry has at least one implementing task
-- Every task traces to a specific spec section
-- Dependencies form a valid DAG (no cycles, correct ordering)
+- Every task traces back to a specific spec section
+- Dependencies form a valid DAG (no cycles, no missing prerequisites)
 - Acceptance criteria are concrete and testable
 - The parallelization plan is realistic (no undeclared dependencies between parallel tasks)
 - Task granularity is appropriate (not too coarse, not too fine)
+- Tasks are concrete enough for an implementing agent to execute without additional design decisions
 
-Up to 3 review rounds. Save findings to `tasks-review.md`. After that, present artifacts and any remaining findings to the user for approval.
+Review follows the protocol in [jig-system.md](jig-system.md) §Review Pattern. Up to 3 review rounds. Save findings to `tasks-review.md`. After approval (or escalation after the final round), advance status to `ready`.
 
 ### Pass 8: Ready (ready)
 
@@ -454,6 +424,13 @@ The `{component}` placeholder expands to one entry per affected spec area. For e
 ```
 
 Note that in `05-spec-drafts/`, the filenames match the target spec files directly. `05-spec-drafts/jig-system.md` will be copied to `specs/jig-system.md` at finalization.
+
+## Reviewer and Preview Commands
+
+The pass loop is supported by two command surfaces (see [commands.md](commands.md) for full syntax):
+
+- `kerf review <codename>` emits the reviewer prompt for the work's current pass — the criteria from the "Done when reviewer approves on" block, the artifact paths, and the prior-pass references the criteria name. The harness pipes the output into whichever reviewer primitive it has (see [jig-system.md](jig-system.md) §Reviewer primitives).
+- `kerf preview <codename> <next-status>` renders the instructions for a future pass without advancing — useful for previewing what the next pass expects before committing to the status change.
 
 ## Finalization
 

@@ -278,20 +278,60 @@ Users create custom jigs by copying and modifying a built-in jig (via the save/l
 
 Certain passes in a jig include review instructions in the jig's markdown body. Review is agent-driven — kerf does not orchestrate reviews, spawn sub-agents, or track review state. The jig's markdown body tells the agent how to conduct reviews. kerf tracks only the pass status (a single string).
 
+A pass that ships review criteria is reviewed before its status advances. The review step is part of the pass — the artifact is not considered complete until a reviewer has approved (or the work has been escalated with unresolved findings). The jig spec describes this pattern once; per-pass markdown sections list only the criteria and reference this section for the protocol.
+
+### Reviewer primitives
+
+Review requires a reviewer that reads the artifact with fresh eyes. Three primitives can satisfy that contract; the agent uses whichever the harness has, in this preference order:
+
+1. **Harness sub-agent.** A sub-agent is dispatched with fresh context, the artifact paths, the prior-pass artifacts named in the criteria, and the criteria themselves. This is the default when the harness exposes an Agent-style tool.
+2. **Parent-orchestrator review.** The orchestrator that dispatched the pass-execution agent reads the artifact and applies the criteria itself. Used when the harness does not expose sub-agent dispatch but a separate orchestrator role exists.
+3. **Fresh-context re-read.** The same agent compacts its own context and re-reads the artifact alongside the criteria. Used when no other reviewer is available; weaker than the first two and labelled as such in findings.
+
+The agent records which primitive it used at the top of the findings file so the human review trail is legible.
+
+### Review loop
+
 When following review instructions, the agent:
 
 1. Completes the pass artifacts and saves them to disk.
-2. Spawns a review sub-agent with fresh context, providing the pass artifacts, relevant prior-pass artifacts or specs for comparison, and the review criteria from the jig's markdown body.
-3. The sub-agent produces findings — specific and actionable, quoting specs and citing line numbers.
-4. Findings are saved to `{pass-name}-review.md` in the work directory. This supports resumability: if context is compacted, the review state is on disk.
-5. The original agent reads findings, applies fixes, and saves updated artifacts to disk.
-6. The sub-agent re-reviews against the updated artifacts.
+2. Selects a reviewer primitive from the list above and hands it the pass artifacts, relevant prior-pass artifacts or specs for comparison, and the review criteria from the jig's markdown body.
+3. The reviewer produces findings — specific and actionable, quoting specs and citing line numbers. Findings are returned to the agent as text; the agent owns the write.
+4. The agent saves findings to `{pass-name}-review.md` in the work directory, prefixed with the primitive used. This supports resumability: if context is compacted, the review state is on disk.
+5. The agent reads findings, applies fixes, and saves updated artifacts to disk.
+6. The reviewer re-reviews against the updated artifacts.
 7. This repeats for up to 3 rounds (configurable per jig in the markdown instructions).
-8. After the final round, or if the sub-agent finds no issues, the agent escalates to the human. The human receives the polished artifacts and any unresolved review findings (from `{pass-name}-review.md`). The human can approve (advance to the next pass), request more agent iteration, or intervene directly.
+8. After the final round, or if the reviewer finds no issues, the agent escalates to the human. The human receives the polished artifacts and any unresolved review findings (from `{pass-name}-review.md`). The human can approve (advance to the next pass), request more agent iteration, or intervene directly.
 
-**Autonomous mode** (no human present): If the sub-agent approves (no findings), the agent advances automatically via `kerf status <codename> <next-status>`. If the sub-agent has unresolved findings after the maximum rounds, the agent advances anyway but saves unresolved findings to `{pass-name}-review.md` with an `## Unresolved` section. Autonomous workflows are not blocked. The findings persist on disk for later human review.
+**Autonomous mode** (no human present): If the reviewer approves (no findings), the agent advances automatically via `kerf status <codename> <next-status>`. If the reviewer has unresolved findings after the maximum rounds, the agent advances anyway but saves unresolved findings to `{pass-name}-review.md` with an `## Unresolved` section. Autonomous workflows are not blocked. The findings persist on disk for later human review.
+
+### Sub-agent file writes
+
+Sub-agents (reviewers, researchers, any delegated worker) return their output as text to the parent agent. The parent owns the write step: it persists the returned text to the canonical file path under the work directory. This keeps the pattern portable across harnesses that restrict sub-agent file writes, and it keeps a single accountable writer per artifact. Per-pass instructions that delegate work name the file the parent will write into.
+
+### `kerf review`
+
+`kerf review <codename>` emits the canonical reviewer prompt for the work's current pass — the criteria from the resolved jig's markdown body, the artifact paths, and the prior-pass references named by the criteria. The command is harness-agnostic: it prints to stdout, and the harness pipes the output into whichever reviewer primitive it has from the list above. See [commands.md](commands.md) for the command surface; the per-pass criteria that `kerf review` emits live in this spec and in the per-jig markdown bodies.
 
 **Why not frontmatter?** Review semantics are process guidance, not machine-readable data that kerf acts on. Putting `reviewable: true` in frontmatter implies kerf reads and uses it — it does not. The agent reads the markdown body. Keeping review instructions in the markdown body is consistent with this spec's principle: "All machine-readable data lives in the frontmatter. Agent instructions live in the markdown body."
+
+## Pass-Directory Pre-Creation
+
+When status advances into a pass (via `kerf status <codename> <next-status>` or `kerf new` landing on the jig's first status), kerf reads the resolved jig's pass list and pre-creates the directory prefix of each output path declared for the new pass. The behavior is idempotent — directories that already exist are left alone.
+
+Where a per-pass template file ships alongside the jig, kerf also copies the template into the output location if the output file does not yet exist. Templates are skeletons (headings and `<TODO: ...>` markers), not boilerplate prose; copying them gives the agent a structured starting point instead of an empty file. Existing files are never overwritten.
+
+`{component}` placeholders in output paths are resolved only when the components are already known from a prior pass (typically pass 2). Until then, only the static directory prefix (e.g., `03-research/`) is created; per-component subdirectories are created on demand as components are enumerated.
+
+## Surfacing Pass Filenames
+
+`kerf show` prints one line per pass identifying the canonical output filename. The format is:
+
+```
+Pass N: <pass name> → Output: NN-<filename>.md
+```
+
+For passes with multiple outputs or `{component}`-templated paths, the line lists the template form (e.g., `03-research/{component}/findings.md`). New jigs follow the `NN-<short-name>.md` convention for content passes so this line renders consistently. See [commands.md](commands.md) for the full `kerf show` surface.
 
 ## Resumability
 
