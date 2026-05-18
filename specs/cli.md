@@ -96,7 +96,7 @@ Warnings never block command execution.
 
 ### Diagnostic Output
 
-Diagnostic commands (for example `kerf doctor`) are read-only by default. They report findings without changing state, and each non-green finding names the command that would address it. A `--fix` style mutating mode, if introduced later, is an explicit opt-in rather than the default.
+Diagnostic commands (for example [`kerf doctor`](commands.md#kerf-doctor), the first instance of this convention) are read-only by default. They report findings without changing state, and each non-green finding names the command that would address it. A `--fix` style mutating mode, if introduced later, is an explicit opt-in rather than the default. Future diagnostic commands inherit this shape: surface findings, point at fixes, never mutate implicitly.
 
 ### Bounded Informational Output
 
