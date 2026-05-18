@@ -518,40 +518,22 @@ func stripUntriagedWarning(ws []feed.Item) []feed.Item {
 	return out
 }
 
-// renderNextText renders the feed in compact human-readable form. Warnings
-// render first as a header block, followed by the ranked main feed. When a
-// drift baseline is recorded and at least one of (untriaged, multi-matched,
-// external-drift) is non-zero, a one-line drift summary is prepended above
-// the warning block per specs/commands.md §"kerf next" drift summary.
+// renderNextText renders the feed in compact human-readable form. The
+// payload-first ordering (Plan 019 / B3 — kerf-c1c) is per
+// specs/commands.md §"kerf next" → "Default kind selection": ranked items
+// render first, the one-line drift summary follows when any counter is
+// non-zero, and the warning stanza renders last. This puts actionable work
+// at the top of the agent's view; diagnostics tail the output.
 func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSummaryCounts, hasBaseline bool) error {
-	// Drift-summary headline (Plan 009 / Bead 11b). Suppressed when no
-	// baseline is recorded — the legacy `untriaged_beads` warning carries
-	// the count in that case.
-	headlineRendered := false
-	if hasBaseline && summary.renders() {
-		fmt.Fprintln(out, summary.headline())
-		headlineRendered = true
-	}
+	headlineRenders := hasBaseline && summary.renders()
 
-	if len(main) == 0 && len(warnings) == 0 {
-		if !headlineRendered {
-			fmt.Fprintln(out, nextEmptyText)
-		}
+	// Empty-feed fallback: nothing actionable, nothing to diagnose.
+	if len(main) == 0 && len(warnings) == 0 && !headlineRenders {
+		fmt.Fprintln(out, nextEmptyText)
 		return nil
 	}
 
-	// Warning header block.
-	for _, w := range warnings {
-		fmt.Fprintf(out, "warning: %s — %s\n", w.Title, w.Action)
-		if w.Reason != "" {
-			fmt.Fprintf(out, "         %s\n", w.Reason)
-		}
-	}
-	if len(warnings) > 0 && len(main) > 0 {
-		fmt.Fprintln(out)
-	}
-
-	// Ranked items.
+	// --- Ranked payload first ------------------------------------------------
 	for i, it := range main {
 		switch it.Kind {
 		case feed.KindBead:
@@ -591,8 +573,29 @@ func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSumm
 				fmt.Fprintf(out, "          %s\n", it.Action)
 			}
 		case feed.KindWarning:
-			// Defensive: warnings normally render in the header block.
+			// Defensive: warnings normally render in the trailing stanza.
 			fmt.Fprintf(out, "%d. warn   %s — %s\n", i+1, it.Title, it.Action)
+		}
+	}
+
+	// --- Drift summary (single-line footer) ----------------------------------
+	if headlineRenders {
+		if len(main) > 0 {
+			fmt.Fprintln(out)
+		}
+		fmt.Fprintln(out, summary.headline())
+	}
+
+	// --- Warning stanza (last) -----------------------------------------------
+	if len(warnings) > 0 {
+		if len(main) > 0 || headlineRenders {
+			fmt.Fprintln(out)
+		}
+		for _, w := range warnings {
+			fmt.Fprintf(out, "warning: %s — %s\n", w.Title, w.Action)
+			if w.Reason != "" {
+				fmt.Fprintf(out, "         %s\n", w.Reason)
+			}
 		}
 	}
 
@@ -609,9 +612,12 @@ func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSumm
 // null for non-bead items per the spec (feed.Item enforces this via
 // pointer types and no omitempty).
 func renderNextJSON(out io.Writer, main, warnings []feed.Item, summary driftSummaryCounts, hasBaseline bool) error {
+	// Payload-first ordering (Plan 019 / B3 — kerf-c1c): ranked items
+	// stream first, warning items trail. Matches the text renderer's
+	// payload-first order per specs/commands.md §"kerf next".
 	combined := make([]feed.Item, 0, len(main)+len(warnings))
-	combined = append(combined, warnings...)
 	combined = append(combined, main...)
+	combined = append(combined, warnings...)
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	if !hasBaseline {

@@ -243,15 +243,17 @@ func TestE2E_Plan006_WarningUntriagedBeads(t *testing.T) {
 	if !strings.Contains(out, "untriaged_beads") {
 		t.Errorf("expected warning title `untriaged_beads`; got:\n%s", out)
 	}
-	// Warning header must come before any ranked item. There may be no
-	// ranked items at all — that's fine, the header should still be present.
+	// Payload-first ordering (Plan 019 / B3 — kerf-c1c): ranked items
+	// precede the warning stanza per specs/commands.md §"kerf next" →
+	// "Default kind selection". There may be no ranked items at all — that's
+	// fine, the warning stanza should still be present.
 	wi := strings.Index(out, "warning:")
 	if wi < 0 {
-		t.Fatalf("warning header missing; out:\n%s", out)
+		t.Fatalf("warning stanza missing; out:\n%s", out)
 	}
 	for _, marker := range []string{"1. bead", "1. clean"} {
-		if idx := strings.Index(out, marker); idx >= 0 && idx < wi {
-			t.Errorf("warning header should appear before ranked items; %s at %d, warning at %d",
+		if idx := strings.Index(out, marker); idx >= 0 && idx > wi {
+			t.Errorf("ranked items should precede warning stanza; %s at %d, warning at %d",
 				marker, idx, wi)
 		}
 	}

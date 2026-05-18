@@ -181,9 +181,11 @@ func TestRenderNextJSON_BeadIncludesIDAndCodename(t *testing.T) {
 	}
 }
 
-// --- Render ordering: warnings header → beads → cleanups --------------------
+// --- Render ordering: beads → cleanups → drift footer → warning stanza ------
+// Payload-first per specs/commands.md §"kerf next" → "Default kind selection"
+// (Plan 019 / B3 — kerf-c1c).
 
-func TestRenderNextText_WarningsAboveRanked(t *testing.T) {
+func TestRenderNextText_PayloadAboveWarnings(t *testing.T) {
 	wc := "alpha"
 	beadID := "hk-001"
 	main := []feed.Item{
@@ -204,8 +206,8 @@ func TestRenderNextText_WarningsAboveRanked(t *testing.T) {
 	if wi < 0 || bi < 0 || ci < 0 {
 		t.Fatalf("expected warning, bead, cleanup markers in text; got:\n%s", body)
 	}
-	if !(wi < bi && bi < ci) {
-		t.Fatalf("expected order warning < bead < cleanup; positions w=%d b=%d c=%d\n%s", wi, bi, ci, body)
+	if !(bi < ci && ci < wi) {
+		t.Fatalf("expected order bead < cleanup < warning; positions b=%d c=%d w=%d\n%s", bi, ci, wi, body)
 	}
 	if !strings.Contains(body, "work: alpha") {
 		t.Errorf("expected bead row to include `work: alpha`; got:\n%s", body)
