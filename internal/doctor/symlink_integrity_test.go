@@ -8,10 +8,10 @@ import (
 	"github.com/gberns/kerf/internal/storage"
 )
 
-// newTestContext builds a Context for a project at <root> with the
+// newSymlinkCtx builds a Context for a project at <root> with the
 // given mode, creating the bench/projects/<id> path (or symlink in
 // local mode) on disk as the test specifies.
-func newTestContext(t *testing.T, mode storage.Mode, root, projectID string) *Context {
+func newSymlinkCtx(t *testing.T, mode storage.Mode, root, projectID string) *Context {
 	t.Helper()
 	benchPath := filepath.Join(root, "bench")
 	if err := os.MkdirAll(filepath.Join(benchPath, "projects"), 0o755); err != nil {
@@ -39,7 +39,7 @@ func newTestContext(t *testing.T, mode storage.Mode, root, projectID string) *Co
 
 func TestSymlinkIntegrity_BenchModeSkipsGreen(t *testing.T) {
 	root := t.TempDir()
-	ctx := newTestContext(t, storage.ModeBench, root, "demo")
+	ctx := newSymlinkCtx(t, storage.ModeBench, root, "demo")
 	d := symlinkIntegrityDetector{}
 	fs, err := d.Run(ctx)
 	if err != nil {
@@ -58,7 +58,7 @@ func TestSymlinkIntegrity_BenchModeSkipsGreen(t *testing.T) {
 
 func TestSymlinkIntegrity_LocalHealthyGreen(t *testing.T) {
 	root := t.TempDir()
-	ctx := newTestContext(t, storage.ModeLocal, root, "demo")
+	ctx := newSymlinkCtx(t, storage.ModeLocal, root, "demo")
 	r := ctx.Resolver
 	link := filepath.Join(r.BenchPath, "projects", r.ProjectID)
 	target := filepath.Join(r.RepoRoot, ".kerf", "works")
@@ -77,7 +77,7 @@ func TestSymlinkIntegrity_LocalHealthyGreen(t *testing.T) {
 
 func TestSymlinkIntegrity_LocalMissingRed(t *testing.T) {
 	root := t.TempDir()
-	ctx := newTestContext(t, storage.ModeLocal, root, "demo")
+	ctx := newSymlinkCtx(t, storage.ModeLocal, root, "demo")
 	// No symlink created.
 
 	fs, err := (symlinkIntegrityDetector{}).Run(ctx)
@@ -94,7 +94,7 @@ func TestSymlinkIntegrity_LocalMissingRed(t *testing.T) {
 
 func TestSymlinkIntegrity_LocalBrokenRed(t *testing.T) {
 	root := t.TempDir()
-	ctx := newTestContext(t, storage.ModeLocal, root, "demo")
+	ctx := newSymlinkCtx(t, storage.ModeLocal, root, "demo")
 	r := ctx.Resolver
 	link := filepath.Join(r.BenchPath, "projects", r.ProjectID)
 	// Point at a path that doesn't exist.
@@ -116,7 +116,7 @@ func TestSymlinkIntegrity_LocalBrokenRed(t *testing.T) {
 
 func TestSymlinkIntegrity_RealDirRed(t *testing.T) {
 	root := t.TempDir()
-	ctx := newTestContext(t, storage.ModeLocal, root, "demo")
+	ctx := newSymlinkCtx(t, storage.ModeLocal, root, "demo")
 	r := ctx.Resolver
 	link := filepath.Join(r.BenchPath, "projects", r.ProjectID)
 	if err := os.MkdirAll(link, 0o755); err != nil {
@@ -137,7 +137,7 @@ func TestSymlinkIntegrity_RealDirRed(t *testing.T) {
 
 func TestSymlinkIntegrity_WrongTargetRed(t *testing.T) {
 	root := t.TempDir()
-	ctx := newTestContext(t, storage.ModeLocal, root, "demo")
+	ctx := newSymlinkCtx(t, storage.ModeLocal, root, "demo")
 	r := ctx.Resolver
 	link := filepath.Join(r.BenchPath, "projects", r.ProjectID)
 	otherTarget := filepath.Join(root, "elsewhere")

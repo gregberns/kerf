@@ -8,9 +8,9 @@ import (
 	"github.com/gberns/kerf/internal/storage"
 )
 
-// newTestContext builds a Context against temp bench + repo paths.
+// newStorageDriftCtx builds a Context against temp bench + repo paths.
 // repoRoot may be "" to model bench-only mode.
-func newTestContext(t *testing.T, mode storage.Mode) (*Context, string, string) {
+func newStorageDriftCtx(t *testing.T, mode storage.Mode) (*Context, string, string) {
 	t.Helper()
 	bench := t.TempDir()
 	repo := t.TempDir()
@@ -33,7 +33,7 @@ func newTestContext(t *testing.T, mode storage.Mode) (*Context, string, string) 
 }
 
 func TestStorageDrift_Clean_LocalMode(t *testing.T) {
-	ctx, bench, repo := newTestContext(t, storage.ModeLocal)
+	ctx, bench, repo := newStorageDriftCtx(t, storage.ModeLocal)
 	// Canonical: works under repo/.kerf/works, bench symlink to repo works.
 	worksDir := filepath.Join(repo, ".kerf", "works")
 	if err := os.MkdirAll(filepath.Join(worksDir, "alpha"), 0o755); err != nil {
@@ -58,7 +58,7 @@ func TestStorageDrift_Clean_LocalMode(t *testing.T) {
 }
 
 func TestStorageDrift_Clean_BenchMode(t *testing.T) {
-	ctx, bench, _ := newTestContext(t, storage.ModeBench)
+	ctx, bench, _ := newStorageDriftCtx(t, storage.ModeBench)
 	// Canonical: works under bench/projects/p1/alpha.
 	if err := os.MkdirAll(filepath.Join(bench, "projects", "p1", "alpha"), 0o755); err != nil {
 		t.Fatalf("mkdir alpha: %v", err)
@@ -75,7 +75,7 @@ func TestStorageDrift_Clean_BenchMode(t *testing.T) {
 }
 
 func TestStorageDrift_WrongLocation_BenchMode(t *testing.T) {
-	ctx, _, repo := newTestContext(t, storage.ModeBench)
+	ctx, _, repo := newStorageDriftCtx(t, storage.ModeBench)
 	// Bench mode active, but a work dir sits in repo .kerf/works/ — drift.
 	wrong := filepath.Join(repo, ".kerf", "works", "stray")
 	if err := os.MkdirAll(wrong, 0o755); err != nil {
@@ -99,7 +99,7 @@ func TestStorageDrift_WrongLocation_BenchMode(t *testing.T) {
 }
 
 func TestStorageDrift_DoublePresence_LocalMode(t *testing.T) {
-	ctx, bench, repo := newTestContext(t, storage.ModeLocal)
+	ctx, bench, repo := newStorageDriftCtx(t, storage.ModeLocal)
 	// Local mode canonical: repo .kerf/works/alpha
 	if err := os.MkdirAll(filepath.Join(repo, ".kerf", "works", "alpha"), 0o755); err != nil {
 		t.Fatalf("mkdir canonical: %v", err)
@@ -138,7 +138,7 @@ func TestStorageDrift_DoublePresence_LocalMode(t *testing.T) {
 }
 
 func TestStorageDrift_DoubleConfigFile(t *testing.T) {
-	ctx, bench, repo := newTestContext(t, storage.ModeLocal)
+	ctx, bench, repo := newStorageDriftCtx(t, storage.ModeLocal)
 	// Both repo and bench have project.yaml.
 	if err := os.WriteFile(filepath.Join(repo, ".kerf", "project.yaml"), []byte("a: 1\n"), 0o644); err != nil {
 		t.Fatalf("write repo project.yaml: %v", err)
@@ -170,7 +170,7 @@ func TestStorageDrift_DoubleConfigFile(t *testing.T) {
 }
 
 func TestStorageDrift_ArchiveLiveCollision(t *testing.T) {
-	ctx, bench, _ := newTestContext(t, storage.ModeBench)
+	ctx, bench, _ := newStorageDriftCtx(t, storage.ModeBench)
 	// Live work on bench (canonical for bench mode).
 	if err := os.MkdirAll(filepath.Join(bench, "projects", "p1", "gamma"), 0o755); err != nil {
 		t.Fatalf("mkdir live: %v", err)

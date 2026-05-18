@@ -9,10 +9,10 @@ import (
 	"github.com/gberns/kerf/internal/storage"
 )
 
-// newTestContext builds a Context whose Resolver points at a bench-mode
+// newProjectYAMLCtx builds a Context whose Resolver points at a bench-mode
 // project under tmp. Returns the context and the resolved
 // project.yaml path so each test can stage its own fixture content.
-func newTestContext(t *testing.T) (*Context, string) {
+func newProjectYAMLCtx(t *testing.T) (*Context, string) {
 	t.Helper()
 	bench := t.TempDir()
 	r, err := storage.NewResolver(bench, "p-test", "")
@@ -39,7 +39,7 @@ func TestProjectYAMLDetector_ID(t *testing.T) {
 }
 
 func TestProjectYAMLDetector_Green_Valid(t *testing.T) {
-	ctx, path := newTestContext(t)
+	ctx, path := newProjectYAMLCtx(t)
 	body := "jigs:\n  - implementation\n  - feature\ndefault_jig: implementation\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -60,7 +60,7 @@ func TestProjectYAMLDetector_Green_Valid(t *testing.T) {
 }
 
 func TestProjectYAMLDetector_Red_Missing(t *testing.T) {
-	ctx, path := newTestContext(t)
+	ctx, path := newProjectYAMLCtx(t)
 	// File deliberately not written.
 	got, err := (projectYAMLDetector{}).Run(ctx)
 	if err != nil {
@@ -81,7 +81,7 @@ func TestProjectYAMLDetector_Red_Missing(t *testing.T) {
 }
 
 func TestProjectYAMLDetector_Red_InvalidYAML(t *testing.T) {
-	ctx, path := newTestContext(t)
+	ctx, path := newProjectYAMLCtx(t)
 	if err := os.WriteFile(path, []byte("jigs: [unterminated\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestProjectYAMLDetector_Red_InvalidYAML(t *testing.T) {
 }
 
 func TestProjectYAMLDetector_Red_NoJigs(t *testing.T) {
-	ctx, path := newTestContext(t)
+	ctx, path := newProjectYAMLCtx(t)
 	// Parses cleanly but declares no jigs.
 	if err := os.WriteFile(path, []byte("default_jig: implementation\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
