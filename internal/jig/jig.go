@@ -203,6 +203,50 @@ func (j *JigDefinition) InstructionsForPass(passName string) string {
 	return strings.TrimSpace(buf.String())
 }
 
+// ReviewForPass extracts the "Done when reviewer approves on:" block for the
+// named pass from the jig's markdown body. It returns the block text (without
+// the bold heading) and a boolean indicating whether the pass declares review
+// criteria. Passes without a review block (e.g., terminal "ready") return ok=false.
+//
+// The block ends at the first of: a blank-line-delimited paragraph beginning
+// with "Review follows the protocol" (the per-pass review-protocol trailer),
+// a new markdown heading, or a new bold section heading on its own line
+// (e.g., "**What to do:**").
+func (j *JigDefinition) ReviewForPass(passName string) (string, bool) {
+	section := j.InstructionsForPass(passName)
+	if section == "" {
+		return "", false
+	}
+	const marker = "**Done when reviewer approves on:**"
+	idx := strings.Index(section, marker)
+	if idx < 0 {
+		return "", false
+	}
+	rest := section[idx+len(marker):]
+	lines := strings.Split(rest, "\n")
+	var buf bytes.Buffer
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			break
+		}
+		if strings.HasPrefix(trimmed, "Review follows the protocol") {
+			break
+		}
+		// A subsequent **Bold heading:** line ends the block.
+		if strings.HasPrefix(trimmed, "**") && strings.HasSuffix(trimmed, ":**") {
+			break
+		}
+		buf.WriteString(line)
+		buf.WriteString("\n")
+	}
+	body := strings.TrimSpace(buf.String())
+	if body == "" {
+		return "", false
+	}
+	return body, true
+}
+
 // VersionMismatch returns true if the jig's version differs from the recorded spec version.
 func (j *JigDefinition) VersionMismatch(specVersion int) bool {
 	return j.Version != specVersion
