@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -774,4 +775,115 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// TestTriage_AckQuietMode_Text — with --ack, stdout is a single
+// `Baseline advanced to <timestamp>.` line; no report sections.
+// Spec: specs/commands.md §"kerf triage" steps 7-8 (Plan 018 / B3).
+func TestTriage_AckQuietMode_Text(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	repo := testutil.SetupGitRepo(t)
+	t.Chdir(repo)
+	projectID := "ack-quiet-text"
+
+	projDir := filepath.Join(tmp, ".kerf", "projects", projectID)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projDir, "project.yaml"), []byte("jigs: []\n"), 0o644); err != nil {
+		t.Fatalf("write project.yaml: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".kerf"), 0o755); err != nil {
+		t.Fatalf("mkdir .kerf: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".kerf", "project-identifier"), []byte(projectID), 0o644); err != nil {
+		t.Fatalf("write project-identifier: %v", err)
+	}
+	// Seed an untriaged bead so we can prove its section is suppressed.
+	stubBr(t, `[
+		{"id":"u-1","title":"orphan","status":"open","labels":["subsystem:nothing"]}
+	]`)
+
+	resetTriageFlags()
+	triageAck = true
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage --ack: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected single-line --ack output; got %d lines:\n%s", len(lines), out)
+	}
+	if !strings.HasPrefix(lines[0], "Baseline advanced to ") || !strings.HasSuffix(lines[0], ".") {
+		t.Errorf("expected `Baseline advanced to <ts>.`; got %q", lines[0])
+	}
+	for _, banned := range []string{"Untriaged beads", "Multi-matched beads", "External changes", "Per-work bead health", "Triage for"} {
+		if strings.Contains(out, banned) {
+			t.Errorf("--ack output unexpectedly contains %q:\n%s", banned, out)
+		}
+	}
+}
+
+// TestTriage_AckQuietMode_JSON — with --ack --format=json, stdout is
+// the one-record summary `{baseline_advanced_at, items_captured}`.
+// Spec: specs/commands.md §"kerf triage" step 8 (OQ4 — summary record).
+func TestTriage_AckQuietMode_JSON(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	repo := testutil.SetupGitRepo(t)
+	t.Chdir(repo)
+	projectID := "ack-quiet-json"
+
+	projDir := filepath.Join(tmp, ".kerf", "projects", projectID)
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projDir, "project.yaml"), []byte("jigs: []\n"), 0o644); err != nil {
+		t.Fatalf("write project.yaml: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".kerf"), 0o755); err != nil {
+		t.Fatalf("mkdir .kerf: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".kerf", "project-identifier"), []byte(projectID), 0o644); err != nil {
+		t.Fatalf("write project-identifier: %v", err)
+	}
+	stubBr(t, `[
+		{"id":"a-1","title":"one","status":"open","labels":["x"]},
+		{"id":"a-2","title":"two","status":"open","labels":["x"]}
+	]`)
+
+	resetTriageFlags()
+	triageAck = true
+	triageFormat = "json"
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	out, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("runTriage --ack --format=json: %v", err)
+	}
+	var got struct {
+		BaselineAdvancedAt string `json:"baseline_advanced_at"`
+		ItemsCaptured      int    `json:"items_captured"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("decode --ack --format=json: %v\n%s", err, out)
+	}
+	if got.BaselineAdvancedAt == "" {
+		t.Errorf("baseline_advanced_at empty; got %+v", got)
+	}
+	if got.ItemsCaptured != 2 {
+		t.Errorf("items_captured = %d, want 2", got.ItemsCaptured)
+	}
+	// And: no embedded `items` / `summary` arrays — purely the summary
+	// record, no full report stream.
+	if strings.Contains(out, "\"items\":") || strings.Contains(out, "\"summary\":") {
+		t.Errorf("--ack JSON should be a summary record only; got:\n%s", out)
+	}
 }
