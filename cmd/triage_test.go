@@ -659,6 +659,7 @@ func TestTriage_SuggestUntriaged_TierRouting(t *testing.T) {
 		name      string
 		labels    []string
 		codenames []string
+		archived  map[string]bool
 		want      string
 	}{
 		{
@@ -715,11 +716,38 @@ func TestTriage_SuggestUntriaged_TierRouting(t *testing.T) {
 			codenames: nil,
 			want:      "no auto-suggestion; investigate manually (bead bead-1)",
 		},
+		// Plan 018 / B2 — archive-aware codename check. When the proposed
+		// `kerf new <codename>` would collide with an archived codename,
+		// emit a restore/pin hint instead.
+		{
+			name:      "tier1_codename_archived_emits_restore_hint",
+			labels:    []string{"codename:oldfeat"},
+			codenames: []string{"alpha", "beta"},
+			archived:  map[string]bool{"oldfeat": true},
+			want:      "codename 'oldfeat' is archived — consider 'kerf restore oldfeat' to unarchive, or 'kerf pin <codename> bead-1' to attach this bead to a different live work.",
+		},
+		{
+			name:      "tier1_spec_value_archived_emits_restore_hint",
+			labels:    []string{"spec:retired"},
+			codenames: []string{"alpha"},
+			archived:  map[string]bool{"retired": true},
+			want:      "codename 'retired' is archived — consider 'kerf restore retired' to unarchive, or 'kerf pin <codename> bead-1' to attach this bead to a different live work.",
+		},
+		{
+			// Existing live codename takes precedence over archive
+			// membership (live works win — extend the filter rather than
+			// suggesting restore of an unrelated archive entry).
+			name:      "tier1_existing_live_codename_wins_over_archive",
+			labels:    []string{"codename:alpha"},
+			codenames: []string{"alpha"},
+			archived:  map[string]bool{"alpha": true},
+			want:      "kerf work edit alpha --bead-filter-add 'label=codename:alpha'",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			b := beads.Bead{ID: "bead-1", Labels: tc.labels}
-			got := triageSuggestUntriaged(b, tc.codenames)
+			got := triageSuggestUntriaged(b, tc.codenames, tc.archived)
 			if got != tc.want {
 				t.Errorf("suggest: got %q, want %q", got, tc.want)
 			}
