@@ -23,11 +23,13 @@ import (
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/dep"
+	"github.com/gberns/kerf/internal/doctor"
 	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/feed"
 	"github.com/gberns/kerf/internal/labelsample"
 	"github.com/gberns/kerf/internal/queue"
 	"github.com/gberns/kerf/internal/spec"
+	"github.com/gberns/kerf/internal/storage"
 )
 
 // Flag-backed variables. Slice flags are repeatable; --kinds is a comma list
@@ -376,6 +378,14 @@ func runNext(cmd *cobra.Command) error {
 	// → "Near-match advisor".
 	nearMatchHints := computeNearMatchHints(cleanupItems, allBeads)
 
+	// --- Storage-drift footer (Plan 017 / B11 — kerf-cgb) -------------
+	// Query the `storage-drift` detector from the doctor registry and
+	// count non-green findings. The footer renders below the warning
+	// stanza, just above the tail-tip footer (specs/commands.md §"kerf
+	// next" → "Storage-drift footer"). Errors are swallowed: drift
+	// detection is advisory on this path and must not fail `kerf next`.
+	storageDriftCount := computeStorageDriftCount(projectID, r)
+
 	// --- Assemble + exclusion (beads-then-cleanups; warnings separate) ---
 	main, warnings := feed.AssembleWithWarnings(beadItems, cleanupItems, warningItems, in)
 
@@ -408,7 +418,7 @@ func runNext(cmd *cobra.Command) error {
 				return jerr
 			}
 		} else {
-			if rerr := renderNextText(out, main, warnings, driftSummary, hasBaseline, nil); rerr != nil {
+			if rerr := renderNextText(out, main, warnings, driftSummary, hasBaseline, nil, storageDriftCount); rerr != nil {
 				return rerr
 			}
 		}
@@ -418,7 +428,7 @@ func runNext(cmd *cobra.Command) error {
 	case "json":
 		return renderNextJSON(out, main, warnings, driftSummary, hasBaseline)
 	default:
-		return renderNextText(out, main, warnings, driftSummary, hasBaseline, nearMatchHints)
+		return renderNextText(out, main, warnings, driftSummary, hasBaseline, nearMatchHints, storageDriftCount)
 	}
 }
 
@@ -589,12 +599,22 @@ func stripUntriagedWarning(ws []feed.Item) []feed.Item {
 // render first, the one-line drift summary follows when any counter is
 // non-zero, and the warning stanza renders last. This puts actionable work
 // at the top of the agent's view; diagnostics tail the output.
-func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSummaryCounts, hasBaseline bool, nearMatchHints map[string]string) error {
+func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSummaryCounts, hasBaseline bool, nearMatchHints map[string]string, storageDriftCount int) error {
 	headlineRenders := hasBaseline && summary.renders()
 
-	// Empty-feed fallback: nothing actionable, nothing to diagnose.
+	// Empty-feed fallback: nothing actionable, nothing to diagnose. The
+	// storage-drift footer (Plan 017 / B11) still renders when present —
+	// drift is an out-of-band signal independent of the ranked feed.
 	if len(main) == 0 && len(warnings) == 0 && !headlineRenders {
 		fmt.Fprintln(out, nextEmptyText)
+		if storageDriftCount > 0 {
+			noun := "findings"
+			if storageDriftCount == 1 {
+				noun = "finding"
+			}
+			fmt.Fprintln(out)
+			fmt.Fprintf(out, "note: %d storage %s — run 'kerf doctor' for details\n", storageDriftCount, noun)
+		}
 		return nil
 	}
 
@@ -679,9 +699,55 @@ func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSumm
 		}
 	}
 
+	// --- Storage-drift footer (Plan 017 / B11 — kerf-cgb) --------------------
+	// Per specs/commands.md §"kerf next" → "Storage-drift footer": when
+	// `kerf doctor` would report any non-green storage finding, append a
+	// one-line footer below the warning stanza, above the tail-tip footer.
+	// Silent when no drift is present.
+	if storageDriftCount > 0 {
+		noun := "findings"
+		if storageDriftCount == 1 {
+			noun = "finding"
+		}
+		fmt.Fprintln(out)
+		fmt.Fprintf(out, "note: %d storage %s — run 'kerf doctor' for details\n", storageDriftCount, noun)
+	}
+
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, nextFooterTip)
 	return nil
+}
+
+// computeStorageDriftCount queries the `storage-drift` detector and returns
+// the number of non-green findings it reports. Returns 0 when the detector
+// is unregistered, when the resolver is nil, or on any error — drift
+// surfacing is advisory on the `kerf next` path and must not fail the
+// command. The footer renders only when this returns a positive count
+// (specs/commands.md §"kerf next" → "Storage-drift footer").
+func computeStorageDriftCount(projectID string, r *storage.Resolver) int {
+	if r == nil {
+		return 0
+	}
+	det, ok := doctor.DefaultRegistry.Get("storage-drift")
+	if !ok {
+		return 0
+	}
+	ctx := &doctor.Context{
+		ProjectID: projectID,
+		Resolver:  r,
+		BenchPath: r.BenchPath,
+	}
+	findings, err := det.Run(ctx)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, f := range findings {
+		if f.Severity != doctor.Green {
+			n++
+		}
+	}
+	return n
 }
 
 // renderNextJSON renders the full item stream including warnings. When a
