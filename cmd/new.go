@@ -16,6 +16,7 @@ import (
 	"github.com/gberns/kerf/internal/codename"
 	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/jig"
+	"github.com/gberns/kerf/internal/labelsample"
 	"github.com/gberns/kerf/internal/project"
 	"github.com/gberns/kerf/internal/session"
 	"github.com/gberns/kerf/internal/snapshot"
@@ -23,11 +24,12 @@ import (
 )
 
 var (
-	newTitle      string
-	newType       string
-	newJigFlag    string
-	newAreaFlag   []string
-	newBeadFilter string
+	newTitle        string
+	newType         string
+	newJigFlag      string
+	newAreaFlag     []string
+	newBeadFilter   string
+	newNoAutoFilter bool
 )
 
 const onboardingMessage = `No default workflow configured.
@@ -71,6 +73,7 @@ func init() {
 	newCmd.Flags().StringVar(&newJigFlag, "jig", "", "Jig to use (default: from config)")
 	newCmd.Flags().StringSliceVar(&newAreaFlag, "area", nil, "Area names to associate with the work (repeatable)")
 	newCmd.Flags().StringVar(&newBeadFilter, "bead-filter", "", "Bead-filter clause (e.g. 'label=subsystem:bridge' or 'id_prefix=hk-cb-')")
+	newCmd.Flags().BoolVar(&newNoAutoFilter, "no-auto-filter", false, "Skip auto-population of bead_filter from dominant codename label match (kerf-259)")
 	rootCmd.AddCommand(newCmd)
 }
 
@@ -143,7 +146,40 @@ func runNew(cn string) error {
 		return fmt.Errorf("work '%s' already exists in project '%s'", cn, projectID)
 	}
 
-	// 5. Create work directory.
+	// 5. Auto-populate bead_filter from a dominant codename label match
+	// (kerf-259). Only fires when the user did not pass --bead-filter and did
+	// not pass --no-auto-filter. Reads the project's bead store, asks
+	// labelsample.ProposeFilter for a verdict, and accepts only the
+	// unambiguous (ReasonDominant) case — union / below-floor / no-match all
+	// leave bead_filter null, matching the canonical empty-slot form.
+	var autoFilterClause string // populated for the post-create notice
+	if beadFilter == nil && !newNoAutoFilter {
+		toolName := beads.DefaultToolName
+		if cfg, cerr := config.LoadProjectConfig(r.ProjectConfigPath()); cerr == nil && cfg != nil {
+			toolName = beads.ResolveToolName(cfg.Tools)
+		}
+		// ListNamed degrades to (nil, nil) when the tool is absent. A
+		// ToolError is treated like "no store" — auto-filter is best-effort,
+		// not a blocker for `kerf new`.
+		if allBeads, lerr := beads.ListNamed(toolName); lerr == nil && len(allBeads) > 0 {
+			openBeads := make([]beads.Bead, 0, len(allBeads))
+			for _, b := range allBeads {
+				switch strings.ToLower(b.Status) {
+				case "closed", "done", "complete":
+					continue
+				}
+				openBeads = append(openBeads, b)
+			}
+			proposal := labelsample.ProposeFilter(openBeads, cn)
+			if proposal.Reason == labelsample.ReasonDominant && proposal.Filter != nil {
+				clause := *proposal.Filter
+				beadFilter = &clause
+				autoFilterClause = formatFilterClause(clause)
+			}
+		}
+	}
+
+	// 6. Create work directory.
 	if err := r.CreateWork(cn); err != nil {
 		return err
 	}
@@ -225,6 +261,9 @@ func runNew(cn string) error {
 	fmt.Printf("  Jig:      %s (v%d)\n", j.Name, j.Version)
 	fmt.Printf("  Status:   %s\n", s.Status)
 	fmt.Printf("  Path:     %s\n", workDir)
+	if autoFilterClause != "" {
+		fmt.Printf("  Auto-bead-filter: %s (use --no-auto-filter to skip)\n", autoFilterClause)
+	}
 	fmt.Println()
 
 	// Area overlap warning.

@@ -537,6 +537,164 @@ func TestNewCommand_AnonymousWhenKerfSessionIDUnset(t *testing.T) {
 	}
 }
 
+// kerf-259: `kerf new <codename>` auto-populates bead_filter from a dominant
+// codename label match in the bead store. When >=3 beads carry one of the
+// candidate label shapes (e.g. codename:auth), the new work's bead_filter is
+// pre-populated. --no-auto-filter bypasses; empty store leaves null.
+
+func TestNewCommand_AutoBeadFilter_DominantMatch(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	stubBr(t, `[
+		{"id":"x-1","status":"open","labels":["codename:auth"]},
+		{"id":"x-2","status":"open","labels":["codename:auth"]},
+		{"id":"x-3","status":"open","labels":["codename:auth"]},
+		{"id":"x-4","status":"open","labels":["codename:auth"]},
+		{"id":"x-5","status":"open","labels":["unrelated"]}
+	]`)
+
+	captureOutput(t, func() {
+		projectFlag = "proj"
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		newBeadFilter = ""
+		newNoAutoFilter = false
+		defer func() {
+			projectFlag = ""
+			newJigFlag = ""
+			newNoAutoFilter = false
+		}()
+		if err := newCmd.RunE(newCmd, []string{"auth"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	bp := filepath.Join(tmp, ".kerf")
+	specPath := filepath.Join(bp, "projects", "proj", "auth", "spec.yaml")
+	s, err := spec.Read(specPath)
+	if err != nil {
+		t.Fatalf("reading spec.yaml: %v", err)
+	}
+	if s.BeadFilter == nil {
+		t.Fatal("expected BeadFilter to be auto-populated, got nil")
+	}
+	if s.BeadFilter.Label != "codename:auth" {
+		t.Errorf("BeadFilter.Label = %q, want %q", s.BeadFilter.Label, "codename:auth")
+	}
+}
+
+func TestNewCommand_AutoBeadFilter_DisabledByFlag(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	stubBr(t, `[
+		{"id":"x-1","status":"open","labels":["codename:auth"]},
+		{"id":"x-2","status":"open","labels":["codename:auth"]},
+		{"id":"x-3","status":"open","labels":["codename:auth"]},
+		{"id":"x-4","status":"open","labels":["codename:auth"]}
+	]`)
+
+	captureOutput(t, func() {
+		projectFlag = "proj"
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		newBeadFilter = ""
+		newNoAutoFilter = true
+		defer func() {
+			projectFlag = ""
+			newJigFlag = ""
+			newNoAutoFilter = false
+		}()
+		if err := newCmd.RunE(newCmd, []string{"auth"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	bp := filepath.Join(tmp, ".kerf")
+	specPath := filepath.Join(bp, "projects", "proj", "auth", "spec.yaml")
+	s, err := spec.Read(specPath)
+	if err != nil {
+		t.Fatalf("reading spec.yaml: %v", err)
+	}
+	if s.BeadFilter != nil {
+		t.Errorf("expected BeadFilter to remain nil under --no-auto-filter, got %+v", s.BeadFilter)
+	}
+}
+
+func TestNewCommand_AutoBeadFilter_EmptyStore(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	stubBr(t, `[]`)
+
+	captureOutput(t, func() {
+		projectFlag = "proj"
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		newBeadFilter = ""
+		newNoAutoFilter = false
+		defer func() {
+			projectFlag = ""
+			newJigFlag = ""
+			newNoAutoFilter = false
+		}()
+		if err := newCmd.RunE(newCmd, []string{"auth"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	bp := filepath.Join(tmp, ".kerf")
+	specPath := filepath.Join(bp, "projects", "proj", "auth", "spec.yaml")
+	s, err := spec.Read(specPath)
+	if err != nil {
+		t.Fatalf("reading spec.yaml: %v", err)
+	}
+	if s.BeadFilter != nil {
+		t.Errorf("expected BeadFilter to be nil with empty bead store, got %+v", s.BeadFilter)
+	}
+}
+
+// User-provided --bead-filter wins over the auto-detector.
+func TestNewCommand_AutoBeadFilter_ExplicitFilterWins(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	stubBr(t, `[
+		{"id":"x-1","status":"open","labels":["codename:auth"]},
+		{"id":"x-2","status":"open","labels":["codename:auth"]},
+		{"id":"x-3","status":"open","labels":["codename:auth"]},
+		{"id":"x-4","status":"open","labels":["codename:auth"]}
+	]`)
+
+	captureOutput(t, func() {
+		projectFlag = "proj"
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		newBeadFilter = "label=subsystem:bridge"
+		newNoAutoFilter = false
+		defer func() {
+			projectFlag = ""
+			newJigFlag = ""
+			newBeadFilter = ""
+			newNoAutoFilter = false
+		}()
+		if err := newCmd.RunE(newCmd, []string{"auth"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	bp := filepath.Join(tmp, ".kerf")
+	specPath := filepath.Join(bp, "projects", "proj", "auth", "spec.yaml")
+	s, err := spec.Read(specPath)
+	if err != nil {
+		t.Fatalf("reading spec.yaml: %v", err)
+	}
+	if s.BeadFilter == nil || s.BeadFilter.Label != "subsystem:bridge" {
+		t.Errorf("expected explicit --bead-filter to win, got %+v", s.BeadFilter)
+	}
+}
+
 func TestNewCommand_ConfigDefaultJig_NoFlag(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
