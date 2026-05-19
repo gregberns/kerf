@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -216,6 +217,58 @@ func TestBeadFilterCoverageDetector_Red_OneUnwired(t *testing.T) {
 	}
 	if !strings.Contains(got[0].Items[0].Detail, "no bead_filter") {
 		t.Errorf("detail missing 'no bead_filter': %q", got[0].Items[0].Detail)
+	}
+}
+
+// Bead-tool subprocess failure (beads.ToolError) must degrade to a single
+// RED finding rather than propagate up to Run() — propagating would kill
+// the whole `kerf doctor` command. Regression test for bead kerf-pq5
+// (BLOCKER from dogfood test 2026-05-18): `br` returning a JSON_ERROR
+// used to crash the entire doctor invocation.
+func TestBeadFilterCoverageDetector_Red_OnSubprocessError(t *testing.T) {
+	ctx, r := newBeadFilterCovCtx(t)
+	// One wired work — the detector must reach the bead-store loader,
+	// which then fails.
+	writeSpec(t, r, "alpha", "bead_filter:\n  label: \"work:alpha\"\n")
+
+	saved := beadFilterCoverageLoader
+	stubErr := &beads.ToolError{
+		Tool:    "br",
+		ExitErr: errors.New("exit status 1"),
+		Stderr:  "JSON_ERROR: missing field jsonl_export",
+	}
+	beadFilterCoverageLoader = func(string) ([]beads.Bead, error) {
+		return nil, stubErr
+	}
+	t.Cleanup(func() { beadFilterCoverageLoader = saved })
+
+	got, err := (beadFilterCoverageDetector{}).Run(ctx)
+	if err != nil {
+		t.Fatalf("Run returned error (should have degraded to a RED finding instead): %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding; got %d: %+v", len(got), got)
+	}
+	if got[0].Severity != Red {
+		t.Errorf("severity = %q, want red", got[0].Severity)
+	}
+	if !strings.Contains(got[0].Summary, "bead store unavailable") {
+		t.Errorf("summary missing 'bead store unavailable': %q", got[0].Summary)
+	}
+	if !strings.Contains(got[0].Summary, "br") {
+		t.Errorf("summary missing tool name 'br': %q", got[0].Summary)
+	}
+	if got[0].Hint == "" {
+		t.Error("missing hint")
+	}
+	if !strings.Contains(got[0].Hint, "tools.tasks") {
+		t.Errorf("hint should mention 'tools.tasks'; got %q", got[0].Hint)
+	}
+	if len(got[0].Items) != 1 {
+		t.Fatalf("want 1 item carrying the tool-error detail; got %d", len(got[0].Items))
+	}
+	if !strings.Contains(got[0].Items[0].Detail, "JSON_ERROR") {
+		t.Errorf("item detail should echo stderr snippet; got %q", got[0].Items[0].Detail)
 	}
 }
 
