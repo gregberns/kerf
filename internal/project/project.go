@@ -34,7 +34,51 @@ func FindGitRoot(cwd string) (string, error) {
 	}
 }
 
-// ReadIdentifier reads the project ID from .kerf/project-identifier in the repo root.
+// maxProjectIdentifierLen caps how long a project identifier can be. The slug
+// is used as a directory name under ~/.kerf/projects/<id> (and inside the
+// repo's bench symlink), so it must comfortably fit common filesystem path
+// limits with room to spare for the surrounding path components.
+const maxProjectIdentifierLen = 80
+
+// ValidateIdentifier enforces the on-disk shape of `.kerf/project-identifier`.
+// kerf-dlb: corrupt identifiers (garbage bytes, non-printable characters,
+// path separators) used to leak through to mkdir(2) and surface as raw Go
+// errors. The rules here mirror what slugifyPath produces:
+//
+//   - nonempty
+//   - printable ASCII only (no NUL, no control bytes, no high-bit chars)
+//   - no path separators ('/' or '\\') and no '.' segments
+//   - length capped at maxProjectIdentifierLen
+//
+// Returned errors are short reason fragments suitable for embedding in a
+// "corrupt project identifier at <path>: <reason>" wrapper at the call site.
+func ValidateIdentifier(id string) error {
+	if id == "" {
+		return fmt.Errorf("identifier is empty")
+	}
+	if len(id) > maxProjectIdentifierLen {
+		return fmt.Errorf("identifier is %d bytes; max is %d", len(id), maxProjectIdentifierLen)
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		// Printable ASCII range, exclusive of DEL.
+		if c < 0x20 || c > 0x7e {
+			return fmt.Errorf("identifier contains non-printable byte 0x%02x at offset %d", c, i)
+		}
+		if c == '/' || c == '\\' {
+			return fmt.Errorf("identifier contains path separator %q at offset %d", string(c), i)
+		}
+	}
+	if id == "." || id == ".." {
+		return fmt.Errorf("identifier %q is a reserved path segment", id)
+	}
+	return nil
+}
+
+// ReadIdentifier reads the project ID from .kerf/project-identifier in the
+// repo root and validates its shape (kerf-dlb). On a validation failure the
+// caller receives a wrapped error naming the file and the reason, so the
+// corrupt value never reaches mkdir(2) or the bench symlink resolver.
 func ReadIdentifier(repoPath string) (string, error) {
 	path := filepath.Join(repoPath, ".kerf", "project-identifier")
 	data, err := os.ReadFile(path)
@@ -42,8 +86,8 @@ func ReadIdentifier(repoPath string) (string, error) {
 		return "", err
 	}
 	id := strings.TrimSpace(string(data))
-	if id == "" {
-		return "", fmt.Errorf("project-identifier file is empty")
+	if err := ValidateIdentifier(id); err != nil {
+		return "", fmt.Errorf("corrupt project identifier at %s: %s; replace with a clean slug", path, err)
 	}
 	return id, nil
 }
@@ -127,8 +171,17 @@ func Resolve(cwd string, benchPath string) (string, error) {
 		return "", err
 	}
 
-	// Try existing identifier first.
-	if id, err := ReadIdentifier(gitRoot); err == nil {
+	// Try existing identifier first. A read error that is NotExist means
+	// "no identifier on disk yet" — derive a new one. Any other error
+	// (including kerf-dlb validation failures on a corrupt identifier file)
+	// is a hard error: surface it instead of silently deriving a fresh ID
+	// that disagrees with what's on disk.
+	idPath := filepath.Join(gitRoot, ".kerf", "project-identifier")
+	if _, statErr := os.Stat(idPath); statErr == nil {
+		id, err := ReadIdentifier(gitRoot)
+		if err != nil {
+			return "", err
+		}
 		return id, nil
 	}
 
