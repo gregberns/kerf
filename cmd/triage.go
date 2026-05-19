@@ -128,6 +128,12 @@ var triageCmd = &cobra.Command{
 	Use:   "triage",
 	Short: "Drift report for the project's bead store",
 	Long:  triageLongHelp,
+	// SilenceUsage: errors returned by runTriage (notably BEADS_TOOL_ERROR
+	// from the configured `tools.tasks` subprocess) are user-facing
+	// diagnostics, not flag-misuse signals. Suppress cobra's default usage
+	// dump so scripts see only the single-line error before exit 1
+	// (kerf-jy2i — symmetry with kerf next / kerf-1d6).
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runTriage(cmd)
 	},
