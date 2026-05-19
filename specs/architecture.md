@@ -336,9 +336,8 @@ This section is the canonical home for the `project.yaml` schema. Other specs th
 # When storage-layout drift exists (see Drift Detection above), kerf appends
 # a one-line footer pointing at `kerf doctor`. Setting this to false
 # suppresses the footer for this project; the env var `KERF_DOCTOR_FOOTER=0`
-# achieves the same effect ad-hoc. Default: true.
-# <!-- TBD: open question from plan 017 — opt-in vs opt-out default for the
-#      drift footer; plan 017 currently picks opt-out, captured here -->
+# achieves the same effect ad-hoc and takes precedence over the config key
+# on conflict. Default: true (opt-out).
 # doctor:
 #   footer: true
 ```
