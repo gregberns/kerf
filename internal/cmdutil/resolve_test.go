@@ -94,3 +94,39 @@ func TestResolveProject_ExplicitFlag_BypassesIdentifier(t *testing.T) {
 		t.Errorf("ResolveProject = %q, want %q", id, "override-proj")
 	}
 }
+
+// kerf-shoe: Resolver's findRepoRootForProject previously swallowed all
+// ReadIdentifier errors. When the explicit --project flag bypasses
+// ResolveProject's own corruption gate but cwd still contains a corrupt
+// .kerf/project-identifier, the resolver-build path must also surface the
+// corruption rather than silently dropping the repo-root and continuing
+// with a (potentially wrong-context) resolver.
+func TestResolver_CorruptIdentifier_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := testutil.SetupGitRepo(t)
+	t.Chdir(repo)
+
+	if err := os.MkdirAll(filepath.Join(repo, ".kerf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idPath := filepath.Join(repo, ".kerf", "project-identifier")
+	garbage := []byte("bad/\x00id\n")
+	if err := os.WriteFile(idPath, garbage, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Caller has passed --project explicitly; ResolveProject is bypassed,
+	// but Resolver still inspects cwd for the repo root.
+	_, err := Resolver("override-proj")
+	if err == nil {
+		t.Fatal("expected error when cwd has corrupt project-identifier, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"corrupt project identifier", idPath} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+}

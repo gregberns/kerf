@@ -75,7 +75,10 @@ func Resolver(projectID string) (*storage.Resolver, error) {
 	if err != nil {
 		return nil, err
 	}
-	repoRoot := findRepoRootForProject(projectID)
+	repoRoot, err := findRepoRootForProject(projectID)
+	if err != nil {
+		return nil, err
+	}
 	return storage.NewResolver(bp, projectID, repoRoot)
 }
 
@@ -89,24 +92,31 @@ func ResolverForRepo(projectID, repoRoot string) (*storage.Resolver, error) {
 }
 
 // findRepoRootForProject returns the repo root if cwd is inside a git repo
-// whose .kerf/project-identifier matches projectID. Otherwise returns "".
-func findRepoRootForProject(projectID string) string {
+// whose .kerf/project-identifier matches projectID. Missing identifier or no
+// git repo legitimately falls through to "" (the resolver does not need a
+// repo root). A corrupt identifier (kerf-dlb / kerf-vu0r / kerf-shoe) must
+// surface non-zero so callers don't silently operate against the wrong
+// project context.
+func findRepoRootForProject(projectID string) (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	root, err := project.FindGitRoot(cwd)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	id, err := project.ReadIdentifier(root)
 	if err != nil {
-		return ""
+		if project.IsCorruptIdentifier(err) {
+			return "", err
+		}
+		return "", nil
 	}
 	if id != projectID {
-		return ""
+		return "", nil
 	}
-	return root
+	return root, nil
 }
 
 // LoadWorkWithChecks loads a work's spec.yaml and runs cross-cutting checks:
