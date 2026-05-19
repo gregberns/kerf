@@ -920,6 +920,71 @@ func TestRenderNextText_EmptyRowWithoutHintKeepsActionLine(t *testing.T) {
 	}
 }
 
+// --- kerf-1d6: bead-tool subprocess failure surfaces as a returned error ----
+
+// TestRunNext_BeadsToolError_ReturnsError exercises kerf-1d6: when the
+// configured `tools.tasks` subprocess (here a fake `br` that always fails)
+// produces a BEADS_TOOL_ERROR, runNext must return a non-nil error so cobra
+// exits 1. Prior to kerf-1d6 the error path was reachable (line 200-206 of
+// cmd/next.go), but the bug surfaced as `kerf next` dumping the usage block
+// alongside the error — symptom of SilenceUsage being unset. Asserting the
+// returned-error contract pins the exit-code path; the SilenceUsage flag is
+// covered by the sibling test below.
+func TestRunNext_BeadsToolError_ReturnsError(t *testing.T) {
+	// Stage a `br` stub that exits non-zero with a JSON-shape error — the
+	// real-world `bd`-vs-`br` schema mismatch the dogfood log captured.
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"echo 'JSON error: missing field jsonl_export at line 7 column 1' 1>&2\n" +
+		"exit 2\n"
+	if err := os.WriteFile(filepath.Join(dir, "br"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write stub br: %v", err)
+	}
+	t.Setenv("PATH", dir)
+
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mkdirp(filepath.Join(tmp, ".kerf", "projects", "test-proj")); err != nil {
+		t.Fatal(err)
+	}
+	resetNextFlags()
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	err := runNext(nextCmd)
+	if err == nil {
+		t.Fatalf("expected non-nil error when bead tool subprocess fails; got nil")
+	}
+	msg := err.Error()
+	// Must reference the tool name so scripts/users can identify the
+	// misconfiguration source (per AC: "single-line error referencing the
+	// configured tool name").
+	if !strings.Contains(msg, "br") {
+		t.Errorf("error must name the configured tool; got: %v", err)
+	}
+	// Must surface the BEADS_TOOL_ERROR prefix so the diagnostic trail
+	// matches the plan-021 contract (internal/beads/beads.go).
+	if !strings.Contains(msg, "BEADS_TOOL_ERROR") {
+		t.Errorf("error must include BEADS_TOOL_ERROR diagnostic; got: %v", err)
+	}
+}
+
+// TestNextCmd_SilenceUsageOnError pins kerf-1d6's secondary fix: when runNext
+// returns an error, cobra must NOT dump the usage block. SilenceUsage is the
+// flag that prevents that; assert it on the command definition so a future
+// refactor cannot silently regress it (the usage dump is what made the
+// dogfood report describe the failure as "kerf next dumps help on br
+// failure").
+func TestNextCmd_SilenceUsageOnError(t *testing.T) {
+	if !nextCmd.SilenceUsage {
+		t.Fatalf("nextCmd.SilenceUsage must be true so subprocess errors do not trigger a usage dump (kerf-1d6)")
+	}
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func mkdirp(path string) error {

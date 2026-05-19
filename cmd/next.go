@@ -79,6 +79,13 @@ var nextCmd = &cobra.Command{
 	Use:   "next",
 	Short: "Ranked feed of beads, cleanup tasks, and warnings",
 	Long:  nextLongHelp,
+	// SilenceUsage: errors returned by runNext (notably the BEADS_TOOL_ERROR
+	// surfaced when the configured `tools.tasks` subprocess fails) are user-
+	// facing diagnostics, not flag-misuse signals. Suppress cobra's default
+	// usage dump so scripts see only the single-line error before exit 1
+	// (kerf-1d6 — sibling triage / doctor already behave this way in spirit;
+	// next was the outlier that printed a help block on tool failure).
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runNext(cmd)
 	},
