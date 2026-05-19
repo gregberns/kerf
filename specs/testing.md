@@ -43,13 +43,13 @@ Property-based tests use Go's `testing/quick` or a compatible library (e.g., `go
 
 #### Cross-command contracts
 
-Property tests also encode contracts that span the cobra command tree, so an invariant claimed by one command is verified across every sibling. Contracts live in `internal/contracttest/` and enumerate commands by walking `rootCmd`; a command opts out by registered exception with a one-line rationale alongside the exception. <!-- TBD: open question 2 from plan 023 — opt-out shape (annotation, struct field, or central map) --> Documented config keys are sourced from an exported list in the `config` package, and `specs/commands.md` is treated as derived from that list. <!-- TBD: open question 1 from plan 023 — documented-config-key source of truth -->
+Property tests also encode contracts that span the cobra command tree, so an invariant claimed by one command is verified across every sibling. Contracts live in `internal/contracttest/` and enumerate commands by walking `rootCmd`; a command opts out by an entry in the central registry (`internal/contracttest/opt_outs.go`), keyed by `<dotted.command.path>::<contract-id>`, whose value is a one-line rationale ending with the bead id that tracks the exception. Documented config keys are sourced from `config.ValidKeys()` (in `internal/config/config.go`) plus the project-scoped key set in `cmd/config.go`; `specs/commands.md` is treated as derived from these.
 
 Recognised contracts:
 
-- **Subprocess exit symmetry.** Every kerf command that shells out exits non-zero when the subprocess exits non-zero.
-- **Filter clause round-trip.** Any filter clause `internal/labelsample` proposes is accepted by `internal/beads.ParseFilterClause` and by the `work edit --bead-filter-add` mutator.
-- **Documented config-key round-trip.** For every key in the documented-config-key list, `kerf config K V` followed by `kerf config K` returns `V`.
+- **Subprocess exit symmetry** (`internal/contracttest/contract_exit_symmetry_test.go`). Every kerf command that shells out exits non-zero when the subprocess exits non-zero.
+- **Filter clause round-trip** (`internal/contracttest/contract_filter_roundtrip_test.go`). Any filter clause `internal/labelsample` proposes is accepted by `internal/beads.ParseFilterClause` and by the `work edit --bead-filter-add` mutator.
+- **Documented config-key round-trip** (`internal/contracttest/contract_config_roundtrip_test.go`). For every key in the documented-config-key list, `kerf config K V` followed by `kerf config K` returns `V`.
 - **`show` / `work show` field agreement.** Fields rendered by both commands carry identical text for the same underlying record.
 - **`bead_filter` slot invariant.** A present-but-empty `bead_filter` resolves identically to an absent one across every command that consumes the slot.
 
