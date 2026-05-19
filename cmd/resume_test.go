@@ -408,3 +408,60 @@ func TestResumeCommand_WorkNotFound(t *testing.T) {
 		testutil.AssertStringContains(t, err.Error(), "not found")
 	}
 }
+
+// kerf-r1i: `kerf resume` records the resuming session under KERF_SESSION_ID,
+// so subsequent `kerf list --created-by self` attribution stays correct across
+// session boundaries.
+func TestResumeCommand_RecordsKerfSessionIDFromEnv(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("KERF_SESSION_ID", "alice")
+
+	repo := setupGitRepoForTest(t)
+	chdirT(t, repo)
+
+	bp := filepath.Join(tmp, ".kerf")
+	projDir := filepath.Join(bp, "projects", "proj")
+	specContent := `codename: blue-bear
+type: feature
+project:
+  id: proj
+jig: feature
+jig_version: 1
+status: research
+status_values: [problem-space, decomposition, research, detailed-spec, review, ready]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+active_session: null
+depends_on: []
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	os.MkdirAll(filepath.Join(projDir, "blue-bear"), 0755)
+	os.WriteFile(filepath.Join(projDir, "blue-bear", "spec.yaml"), []byte(specContent), 0644)
+
+	captureOutput(t, func() {
+		projectFlag = "proj"
+		defer func() { projectFlag = "" }()
+		if err := resumeCmd.RunE(resumeCmd, []string{"blue-bear"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	s, err := spec.Read(filepath.Join(projDir, "blue-bear", "spec.yaml"))
+	if err != nil {
+		t.Fatalf("reading spec: %v", err)
+	}
+	if len(s.Sessions) != 1 {
+		t.Fatalf("expected 1 session after resume, got %d", len(s.Sessions))
+	}
+	if s.Sessions[0].ID == nil || *s.Sessions[0].ID != "alice" {
+		t.Errorf("sessions[0].id = %v, want 'alice'", s.Sessions[0].ID)
+	}
+	if s.ActiveSession == nil || *s.ActiveSession != "alice" {
+		t.Errorf("active_session = %v, want 'alice'", s.ActiveSession)
+	}
+}

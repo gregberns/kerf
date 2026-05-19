@@ -62,8 +62,9 @@ func runResume(cn string) error {
 			cn, started, cn, cn)
 	}
 
-	// Record new session.
-	session.StartSession(s, "")
+	// Record new session. Honour KERF_SESSION_ID so the resumed session is
+	// attributed to the agent (kerf-r1i). When unset, the session is anonymous.
+	session.StartSession(s, os.Getenv("KERF_SESSION_ID"))
 
 	// Write spec.yaml (also updates timestamp).
 	specPath := filepath.Join(workDir, "spec.yaml")
