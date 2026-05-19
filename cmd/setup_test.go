@@ -221,6 +221,47 @@ func TestSetupNoProjectIdentifier(t *testing.T) {
 	testutil.AssertStringContains(t, err.Error(), "project not initialized")
 }
 
+// kerf-tatj: a corrupt .kerf/project-identifier must surface the
+// kerf-dlb-style validation error from `kerf setup` rather than being
+// swallowed into "project not initialized". Mirrors kerf-vu0r for `kerf new`.
+// The missing-file fall-through is exercised by TestSetupNoProjectIdentifier.
+func TestSetupCorruptProjectIdentifier_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	gitRepo := testutil.SetupGitRepo(t)
+	if err := os.MkdirAll(filepath.Join(gitRepo, ".kerf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idPath := filepath.Join(gitRepo, ".kerf", "project-identifier")
+	garbage := []byte("bad/\x00id\n")
+	if err := os.WriteFile(idPath, garbage, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(gitRepo)
+	defer os.Chdir(oldWd)
+
+	oldFlag := projectFlag
+	projectFlag = ""
+	defer func() { projectFlag = oldFlag }()
+
+	err := setupCmd.RunE(setupCmd, []string{})
+	if err == nil {
+		t.Fatal("expected error when project-identifier is corrupt, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"corrupt project identifier", idPath, "replace with a clean slug"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "project not initialized") {
+		t.Errorf("corrupt-identifier error must not be reported as missing-init: %q", msg)
+	}
+}
+
 func TestSetupToolRequirements(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
