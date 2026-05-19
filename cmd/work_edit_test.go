@@ -16,11 +16,37 @@ package cmd
 //   - Baseline unchanged after invocation.
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// captureStdout redirects os.Stdout for the duration of fn and returns the
+// captured bytes. Used by tests that assert on user-facing warnings emitted
+// via fmt.Printf (the command writes directly to stdout).
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	done := make(chan struct{})
+	var buf strings.Builder
+	go func() {
+		_, _ = io.Copy(&buf, r)
+		close(done)
+	}()
+	fn()
+	_ = w.Close()
+	os.Stdout = orig
+	<-done
+	_ = r.Close()
+	return buf.String()
+}
 
 // writeWorkEditTestSpec lays down $HOME/.kerf/projects/<proj>/<codename>/spec.yaml
 // containing the supplied YAML body. The body is written verbatim (no
@@ -315,5 +341,92 @@ func TestWorkEdit_BadClauseSyntax_Errors(t *testing.T) {
 	}
 	if string(before) != string(after) {
 		t.Fatalf("spec.yaml mutated despite bad clause; expected fail-fast")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// kerf-ccxk: `--bead-filter-remove 'any:...'` warning suppression.
+//
+// AC:
+//   - Filter has any:{label=a, label=b}, remove 'any:label=a,label=b' →
+//     clean success, no per-leaf warnings.
+//   - Filter has neither leaf → exactly one warning.
+//   - Filter has label=a only, remove 'any:label=a,label=b' → success
+//     (a is removed); no spurious warning for the missing b.
+// ---------------------------------------------------------------------------
+
+const warnSubstr = "did not match any existing clause"
+
+func countWarnings(s string) int {
+	return strings.Count(s, warnSubstr)
+}
+
+func TestWorkEdit_RemoveAnyUnion_AllLeavesPresent_NoWarning(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	pointPATHEmpty(t)
+
+	proj := "work-edit-proj-ccxk-both"
+	body := baseSpecYAML("foo", proj) +
+		"bead_filter:\n  any:\n    - label: a\n    - label: b\n"
+	writeWorkEditTestSpec(t, proj, "foo", body)
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = runWorkEditWithFlags(t, proj, "foo",
+			nil, []string{"any:label=a,label=b"})
+	})
+	if runErr != nil {
+		t.Fatalf("runWorkEdit: %v\noutput:\n%s", runErr, out)
+	}
+	if n := countWarnings(out); n != 0 {
+		t.Fatalf("expected 0 warnings when both leaves of any: removal matched; got %d.\noutput:\n%s", n, out)
+	}
+}
+
+func TestWorkEdit_RemoveAnyUnion_NoLeavesPresent_OneWarning(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	pointPATHEmpty(t)
+
+	proj := "work-edit-proj-ccxk-none"
+	body := baseSpecYAML("foo", proj) +
+		"bead_filter:\n  label: c\n"
+	writeWorkEditTestSpec(t, proj, "foo", body)
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = runWorkEditWithFlags(t, proj, "foo",
+			nil, []string{"any:label=a,label=b"})
+	})
+	if runErr != nil {
+		t.Fatalf("runWorkEdit: %v\noutput:\n%s", runErr, out)
+	}
+	if n := countWarnings(out); n != 1 {
+		t.Fatalf("expected exactly 1 warning when no leaves of any: removal matched; got %d.\noutput:\n%s", n, out)
+	}
+}
+
+func TestWorkEdit_RemoveAnyUnion_PartialMatch_NoSpuriousWarning(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	pointPATHEmpty(t)
+
+	proj := "work-edit-proj-ccxk-partial"
+	// Filter has label=a only; not b.
+	body := baseSpecYAML("foo", proj) +
+		"bead_filter:\n  label: a\n"
+	writeWorkEditTestSpec(t, proj, "foo", body)
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = runWorkEditWithFlags(t, proj, "foo",
+			nil, []string{"any:label=a,label=b"})
+	})
+	if runErr != nil {
+		t.Fatalf("runWorkEdit: %v\noutput:\n%s", runErr, out)
+	}
+	if n := countWarnings(out); n != 0 {
+		t.Fatalf("expected 0 warnings when at least one leaf of any: removal matched; got %d.\noutput:\n%s", n, out)
 	}
 }
