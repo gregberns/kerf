@@ -27,6 +27,7 @@
 package doctor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,6 +50,11 @@ func (beadFilterCoverageDetector) ID() string { return "bead-filter-coverage" }
 // without re-reading the spec.
 const beadFilterCoverageHint = "kerf bootstrap-filters  (project-wide suggestion) or kerf work edit <codename> --bead-filter-add '<clause>'"
 
+// beadStoreUnavailableHint points operators at the configuration knob and
+// the per-tool bootstrap step for the canonical "bead tool on PATH but
+// failing" case (bead kerf-pq5).
+const beadStoreUnavailableHint = "check kerf config tools.tasks; ensure the configured tool is initialized (e.g. 'bd init' or 'br init') and its JSON output is current"
+
 func (beadFilterCoverageDetector) Run(ctx *Context) ([]Finding, error) {
 	if ctx == nil || ctx.Resolver == nil {
 		return nil, fmt.Errorf("bead-filter-coverage: nil context or resolver")
@@ -69,14 +75,33 @@ func (beadFilterCoverageDetector) Run(ctx *Context) ([]Finding, error) {
 		toolName = beads.ResolveToolName(cfg.Tools)
 	}
 
-	// Read the bead store once. A read failure is reported as an
-	// infrastructure error (matches the convention used by the cleanup
-	// detectors in internal/feed): the doctor scaffold maps detector
-	// errors to exit 1 with an informative message. The indirection
-	// through beadFilterCoverageLoader is a test seam — production uses
-	// beads.ListNamed; tests can substitute a static slice.
+	// Read the bead store once. A bead-tool subprocess failure
+	// (beads.ToolError: configured binary is on PATH but exits non-zero,
+	// emits malformed JSON, etc.) is degraded to a RED finding rather
+	// than propagated up to Run() — propagating would kill the whole
+	// `kerf doctor` command and prevent other detectors from running.
+	// See bead kerf-pq5 (BLOCKER from dogfood test 2026-05-18): the
+	// canonical repro is `br` returning `JSON_ERROR: missing field
+	// jsonl_export`, which used to crash `kerf doctor` outright. Other
+	// error categories (tool absent → (nil, nil); unexpected error
+	// types) still short-circuit normally. The indirection through
+	// beadFilterCoverageLoader is a test seam — production uses
+	// beads.ListNamed; tests can substitute a stub returning a
+	// beads.ToolError to exercise the degraded-finding path.
 	allBeads, err := beadFilterCoverageLoader(toolName)
 	if err != nil {
+		var toolErr *beads.ToolError
+		if errors.As(err, &toolErr) {
+			return []Finding{{
+				Severity: Red,
+				Summary:  fmt.Sprintf("bead store unavailable: %s failed", toolErr.Tool),
+				Items: []Item{{
+					Target: toolErr.Tool,
+					Detail: toolErr.Error(),
+				}},
+				Hint: beadStoreUnavailableHint,
+			}}, nil
+		}
 		return nil, fmt.Errorf("bead-filter-coverage: reading bead store: %w", err)
 	}
 
