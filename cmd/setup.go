@@ -58,6 +58,11 @@ func runSetup() error {
 		}
 		pid, err := project.ReadIdentifier(gitRoot)
 		if err != nil {
+			// Distinguish a corrupt identifier (surface verbatim per kerf-dlb /
+			// kerf-vu0r) from a missing file (legitimate "run kerf init" path).
+			if project.IsCorruptIdentifier(err) {
+				return err
+			}
 			return fmt.Errorf("project not initialized. Run 'kerf init' first")
 		}
 		projectID = pid
