@@ -83,7 +83,23 @@ var shellOutLeaves = map[string][]string{
 	// kerf bootstrap-filters — proposal generator, errors when bd
 	// fails (cmd/bootstrap_filters.go).
 	"kerf.bootstrap-filters": nil,
+
+	// kerf show <codename> — bead summary + attached-beads block both
+	// surface bd subprocess errors (plan 022 / kerf-cz2t; opt-out
+	// removed by plan 023 / kerf-61oi). Requires a seeded work.
+	"kerf.show": {seededWorkCodename},
+
+	// kerf work edit <codename> — pre/post attached-bead count surfaces
+	// bd subprocess errors (plan 022 / kerf-cz2t; opt-out removed by
+	// plan 023 / kerf-61oi). Requires a seeded work and at least one
+	// --bead-filter-add/-remove flag.
+	"kerf.work.edit": {seededWorkCodename, "--bead-filter-add", "label=ct"},
 }
+
+// seededWorkCodename is the codename of the minimal work seeded into
+// the test's isolated HOME for leaves that take a `<codename>` arg.
+// See seedMinimalWork.
+const seededWorkCodename = "ct-work"
 
 // TestContract_SubprocessExitSymmetry walks the cobra tree and asserts
 // the invariant. See file-header comment for full design notes.
@@ -157,6 +173,14 @@ func assertNonZeroOnSubprocessFailure(t *testing.T, leafPath string, extraArgs [
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatalf("seeding project dir: %v", err)
 	}
+
+	// Seed a minimal work for leaves that take a `<codename>` arg (kerf
+	// show, kerf work edit). Other leaves ignore it. The spec.yaml is
+	// the smallest doc that satisfies spec.Read / Validate; without a
+	// work the command would error before reaching the bd subprocess
+	// and the contract assertion would not actually exercise exit
+	// symmetry. Added for plan 023 / kerf-61oi.
+	seedMinimalWork(t, projectDir, projectID, seededWorkCodename)
 
 	// --- Install a failing `br` stub on a fresh PATH. ----------------
 	// We deliberately replace PATH (rather than prepend) so no real bd
@@ -241,6 +265,48 @@ func splitExemptKey(key string) (path, contractID string, ok bool) {
 		}
 	}
 	return "", "", false
+}
+
+// seedMinimalWork writes a minimal spec.yaml into projectDir/<codename>/
+// so that contract leaves which take a `<codename>` arg can reach the bd
+// subprocess. Without this, the command would error at the "work not
+// found" step and exit-symmetry would not be exercised.
+//
+// Schema: minimum fields required by spec.Read / SpecYAML.Validate plus a
+// bead_filter and a non-empty status_values list so `kerf work edit`'s
+// add-clause flow has something to operate on. PinnedBeads is rendered
+// explicitly to satisfy the required-on-write rule. Created/Updated are
+// fixed RFC3339 strings — the contract doesn't care about their values.
+func seedMinimalWork(t *testing.T, projectDir, projectID, codename string) {
+	t.Helper()
+	workDir := filepath.Join(projectDir, codename)
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatalf("seeding work dir: %v", err)
+	}
+	specYAML := "" +
+		"codename: " + codename + "\n" +
+		"type: feature\n" +
+		"project:\n" +
+		"  id: " + projectID + "\n" +
+		"jig: default\n" +
+		"jig_version: 1\n" +
+		"status: open\n" +
+		"status_values:\n" +
+		"  - open\n" +
+		"  - closed\n" +
+		"created: 2026-01-01T00:00:00Z\n" +
+		"updated: 2026-01-01T00:00:00Z\n" +
+		"sessions: []\n" +
+		"active_session: null\n" +
+		"depends_on: []\n" +
+		"pinned_beads: []\n" +
+		"implementation:\n" +
+		"  branch: null\n" +
+		"  pr: null\n" +
+		"  commits: []\n"
+	if err := os.WriteFile(filepath.Join(workDir, "spec.yaml"), []byte(specYAML), 0o644); err != nil {
+		t.Fatalf("writing seed spec.yaml: %v", err)
+	}
 }
 
 // --- Self-tests for the helpers above (so a refactor of splitDots /

@@ -35,9 +35,14 @@ var optOuts = map[string]string{
 	"kerf.new::subprocess-exit-symmetry":     "kerf new only consults bd for best-effort bead-filter detection (cmd/new.go uses `if lerr == nil`); subprocess failure must not block work creation. Tracked by kerf-gro2.",
 	"kerf.init::subprocess-exit-symmetry":    "kerf init's detector (detectBeadFilter, cmd/init.go) is best-effort: subprocess failure leaves prior filter unchanged and init continues. Tracked by kerf-gro2.",
 	"kerf.map::subprocess-exit-symmetry":     "kerf map uses `_, _ = beads.ListNamed` (cmd/map.go): subprocess failure degrades silently, the dependency map still renders from spec.yaml. Tracked by kerf-gro2.",
-	"kerf.show::subprocess-exit-symmetry":    "kerf show treats bd as best-effort enrichment of work detail (cmd/show.go getBeadSummary / getAttachedBeadsBlock both `return \"\"` on error); the work view itself still renders. Tracked by kerf-gro2.",
-	"kerf.pin::subprocess-exit-symmetry":     "kerf pin only consults bd to validate that the bead-id argument exists (cmd/pin.go); subprocess failure skips validation but pinning succeeds. Tracked by kerf-gro2.",
-	"kerf.square::subprocess-exit-symmetry":  "kerf square's bead-summary footer is best-effort (cmd/square.go: `if err != nil || len(bs) == 0 { return }`); subprocess failure suppresses the summary line, not the command. Tracked by kerf-gro2.",
-	"kerf.work.edit::subprocess-exit-symmetry": "work edit's completion-stats helper (cmd/work_edit.go: `return 0,0,0,false`) is informational; subprocess failure hides the stats but the edit succeeds. Tracked by kerf-gro2.",
+	// kerf.show and kerf.work.edit were previously registered here under
+	// kerf-gro2 (silent-degrade on bd failure). Plan 022 / kerf-cz2t flipped
+	// both to surface subprocess errors (cmd/show.go getBeadSummary /
+	// getAttachedBeadsBlock now return the error; cmd/work_edit.go
+	// attachedBeadCount returns it too). Plan 023 / kerf-61oi removes those
+	// entries and asserts both leaves under contract_exit_symmetry_test.go's
+	// shellOutLeaves set.
+	"kerf.pin::subprocess-exit-symmetry":    "kerf pin only consults bd to validate that the bead-id argument exists (cmd/pin.go); subprocess failure skips validation but pinning succeeds. Tracked by kerf-gro2.",
+	"kerf.square::subprocess-exit-symmetry": "kerf square's bead-summary footer is best-effort (cmd/square.go: `if err != nil || len(bs) == 0 { return }`); subprocess failure suppresses the summary line, not the command. Tracked by kerf-gro2.",
 	"kerf.doctor::subprocess-exit-symmetry": "kerf doctor without --strict degrades a bd failure to a RED finding and exits 0 by design (specs/commands.md §`kerf doctor` §Exit codes). The --strict path does hard-fail, but its exit hook is package-private to cmd/ and cannot be safely intercepted from this package; the real-binary scenario test for plan 022 (kerf-cz2t) covers --strict end-to-end. Tracked by kerf-gro2.",
 }
