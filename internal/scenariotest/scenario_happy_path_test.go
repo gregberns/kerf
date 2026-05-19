@@ -38,19 +38,16 @@ func TestScenarioA_HappyPath(t *testing.T) {
 	// `bd init` (run by harness New) created a git repo + an initial commit
 	// in the project root. We add a fake origin so kerf's project-ID
 	// derivation hits the remote branch rather than the dir-name fallback.
-	gitInRoot(t, r, "remote", "add", "origin", "git@github.com:acme/scenario-a.git")
+	r.AttachFakeRemote("git@github.com:acme/scenario-a.git")
 
 	// --- 3. kerf init --yes --jig spec
+	// The harness automatically applies tools.tasks=bd after a successful
+	// init (see Runner.UseTaskTool), so no separate config call needed.
 	stdout, stderr, code, err := r.Run("init", "--yes", "--jig", "spec")
 	mustOK(t, "kerf init", stdout, stderr, code, err)
 	if !strings.Contains(stdout, "project-identifier") {
 		t.Fatalf("kerf init: stdout missing project-identifier mention\nstdout: %s\nstderr: %s", stdout, stderr)
 	}
-
-	// Configure the project to invoke `bd` (not the default `br`) for its
-	// task-tool integrations. The harness only has `bd` on PATH.
-	stdout, stderr, code, err = r.Run("config", "tools.tasks", "bd")
-	mustOK(t, "kerf config tools.tasks bd", stdout, stderr, code, err)
 
 	// --- 4. Seed beads. Labels include a "codename:" form so kerf's
 	// auto-filter / bootstrap-filters logic has something to chew on.
@@ -154,16 +151,6 @@ func mustOK(t *testing.T, label, stdout, stderr string, code int, err error) {
 	}
 }
 
-// gitInRoot runs `git <args...>` in the runner's project root with the
-// scenario's scrubbed env. Fails the test on non-zero exit / start error.
-func gitInRoot(t *testing.T, r *Runner, args ...string) {
-	t.Helper()
-	out, err := gitInRootCombined(t, r, args...)
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}
-
 // gitInRootCombined returns the combined output and the underlying error so
 // callers can decide whether to fail or inspect.
 func gitInRootCombined(t *testing.T, r *Runner, args ...string) (string, error) {
@@ -171,17 +158,7 @@ func gitInRootCombined(t *testing.T, r *Runner, args ...string) (string, error) 
 	cmd := exec.Command("git", args...)
 	cmd.Dir = r.ProjectRoot()
 	// Re-use the runner's scrubbed env so HOME points at the scenario tempdir.
-	cmd.Env = append([]string(nil), envSnapshot(r)...)
+	cmd.Env = r.Env()
 	out, err := cmd.CombinedOutput()
 	return string(out), err
-}
-
-// envSnapshot returns a copy of the runner's env slice. The harness exposes
-// env mutation via SetEnv but no getter; we read the unexported field via
-// the helper below to keep this scenario self-contained.
-func envSnapshot(r *Runner) []string {
-	// r.env is unexported; we rebuild a minimal equivalent here. The kerf
-	// binary's expectations (HOME, PATH) are also what git needs, so
-	// scrubbed parent env + HOME=r.HomeDir() is sufficient.
-	return scrubbedEnv(r.HomeDir())
 }

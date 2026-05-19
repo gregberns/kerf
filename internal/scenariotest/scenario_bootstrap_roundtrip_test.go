@@ -49,20 +49,11 @@ func TestScenario_BootstrapRoundtrip(t *testing.T) {
 
 	// 1. Init the project. kerf init resolves the git root that `bd init`
 	//    created inside the project root, so this Just Works without any
-	//    extra setup.
+	//    extra setup. The harness auto-applies tools.tasks=bd after init
+	//    (see Runner.UseTaskTool) so the bootstrap path reads through the
+	//    same binary the harness uses to seed beads — no schema mismatch.
 	if stdout, stderr, code, err := r.Run("init", "--no"); err != nil || code != 0 {
 		t.Fatalf("kerf init: code=%d err=%v\nstdout:\n%s\nstderr:\n%s", code, err, stdout, stderr)
-	}
-
-	// Point kerf at `bd` for task reads. Default is `br`, but on hosts where
-	// the local `br` build is older than the `bd` JSON schema (a common
-	// environment skew), `br` cannot decode `bd`'s export and the bootstrap
-	// command fails before it gets to do anything interesting. Configuring
-	// tools.tasks=bd routes all reads through the same binary the harness
-	// uses to seed beads — no schema mismatch.
-	if stdout, stderr, code, err := r.Run("config", "tools.tasks", "bd"); err != nil || code != 0 {
-		t.Fatalf("kerf config tools.tasks bd: code=%d err=%v\nstdout:\n%s\nstderr:\n%s",
-			code, err, stdout, stderr)
 	}
 
 	// 2. Seed beads with mixed labels. Each label family carries three open
