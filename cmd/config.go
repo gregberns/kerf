@@ -143,7 +143,7 @@ func configSet(cfg *config.Config, cfgPath, benchPath, key, value string) error 
 	// and specs/commands.md §"kerf init" — project value wins).
 	if isProjectScopedKey(key) {
 		if key == "bead_filter" {
-			return fmt.Errorf("'bead_filter' is a structured value; edit project.yaml directly or use `kerf init`")
+			return fmt.Errorf("'bead_filter' is read-only via 'kerf config'. Use 'kerf init', 'kerf bootstrap-filters', or 'kerf work edit --bead-filter-add' to set it")
 		}
 		if err := setProjectScoped(key, value); err != nil {
 			return err
