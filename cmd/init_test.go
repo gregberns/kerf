@@ -518,8 +518,8 @@ func captureErr(fn func() error) error {
 // parseStateChanges extracts the fenced state-change block from init output
 // and returns a map of artifact → verb. The block format is fixed per spec:
 //
-//	State changes:
 //	```
+//	State changes:
 //	  <artifact>   <verb> [(detail)]
 //	  ...
 //	```
@@ -532,13 +532,14 @@ func parseStateChanges(t *testing.T, out string) map[string]string {
 	if idx < 0 {
 		return rows
 	}
+	// The header is the first line inside the fenced block. Body is from
+	// the line after the header to the next closing fence.
 	tail := out[idx:]
-	// Take the first fenced block after the header.
-	fenceStart := strings.Index(tail, "```")
-	if fenceStart < 0 {
+	nl := strings.Index(tail, "\n")
+	if nl < 0 {
 		return rows
 	}
-	rest := tail[fenceStart+3:]
+	rest := tail[nl+1:]
 	fenceEnd := strings.Index(rest, "```")
 	if fenceEnd < 0 {
 		return rows
