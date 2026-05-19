@@ -505,10 +505,13 @@ func runTriage(cmd *cobra.Command) error {
 			// footer when `kerf doctor --detector storage-drift` would
 			// surface any non-green finding. Spec: specs/commands.md
 			// §"kerf triage" §"Storage-drift footer". Suppression
-			// (kerf-bwd) follows in a separate bead; --ack already
-			// short-circuits the render path, so the single-line baseline
-			// confirmation stays clean.
-			renderStorageDriftFooter(out, projectID, r)
+			// (Plan 017 / B13 — kerf-bwd) honors `doctor.footer: false`
+			// in project.yaml and `KERF_DOCTOR_FOOTER=0` (env wins on
+			// conflict). --ack already short-circuits the render path,
+			// so the single-line baseline confirmation stays clean.
+			if projCfg.DoctorFooterEnabled() {
+				renderStorageDriftFooter(out, projectID, r)
+			}
 		}
 	}
 

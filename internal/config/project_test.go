@@ -414,3 +414,50 @@ tools:
 		t.Errorf("Tools[orchestrator] = %q, want %q", cfg.Tools["orchestrator"], "ntm")
 	}
 }
+
+// TestDoctorFooterEnabled — Plan 017 / B13 (kerf-bwd): default-on,
+// project.yaml override, env-var override, env wins on conflict.
+func TestDoctorFooterEnabled(t *testing.T) {
+	t.Setenv(DoctorFooterEnvVar, "")
+
+	// nil receiver → default true.
+	if !(*ProjectConfig)(nil).DoctorFooterEnabled() {
+		t.Error("nil cfg: want true")
+	}
+	// Empty config → default true.
+	if !(&ProjectConfig{}).DoctorFooterEnabled() {
+		t.Error("empty cfg: want true")
+	}
+	// Empty doctor block → default true.
+	if !(&ProjectConfig{Doctor: &DoctorConfig{}}).DoctorFooterEnabled() {
+		t.Error("doctor{} cfg: want true")
+	}
+	// Explicit false in config.
+	f := false
+	off := &ProjectConfig{Doctor: &DoctorConfig{Footer: &f}}
+	if off.DoctorFooterEnabled() {
+		t.Error("cfg footer=false: want false")
+	}
+	// Env var alone suppresses.
+	t.Setenv(DoctorFooterEnvVar, "0")
+	if (&ProjectConfig{}).DoctorFooterEnabled() {
+		t.Error("env=0 with empty cfg: want false")
+	}
+	// Env=1 overrides cfg=false (env wins).
+	t.Setenv(DoctorFooterEnvVar, "1")
+	if !off.DoctorFooterEnabled() {
+		t.Error("env=1 must override cfg=false")
+	}
+	// Env=0 overrides cfg=true (env wins, opposite direction).
+	tr := true
+	on := &ProjectConfig{Doctor: &DoctorConfig{Footer: &tr}}
+	t.Setenv(DoctorFooterEnvVar, "0")
+	if on.DoctorFooterEnabled() {
+		t.Error("env=0 must override cfg=true")
+	}
+	// Unparseable env → falls through to config.
+	t.Setenv(DoctorFooterEnvVar, "maybe")
+	if off.DoctorFooterEnabled() {
+		t.Error("garbage env: cfg=false should still apply")
+	}
+}

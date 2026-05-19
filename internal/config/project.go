@@ -4,10 +4,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gberns/kerf/internal/beads"
 	"gopkg.in/yaml.v3"
 )
+
+// DoctorFooterEnvVar is the environment variable that overrides the
+// project-level `doctor.footer` setting for the storage-drift footer on
+// `kerf next` and `kerf triage`. `0`/`false`/`no`/`off` suppress the
+// footer; `1`/`true`/`yes`/`on` force-enable it. See
+// specs/architecture.md §"Project Configuration" → `doctor.footer` and
+// specs/commands.md §"Storage-drift footer".
+const DoctorFooterEnvVar = "KERF_DOCTOR_FOOTER"
 
 // ProjectConfig represents per-project jig configuration stored in
 // ~/.kerf/projects/{project-id}/project.yaml
@@ -27,6 +36,50 @@ type ProjectConfig struct {
 	// built-in default ("work:{codename}") is used. See coordination spec
 	// §"Resolution order".
 	BeadFilter *beads.Filter `yaml:"bead_filter,omitempty"`
+	// Doctor holds knobs for diagnostic surfaces. Currently just the
+	// drift-footer toggle consumed by `kerf next` and `kerf triage`. See
+	// specs/architecture.md §"Project Configuration" → `doctor.footer`.
+	Doctor *DoctorConfig `yaml:"doctor,omitempty"`
+}
+
+// DoctorConfig holds project-level doctor surface knobs.
+type DoctorConfig struct {
+	// Footer toggles the storage-drift footer on `kerf next` and
+	// `kerf triage`. Nil falls back to the default (true).
+	Footer *bool `yaml:"footer,omitempty"`
+}
+
+// DoctorFooterEnabled returns whether the storage-drift footer should
+// render. Resolution order (highest precedence first):
+//  1. KERF_DOCTOR_FOOTER env var, if set to a recognised value.
+//  2. `doctor.footer` in project.yaml.
+//  3. Default: true.
+//
+// Receivers may be nil — `(*ProjectConfig)(nil).DoctorFooterEnabled()`
+// answers the same as a config with no `doctor` block.
+func (c *ProjectConfig) DoctorFooterEnabled() bool {
+	if v, ok := parseFooterEnv(os.Getenv(DoctorFooterEnvVar)); ok {
+		return v
+	}
+	if c != nil && c.Doctor != nil && c.Doctor.Footer != nil {
+		return *c.Doctor.Footer
+	}
+	return true
+}
+
+// parseFooterEnv parses the KERF_DOCTOR_FOOTER env var. Returns
+// (value, true) on a recognised truthy/falsy string, (false, false)
+// when unset or unparseable (the caller then falls back to config).
+func parseFooterEnv(raw string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return false, false
+	case "0", "false", "no", "off":
+		return false, true
+	case "1", "true", "yes", "on":
+		return true, true
+	}
+	return false, false
 }
 
 // QueueConfig holds project overrides for queue scoring weights.

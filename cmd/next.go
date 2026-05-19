@@ -385,6 +385,14 @@ func runNext(cmd *cobra.Command) error {
 	// next" → "Storage-drift footer"). Errors are swallowed: drift
 	// detection is advisory on this path and must not fail `kerf next`.
 	storageDriftCount := computeStorageDriftCount(projectID, r)
+	// Suppression knob (Plan 017 / B13 — kerf-bwd). Either
+	// `doctor.footer: false` in project.yaml or KERF_DOCTOR_FOOTER=0
+	// elides the footer; the env var wins on conflict. Spec:
+	// specs/architecture.md §"Project Configuration" → `doctor.footer`,
+	// specs/commands.md §"Storage-drift footer".
+	if !projCfg.DoctorFooterEnabled() {
+		storageDriftCount = 0
+	}
 
 	// --- Assemble + exclusion (beads-then-cleanups; warnings separate) ---
 	main, warnings := feed.AssembleWithWarnings(beadItems, cleanupItems, warningItems, in)

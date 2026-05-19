@@ -1303,3 +1303,68 @@ func TestTriage_StorageDriftFooter_AckSuppression(t *testing.T) {
 		t.Fatalf("--ack should emit single-line baseline confirmation; got:\n%s", out)
 	}
 }
+
+// TestTriage_StorageDriftFooter_Suppression — Plan 017 / B13 (kerf-bwd):
+// `doctor.footer: false` in project.yaml and `KERF_DOCTOR_FOOTER=0` each
+// elide the drift footer; the env var wins on conflict.
+func TestTriage_StorageDriftFooter_Suppression(t *testing.T) {
+	projectID := setupTriageProject(t,
+		map[string]string{"alpha": "subsystem:alpha"},
+		nil,
+	)
+	stubBr(t, `[{"id":"a-1","title":"t","status":"open","labels":["subsystem:alpha"]}]`)
+
+	// Induce drift via archive/live collision.
+	home := os.Getenv("HOME")
+	if err := os.MkdirAll(filepath.Join(home, ".kerf", "archive", projectID, "alpha"), 0o755); err != nil {
+		t.Fatalf("mkdir archive: %v", err)
+	}
+
+	resetTriageFlags()
+	t.Cleanup(resetTriageFlags)
+	projectFlag = projectID
+	t.Cleanup(func() { projectFlag = "" })
+
+	// Baseline: footer renders by default.
+	base, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("baseline runTriage: %v", err)
+	}
+	if !strings.Contains(base, "storage finding") {
+		t.Fatalf("baseline must show footer; got:\n%s", base)
+	}
+
+	// Env var suppression.
+	t.Setenv("KERF_DOCTOR_FOOTER", "0")
+	envOut, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("env runTriage: %v", err)
+	}
+	if strings.Contains(envOut, "storage finding") {
+		t.Fatalf("KERF_DOCTOR_FOOTER=0 must suppress footer; got:\n%s", envOut)
+	}
+	t.Setenv("KERF_DOCTOR_FOOTER", "")
+
+	// Config suppression: rewrite project.yaml with doctor.footer: false.
+	projYAML := filepath.Join(home, ".kerf", "projects", projectID, "project.yaml")
+	if err := os.WriteFile(projYAML, []byte("jigs: []\ndoctor:\n  footer: false\n"), 0o644); err != nil {
+		t.Fatalf("rewrite project.yaml: %v", err)
+	}
+	cfgOut, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("config runTriage: %v", err)
+	}
+	if strings.Contains(cfgOut, "storage finding") {
+		t.Fatalf("doctor.footer=false must suppress footer; got:\n%s", cfgOut)
+	}
+
+	// Env var precedence: config off, env on → footer renders.
+	t.Setenv("KERF_DOCTOR_FOOTER", "1")
+	envWinsOut, err := runTriageCapturing(t)
+	if err != nil {
+		t.Fatalf("env-wins runTriage: %v", err)
+	}
+	if !strings.Contains(envWinsOut, "storage finding") {
+		t.Fatalf("KERF_DOCTOR_FOOTER=1 must override config=false; got:\n%s", envWinsOut)
+	}
+}
