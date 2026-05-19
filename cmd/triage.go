@@ -108,9 +108,21 @@ Exit codes (--resolved):
   acted on without converging.
 
 Baseline advancement:
-  '--ack' is the ONLY command that advances the drift baseline. It
+  '--ack' is the only command that advances the drift baseline. It
   captures the current bead-store snapshot to .kerf/sync-cache.json.
-  No other state is mutated.`
+  No other state is mutated.
+
+Baseline lifecycle:
+  - First run on a fresh project shows 'baseline: never' and the full
+    current state — every untriaged or multi-matched bead is surfaced.
+  - Subsequent runs without '--ack' show drift accumulating since the
+    previous baseline (untriaged / multi_matched / external_drift).
+  - After investigating and resolving items, 'kerf triage --ack'
+    advances the baseline to the current bead-store snapshot.
+  - The '--resolved' exit-code loop ('until kerf triage --resolved;
+    do <act>; done') terminates when drift returns to zero.
+
+  First run on a large project: 'kerf triage --top 20 --group-by codename-label'.`
 
 var triageCmd = &cobra.Command{
 	Use:   "triage",
