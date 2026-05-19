@@ -41,6 +41,20 @@ Property-based tests use Go's `testing/quick` or a compatible library (e.g., `go
 - Concurrent file operations: multiple works modified simultaneously
 - Config merging: bench config + project config + work config — see [architecture.md](architecture.md)
 
+#### Cross-command contracts
+
+Property tests also encode contracts that span the cobra command tree, so an invariant claimed by one command is verified across every sibling. Contracts live in `internal/contracttest/` and enumerate commands by walking `rootCmd`; a command opts out by registered exception with a one-line rationale alongside the exception. <!-- TBD: open question 2 from plan 023 — opt-out shape (annotation, struct field, or central map) --> Documented config keys are sourced from an exported list in the `config` package, and `specs/commands.md` is treated as derived from that list. <!-- TBD: open question 1 from plan 023 — documented-config-key source of truth -->
+
+Recognised contracts:
+
+- **Subprocess exit symmetry.** Every kerf command that shells out exits non-zero when the subprocess exits non-zero.
+- **Filter clause round-trip.** Any filter clause `internal/labelsample` proposes is accepted by `internal/beads.ParseFilterClause` and by the `work edit --bead-filter-add` mutator.
+- **Documented config-key round-trip.** For every key in the documented-config-key list, `kerf config K V` followed by `kerf config K` returns `V`.
+- **`show` / `work show` field agreement.** Fields rendered by both commands carry identical text for the same underlying record.
+- **`bead_filter` slot invariant.** A present-but-empty `bead_filter` resolves identically to an absent one across every command that consumes the slot.
+
+New cobra commands inherit these contracts by default; adding a command extends the contract surface without a new test file.
+
 ### Integration Tests
 
 Integration tests create temporary directories, run real commands, and verify filesystem state. Each test sets up a fresh bench.
@@ -70,6 +84,8 @@ See [commands.md](commands.md) for command specifications.
 
 E2E tests use a Go test harness (or shell scripts) that sets up real git repos, runs the CLI binary, and verifies outcomes. The Claude CLI is mocked for session-related tests.
 
+A subset of E2E tests — real-binary scenario tests — run the compiled `kerf` binary as a subprocess against a real `bd`-shaped bead store and a real git repo. The harness builds `kerf` once per test invocation, provisions a fresh tempdir, store, and HOME per scenario, scrubs `KERF_*` and `BD_*` environment from the parent process, and asserts on subprocess exit codes, stdout, and stderr. These scenarios cover the kerf↔bd integration boundary that earlier layers stub. The harness lives in `internal/scenariotest/`; scenarios skip with a message when `bd` is not on PATH so contributors without `bd` installed can still run `go test ./...`. <!-- TBD: open question 2 from plan 022 — skip vs. fail when `bd` is missing; CI defaults to fail, local default stays skip -->
+
 **Coverage targets:**
 
 - Create a work in a real git repo, work through passes, finalize to a branch
@@ -78,6 +94,10 @@ E2E tests use a Go test harness (or shell scripts) that sets up real git repos, 
 - Bench with multiple projects
 - Jig loading from file — see [jig-system.md](jig-system.md)
 - Config overrides at bench, project, and work levels
+- Full agent bootstrap flow against a real `bd` store: `init → setup → bootstrap-filters → new → next → status → review → finalize`
+- `kerf doctor` against a degraded store: surfaces a red finding and exits 0 rather than crashing on subprocess failure
+- `bootstrap-filters` proposal round-tripped through `work edit --bead-filter-add` without parser rejection
+- Subprocess failure shakedown: every kerf command that shells out exits non-zero when the underlying tool fails
 
 ### Agentic / Exploratory Tests
 
@@ -122,6 +142,8 @@ Fuzz tests use Go's built-in fuzz testing (`testing.F`). They focus on input par
 
 ## CI Strategy
 
+Workflow files in `.github/workflows/` implement this table; see plan 024.
+
 | Trigger | Layers run |
 |---------|-----------|
 | Every commit | Unit, property-based, integration |
@@ -130,3 +152,5 @@ Fuzz tests use Go's built-in fuzz testing (`testing.F`). They focus on input par
 | Significant CLI output or jig changes | Agentic/exploratory |
 
 Integration tests are fast when well-designed and run on every commit alongside unit and property-based tests. Fuzz tests and E2E tests are slower and run on PRs. Agentic tests require LLM calls and run only when CLI output format or jig definitions change significantly.
+
+The project runs CI on every PR via GitHub Actions. Test, vet, race, lint, and coverage checks are PR-blocking; fuzz targets run on a nightly schedule with a per-target time budget. Coverage is enforced via a per-package ratchet against a checked-in floor file — a PR that drops any package below its current floor fails. The `bd` binary is provisioned on the runner at a pinned version before tests run. <!-- TBD: open question 2 from plan 024 — coverage ratchet as hard-fail vs. warn-only during stabilisation --> <!-- TBD: open question 5 from plan 024 — `bd` version pinning strategy (commit pin vs. release tag) -->
