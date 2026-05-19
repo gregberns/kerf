@@ -75,15 +75,7 @@ exit 8
 	}
 
 	// Prepend shimDir to PATH so the shim wins over any real binary.
-	// Find and rewrite PATH= in the runner env (it was inherited from
-	// the parent and may already contain useful entries for `bd`,
-	// `git`, etc.).
-	for i, kv := range r.env {
-		if strings.HasPrefix(kv, "PATH=") {
-			r.env[i] = "PATH=" + shimDir + string(os.PathListSeparator) + kv[len("PATH="):]
-			break
-		}
-	}
+	r.PrependPath(shimDir)
 
 	// --- Step 4: point tools.tasks at the shim by writing project.yaml
 	// directly under the scenario's bench. We use `kerf config` to

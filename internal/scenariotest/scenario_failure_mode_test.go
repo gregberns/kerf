@@ -49,17 +49,7 @@ func TestScenarioD_FailureMode_BdFails(t *testing.T) {
 	}
 	// Prepend the shim dir to the existing PATH so `failbd` resolves first
 	// while leaving the rest of the environment intact (notably `sh`).
-	currentPath := ""
-	for _, kv := range r.env {
-		if strings.HasPrefix(kv, "PATH=") {
-			currentPath = strings.TrimPrefix(kv, "PATH=")
-			break
-		}
-	}
-	if currentPath == "" {
-		currentPath = os.Getenv("PATH")
-	}
-	r.SetEnv("PATH", shimDir+string(os.PathListSeparator)+currentPath)
+	r.PrependPath(shimDir)
 
 	// Project ID + bench-mode project dir. The harness's `bd init` already
 	// laid down the bd store under projectRoot; the kerf-side project lives
