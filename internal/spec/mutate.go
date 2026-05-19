@@ -190,6 +190,27 @@ func AddBeadFilterClause(path, clause string) error {
 	if err != nil {
 		return err
 	}
+	// `any:` union input form (kerf-2km): expand the parsed union into one
+	// add per leaf so the existing single-clause merging logic (idempotency,
+	// lift-from-leaf, append-to-any) is reused unchanged. Each member is
+	// already a validated leaf from ParseFilterClause.
+	if len(parsed.Any) > 0 {
+		for i := range parsed.Any {
+			leaf := parsed.Any[i]
+			sub := &leaf
+			if err := addSingleLeafClause(path, sub); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return addSingleLeafClause(path, parsed)
+}
+
+// addSingleLeafClause applies a single leaf clause to the spec's bead_filter.
+// Extracted from AddBeadFilterClause so the `any:` union input form can apply
+// each leaf in turn without re-parsing.
+func addSingleLeafClause(path string, parsed *beads.Filter) error {
 	doc, root, err := readYAMLNode(path)
 	if err != nil {
 		return err
@@ -255,6 +276,24 @@ func RemoveBeadFilterClause(path, clause string) error {
 	if err != nil {
 		return err
 	}
+	// `any:` union input form (kerf-2km): expand into one remove per leaf so
+	// the round-trip stays symmetric with --bead-filter-add.
+	if len(parsed.Any) > 0 {
+		for i := range parsed.Any {
+			leaf := parsed.Any[i]
+			sub := &leaf
+			if err := removeSingleLeafClause(path, sub); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return removeSingleLeafClause(path, parsed)
+}
+
+// removeSingleLeafClause is the per-leaf implementation of
+// RemoveBeadFilterClause; see the wrapper's docs for collapsing rules.
+func removeSingleLeafClause(path string, parsed *beads.Filter) error {
 	doc, root, err := readYAMLNode(path)
 	if err != nil {
 		return err
