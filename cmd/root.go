@@ -29,6 +29,13 @@ func Execute() {
 	}
 }
 
+// Root returns the assembled root cobra command. It exists for use by
+// cross-command contract tests in internal/contracttest, which walk the
+// command tree by reflection. Do not mutate the returned command.
+func Root() *cobra.Command {
+	return rootCmd
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&projectFlag, "project", "", "Override project inference with this project ID")
 }
