@@ -292,3 +292,34 @@ func TestResolve_CorruptIdentifier_Errors(t *testing.T) {
 		t.Errorf("Resolve error %q should mention corrupt identifier", err.Error())
 	}
 }
+
+// kerf-vu0r: callers (cmd/new.go, internal/cmdutil) discriminate corrupt-id
+// failures from missing-file failures via errors.Is(err, ErrCorruptIdentifier).
+// Pin both: ReadIdentifier on a corrupt file matches the sentinel; the same
+// call on a missing file does NOT (the bare os.ErrNotExist comes through).
+func TestErrCorruptIdentifier_SentinelMatch(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".kerf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".kerf", "project-identifier"), []byte("bad\x00id"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReadIdentifier(dir)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !IsCorruptIdentifier(err) {
+		t.Errorf("IsCorruptIdentifier(corrupt err) = false; want true (err=%v)", err)
+	}
+
+	// Missing file → not a corruption error.
+	dir2 := t.TempDir()
+	_, err2 := ReadIdentifier(dir2)
+	if err2 == nil {
+		t.Fatal("expected error on missing file")
+	}
+	if IsCorruptIdentifier(err2) {
+		t.Errorf("IsCorruptIdentifier(missing-file err) = true; want false (err=%v)", err2)
+	}
+}

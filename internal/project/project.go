@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -11,6 +12,19 @@ import (
 )
 
 var slugRegex = regexp.MustCompile(`[^a-z0-9]+`)
+
+// ErrCorruptIdentifier is the sentinel returned (wrapped) by ReadIdentifier and
+// Resolve when .kerf/project-identifier exists but fails ValidateIdentifier.
+// Call sites use errors.Is(err, ErrCorruptIdentifier) to distinguish a corrupt
+// file (which must surface non-zero with kerf-dlb's wording) from a missing
+// file (which is the legitimate fall-through to derive/default_project).
+var ErrCorruptIdentifier = errors.New("corrupt project identifier")
+
+// IsCorruptIdentifier reports whether err was produced by a validation failure
+// on .kerf/project-identifier. Convenience wrapper around errors.Is.
+func IsCorruptIdentifier(err error) bool {
+	return errors.Is(err, ErrCorruptIdentifier)
+}
 
 // FindGitRoot walks up from cwd to find a directory containing .git.
 func FindGitRoot(cwd string) (string, error) {
@@ -86,8 +100,8 @@ func ReadIdentifier(repoPath string) (string, error) {
 		return "", err
 	}
 	id := strings.TrimSpace(string(data))
-	if err := ValidateIdentifier(id); err != nil {
-		return "", fmt.Errorf("corrupt project identifier at %s: %s; replace with a clean slug", path, err)
+	if verr := ValidateIdentifier(id); verr != nil {
+		return "", fmt.Errorf("%w at %s: %s; replace with a clean slug", ErrCorruptIdentifier, path, verr)
 	}
 	return id, nil
 }

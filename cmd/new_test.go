@@ -719,3 +719,56 @@ func TestNewCommand_ConfigDefaultJig_NoFlag(t *testing.T) {
 	testutil.AssertStringContains(t, out, "Work created: config-test")
 	testutil.AssertStringContains(t, out, "Jig:      plan")
 }
+
+// kerf-vu0r: a corrupt .kerf/project-identifier must surface non-zero from
+// `kerf new` rather than silently falling through to derive-and-overwrite,
+// which would route the new work at the wrong project (or clobber the
+// damaged file with a fresh derived ID). Mirrors kerf-dlb's test for `kerf
+// init`. The fall-through "no file exists" path is exercised by
+// TestNewCommand_AutoCodename and friends.
+func TestNewCommand_CorruptProjectIdentifier_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := testutil.SetupGitRepo(t)
+	t.Chdir(repo)
+
+	if err := os.MkdirAll(filepath.Join(repo, ".kerf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idPath := filepath.Join(repo, ".kerf", "project-identifier")
+	garbage := []byte("bad/\x00id\n")
+	if err := os.WriteFile(idPath, garbage, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := func() error {
+		// Reset flags so we exercise the identifier path (not --project override).
+		projectFlag = ""
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		defer func() { newJigFlag = "" }()
+		return captureErr(func() error {
+			return newCmd.RunE(newCmd, []string{"vu0r-test"})
+		})
+	}()
+	if err == nil {
+		t.Fatal("expected error when project-identifier is corrupt, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"corrupt project identifier", idPath, "replace with a clean slug"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+
+	// On-disk bytes must be untouched.
+	after, readErr := os.ReadFile(idPath)
+	if readErr != nil {
+		t.Fatalf("reading project-identifier after refused new: %v", readErr)
+	}
+	if string(after) != string(garbage) {
+		t.Errorf("corrupt project-identifier was modified; want %q got %q", garbage, after)
+	}
+}
