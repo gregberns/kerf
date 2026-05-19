@@ -11,6 +11,8 @@ This file is the live log. Sub-agents append entries; the orchestrator reviews p
 - a new plan if the gap is broader than the 016-020 scope
 - workarounds if it's a one-time bootstrap quirk
 
+Related: [`testing_strategy_audit.md`](testing_strategy_audit.md) — 2026-05-19 audit of why the review gate missed the 10 bugs in `test_2026-05-18/SUMMARY.md`, with layered recommendations.
+
 ---
 
 ## Setup / environment
