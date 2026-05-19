@@ -194,12 +194,18 @@ func AddBeadFilterClause(path, clause string) error {
 	if err != nil {
 		return err
 	}
-	bf, _ := findMapValue(root, "bead_filter")
+	bf, bfIdx := findMapValue(root, "bead_filter")
 	if bf == nil {
 		// Create as a direct clause.
 		k := scalarNode("bead_filter")
 		v := buildLeafClauseNode(parsed)
 		root.Content = append(root.Content, k, v)
+		return writeYAMLNode(path, doc)
+	}
+	// Present-but-null is the canonical empty form `kerf new` emits (Plan 019,
+	// kerf-3ac). Replace the null slot with a direct leaf clause.
+	if bf.Kind == yaml.ScalarNode && (bf.Tag == "!!null" || bf.Value == "") {
+		root.Content[bfIdx+1] = buildLeafClauseNode(parsed)
 		return writeYAMLNode(path, doc)
 	}
 	if bf.Kind != yaml.MappingNode {
