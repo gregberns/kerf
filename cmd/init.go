@@ -102,8 +102,8 @@ func (t *initStateTracker) Emit(w io.Writer) {
 			width = len(r.Name)
 		}
 	}
-	fmt.Fprintln(w, "State changes:")
 	fmt.Fprintln(w, "```")
+	fmt.Fprintln(w, "State changes:")
 	for _, r := range t.rows {
 		pad := strings.Repeat(" ", width-len(r.Name))
 		if r.Detail != "" {
