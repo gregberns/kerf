@@ -37,6 +37,84 @@ func TestParseFilterClause_ValueMayContainEquals(t *testing.T) {
 	}
 }
 
+// kerf-2km: the `any:` union input form mirrors what bootstrap-filters
+// writes into spec.yaml, so an agent can copy a proposed filter and feed it
+// back through `kerf work edit --bead-filter-add`. The parser returns a
+// Filter with Any populated; callers (internal/spec.AddBeadFilterClause)
+// expand it into the canonical mapping shape on write.
+func TestParseFilterClause_AnyUnion(t *testing.T) {
+	f, err := ParseFilterClause("any:label=codename:foo,label=spec:foo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f.Label != "" || f.IDPrefix != "" {
+		t.Fatalf("expected no leaf fields on union, got %+v", f)
+	}
+	if len(f.Any) != 2 {
+		t.Fatalf("expected 2 union members, got %d (%+v)", len(f.Any), f.Any)
+	}
+	if f.Any[0].Label != "codename:foo" || f.Any[1].Label != "spec:foo" {
+		t.Fatalf("unexpected member labels: %+v", f.Any)
+	}
+	// The returned union must Validate clean — it's the same shape as the
+	// `any:` mapping that ends up in spec.yaml.
+	if err := f.Validate(); err != nil {
+		t.Fatalf("expected valid any: union, got %v", err)
+	}
+}
+
+func TestParseFilterClause_AnyUnion_MixedLeafKinds(t *testing.T) {
+	f, err := ParseFilterClause("any:label=subsystem:bridge,id_prefix=alpha-")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Any) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(f.Any))
+	}
+	if f.Any[0].Label != "subsystem:bridge" {
+		t.Fatalf("expected first to be label leaf, got %+v", f.Any[0])
+	}
+	if f.Any[1].IDPrefix != "alpha-" {
+		t.Fatalf("expected second to be id_prefix leaf, got %+v", f.Any[1])
+	}
+}
+
+func TestParseFilterClause_AnyUnion_TrimsWhitespace(t *testing.T) {
+	// Whitespace around leaves and after the `any:` prefix is tolerated;
+	// values themselves are kept verbatim.
+	f, err := ParseFilterClause("any: label=foo , label=bar ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Any) != 2 || f.Any[0].Label != "foo" || f.Any[1].Label != "bar" {
+		t.Fatalf("unexpected parse: %+v", f)
+	}
+}
+
+func TestParseFilterClause_AnyUnion_Rejects(t *testing.T) {
+	cases := []struct {
+		in     string
+		errSub string
+	}{
+		{"any:", "empty any: union"},
+		{"any:   ", "empty any: union"},
+		{"any:label=foo", "fewer than two members"},
+		{"any:label=foo,", "empty leaf"},
+		{"any:label=foo,bogus=bar", "unknown key"},
+		{"any:label=,label=foo", "empty value"},
+	}
+	for _, c := range cases {
+		_, err := ParseFilterClause(c.in)
+		if err == nil {
+			t.Errorf("expected error for %q", c.in)
+			continue
+		}
+		if !strings.Contains(err.Error(), c.errSub) {
+			t.Errorf("input %q: expected error containing %q, got %v", c.in, c.errSub, err)
+		}
+	}
+}
+
 func TestParseFilterClause_Rejects(t *testing.T) {
 	cases := []struct {
 		in     string

@@ -6,10 +6,21 @@ import (
 	"strings"
 )
 
-// ParseFilterClause parses a single-clause filter expression of the form
-// "label=<value>" or "id_prefix=<value>". The value may be empty-string-rejected
-// by the caller via Validate, but ParseFilterClause itself accepts a missing
-// "=" or unknown key as an error and rejects multi-clause forms (e.g. "all=").
+// ParseFilterClause parses a filter clause expression. Two input forms are
+// accepted:
+//
+//  1. A single leaf clause: "label=<value>" or "id_prefix=<value>".
+//  2. An `any:` union: "any:<leaf>,<leaf>[,<leaf>...]" where each <leaf> is one
+//     of the leaf forms above. This mirrors the `any:` mapping shape that
+//     `kerf bootstrap-filters` writes into spec.yaml, so an agent can copy the
+//     proposal text and feed it back through `kerf work edit --bead-filter-add`
+//     (kerf-2km). The returned Filter has Any populated with one entry per
+//     leaf; callers (internal/spec.AddBeadFilterClause) expand it into the
+//     canonical `any:` mapping shape on write.
+//
+// Errors: empty input, missing "=", unknown key, empty value. An `any:` form
+// with fewer than two leaves is rejected — a single-clause union is just a
+// leaf and the caller should use the leaf form.
 //
 // This lives in internal/beads (not internal/spec) because clause syntax is
 // a property of the matcher; co-locating the parser with Filter.Match
@@ -18,16 +29,46 @@ import (
 func ParseFilterClause(s string) (*Filter, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return nil, errors.New("filter clause: empty input; expected 'label=<value>' or 'id_prefix=<value>'")
+		return nil, errors.New("filter clause: empty input; expected 'label=<value>', 'id_prefix=<value>', or 'any:<leaf>,<leaf>...'")
+	}
+	// `any:` union form. The prefix is treated literally; any whitespace after
+	// the colon is trimmed per-leaf below.
+	if rest, ok := strings.CutPrefix(s, "any:"); ok {
+		rest = strings.TrimSpace(rest)
+		if rest == "" {
+			return nil, fmt.Errorf("filter clause: %q has empty any: union; expected 'any:<leaf>,<leaf>...'", s)
+		}
+		parts := strings.Split(rest, ",")
+		leaves := make([]Filter, 0, len(parts))
+		for _, p := range parts {
+			leaf, err := parseLeafClause(strings.TrimSpace(p))
+			if err != nil {
+				return nil, fmt.Errorf("filter clause: any: member %q: %w", p, err)
+			}
+			leaves = append(leaves, *leaf)
+		}
+		if len(leaves) < 2 {
+			return nil, fmt.Errorf("filter clause: %q has fewer than two members in any: union; use the leaf form instead", s)
+		}
+		return &Filter{Any: leaves}, nil
+	}
+	return parseLeafClause(s)
+}
+
+// parseLeafClause parses a single leaf form: "label=<value>" or
+// "id_prefix=<value>". Shared by ParseFilterClause's leaf and any: paths.
+func parseLeafClause(s string) (*Filter, error) {
+	if s == "" {
+		return nil, errors.New("empty leaf; expected 'label=<value>' or 'id_prefix=<value>'")
 	}
 	idx := strings.IndexByte(s, '=')
 	if idx < 0 {
-		return nil, fmt.Errorf("filter clause: %q does not parse; expected 'label=<value>' or 'id_prefix=<value>'", s)
+		return nil, fmt.Errorf("%q does not parse; expected 'label=<value>' or 'id_prefix=<value>'", s)
 	}
 	key := strings.TrimSpace(s[:idx])
 	value := s[idx+1:]
 	if value == "" {
-		return nil, fmt.Errorf("filter clause: %q has empty value; expected 'label=<value>' or 'id_prefix=<value>'", s)
+		return nil, fmt.Errorf("%q has empty value; expected 'label=<value>' or 'id_prefix=<value>'", s)
 	}
 	switch key {
 	case "label":
@@ -35,7 +76,7 @@ func ParseFilterClause(s string) (*Filter, error) {
 	case "id_prefix":
 		return &Filter{IDPrefix: value}, nil
 	default:
-		return nil, fmt.Errorf("filter clause: unknown key %q; expected 'label' or 'id_prefix'", key)
+		return nil, fmt.Errorf("unknown key %q; expected 'label' or 'id_prefix'", key)
 	}
 }
 
