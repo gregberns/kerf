@@ -50,8 +50,8 @@ Recognised contracts:
 - **Subprocess exit symmetry** (`internal/contracttest/contract_exit_symmetry_test.go`). Every kerf command that shells out exits non-zero when the subprocess exits non-zero.
 - **Filter clause round-trip** (`internal/contracttest/contract_filter_roundtrip_test.go`). Any filter clause `internal/labelsample` proposes is accepted by `internal/beads.ParseFilterClause` and by the `work edit --bead-filter-add` mutator.
 - **Documented config-key round-trip** (`internal/contracttest/contract_config_roundtrip_test.go`). For every key in the documented-config-key list, `kerf config K V` followed by `kerf config K` returns `V`.
-- **`show` / `work show` field agreement.** Fields rendered by both commands carry identical text for the same underlying record.
-- **`bead_filter` slot invariant.** A present-but-empty `bead_filter` resolves identically to an absent one across every command that consumes the slot.
+- **`show` / `work show` field agreement** (`internal/contracttest/contract_show_agreement_test.go`). Fields rendered by both commands carry identical text for the same underlying record.
+- **`bead_filter` slot invariant** (`internal/contracttest/contract_beadfilter_slot_test.go`). A present-but-empty `bead_filter` resolves identically to an absent one across every command that consumes the slot.
 
 New cobra commands inherit these contracts by default; adding a command extends the contract surface without a new test file.
 
