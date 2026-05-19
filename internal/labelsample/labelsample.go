@@ -162,6 +162,24 @@ func candidateShapes(codename string) []Candidate {
 // The function is pure: it does not read from disk, the network, or any
 // global state. Safe to call concurrently.
 func ProposeFilter(all []beads.Bead, codename string) Proposal {
+	return ProposeFilterWithFloor(all, codename, minAbsoluteFloor)
+}
+
+// ProposeFilterWithFloor is identical to ProposeFilter but lets the caller
+// override the absolute minimum-match floor for a dominant proposal. The
+// bootstrap-filters path uses the default (3) — it writes filters in bulk
+// and wants a confident signal before doing so. The `kerf next` near-match
+// advisor (cmd/next.go computeNearMatchHints, kerf-fx5) lowers it to 2:
+// it surfaces an inline hint a human / agent reads before applying, so a
+// softer signal is acceptable and avoids the dogfood-2026-05-18 miss where
+// a 2-bead `codename:gama` corpus produced no advisor output because the
+// stricter floor blocked the dominant proposal.
+//
+// A floor < 1 is clamped to 1 (zero matches can never be "dominant").
+func ProposeFilterWithFloor(all []beads.Bead, codename string, floor int) Proposal {
+	if floor < 1 {
+		floor = 1
+	}
 	candidates := candidateShapes(codename)
 	if len(candidates) == 0 {
 		return Proposal{Reason: ReasonNoMatch}
@@ -221,8 +239,10 @@ func ProposeFilter(all []beads.Bead, codename string) Proposal {
 
 	top := nonzero[0]
 
-	// Dominance: top count is ≥ 80% of total AND clears the absolute floor.
-	if top.Count >= minAbsoluteFloor && float64(top.Count) >= dominanceFraction*float64(total) {
+	// Dominance: top count is ≥ 80% of total AND clears the caller-supplied
+	// absolute floor (ProposeFilter passes minAbsoluteFloor; the kerf-next
+	// advisor passes a lower value — see ProposeFilterWithFloor).
+	if top.Count >= floor && float64(top.Count) >= dominanceFraction*float64(total) {
 		clause := top.Clause
 		return Proposal{
 			Filter:     &clause,

@@ -97,6 +97,47 @@ func TestProposeFilter_NoConfidentPrefix_ReturnsEmpty(t *testing.T) {
 	}
 }
 
+// TestProposeFilterWithFloor_LowerFloorPromotesBelowFloorMatches exercises
+// the kerf-fx5 path: when the caller supplies a lower floor (the kerf next
+// near-match advisor passes 2), a 2-bead dominant signal that the default
+// floor (3) rejects as ReasonBelowFloor is promoted to ReasonDominant. The
+// default ProposeFilter keeps the strict floor — locked by TestProposeFilter_BelowFloor
+// immediately below.
+func TestProposeFilterWithFloor_LowerFloorPromotesBelowFloorMatches(t *testing.T) {
+	all := []beads.Bead{
+		mkBead("1", "codename:gama"),
+		mkBead("2", "codename:gama"),
+		mkBead("3", "subsystem:other"),
+	}
+	if p := ProposeFilter(all, "gama"); p.Reason != ReasonBelowFloor {
+		t.Fatalf("default floor expected ReasonBelowFloor, got %s", p.Reason)
+	}
+	p := ProposeFilterWithFloor(all, "gama", 2)
+	if p.Reason != ReasonDominant {
+		t.Fatalf("floor=2 expected ReasonDominant, got %s", p.Reason)
+	}
+	if p.Filter == nil || p.Filter.Label != "codename:gama" {
+		t.Fatalf("expected leaf 'codename:gama', got %+v", p.Filter)
+	}
+	if p.MatchCount != 2 {
+		t.Errorf("expected MatchCount=2, got %d", p.MatchCount)
+	}
+}
+
+// TestProposeFilterWithFloor_ClampsZeroFloor confirms a floor < 1 is
+// clamped to 1 — zero matches can never be "dominant" so the function
+// must not degrade into proposing on no signal.
+func TestProposeFilterWithFloor_ClampsZeroFloor(t *testing.T) {
+	all := []beads.Bead{mkBead("1", "unrelated")}
+	p := ProposeFilterWithFloor(all, "gama", 0)
+	if p.Filter != nil {
+		t.Fatalf("floor=0 must clamp; expected nil filter, got %+v", p.Filter)
+	}
+	if p.Reason != ReasonNoMatch {
+		t.Errorf("expected ReasonNoMatch on empty signal, got %s", p.Reason)
+	}
+}
+
 // TestProposeFilter_BelowFloor exercises the "matched but too weak" path: a
 // single label hit with only 2 beads is below the absolute floor of 3, and
 // has no second candidate to form a union with — should return ReasonBelowFloor.

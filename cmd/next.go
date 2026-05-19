@@ -47,6 +47,13 @@ const nextEmptyText = "No items. Run 'kerf new' to start a work, or check 'kerf 
 // Footer tip per spec sample output.
 const nextFooterTip = "run with --format=json for machine output, --help for filters"
 
+// advisorMinFloor is the absolute match-count floor the near-match advisor
+// passes to labelsample.ProposeFilterWithFloor. Lower than the
+// bootstrap-filters default (3) because the advisor only surfaces an inline
+// hint — the user/agent reviews before applying — so a softer signal is
+// acceptable. See kerf-fx5 and the comment in computeNearMatchHints.
+const advisorMinFloor = 2
+
 // Help-text contract — six elements in fixed order per specs/commands.md
 // §"kerf next" → "Help text". Tests assert ordering; changing this text
 // requires a spec change.
@@ -79,6 +86,13 @@ var nextCmd = &cobra.Command{
 	Use:   "next",
 	Short: "Ranked feed of beads, cleanup tasks, and warnings",
 	Long:  nextLongHelp,
+	// SilenceUsage: errors returned by runNext (notably the BEADS_TOOL_ERROR
+	// surfaced when the configured `tools.tasks` subprocess fails) are user-
+	// facing diagnostics, not flag-misuse signals. Suppress cobra's default
+	// usage dump so scripts see only the single-line error before exit 1
+	// (kerf-1d6 — sibling triage / doctor already behave this way in spirit;
+	// next was the outlier that printed a help block on tool failure).
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runNext(cmd)
 	},
@@ -462,7 +476,14 @@ func computeNearMatchHints(cleanupItems []feed.Item, allBeads []beads.Bead) map[
 			continue
 		}
 		cn := *it.WorkCodename
-		proposal := labelsample.ProposeFilter(allBeads, cn)
+		// kerf-fx5: the advisor uses a softer floor (2) than the
+		// bootstrap-filters path (3). The hint surfaces inline on the
+		// cleanup row — a human / agent reads it before applying — so a
+		// thinner signal is acceptable. The strict floor caused the
+		// dogfood-2026-05-18 miss (a work `gama` with `bead_filter:
+		// label=gama` against 2 open beads carrying `codename:gama`
+		// produced no advisor output because count<3 → ReasonBelowFloor).
+		proposal := labelsample.ProposeFilterWithFloor(allBeads, cn, advisorMinFloor)
 		if proposal.Reason != labelsample.ReasonDominant || proposal.Filter == nil {
 			continue
 		}

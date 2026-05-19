@@ -920,6 +920,211 @@ func TestRenderNextText_EmptyRowWithoutHintKeepsActionLine(t *testing.T) {
 	}
 }
 
+// --- kerf-1d6: bead-tool subprocess failure surfaces as a returned error ----
+
+// TestRunNext_BeadsToolError_ReturnsError exercises kerf-1d6: when the
+// configured `tools.tasks` subprocess (here a fake `br` that always fails)
+// produces a BEADS_TOOL_ERROR, runNext must return a non-nil error so cobra
+// exits 1. Prior to kerf-1d6 the error path was reachable (line 200-206 of
+// cmd/next.go), but the bug surfaced as `kerf next` dumping the usage block
+// alongside the error — symptom of SilenceUsage being unset. Asserting the
+// returned-error contract pins the exit-code path; the SilenceUsage flag is
+// covered by the sibling test below.
+func TestRunNext_BeadsToolError_ReturnsError(t *testing.T) {
+	// Stage a `br` stub that exits non-zero with a JSON-shape error — the
+	// real-world `bd`-vs-`br` schema mismatch the dogfood log captured.
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"echo 'JSON error: missing field jsonl_export at line 7 column 1' 1>&2\n" +
+		"exit 2\n"
+	if err := os.WriteFile(filepath.Join(dir, "br"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write stub br: %v", err)
+	}
+	t.Setenv("PATH", dir)
+
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mkdirp(filepath.Join(tmp, ".kerf", "projects", "test-proj")); err != nil {
+		t.Fatal(err)
+	}
+	resetNextFlags()
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	err := runNext(nextCmd)
+	if err == nil {
+		t.Fatalf("expected non-nil error when bead tool subprocess fails; got nil")
+	}
+	msg := err.Error()
+	// Must reference the tool name so scripts/users can identify the
+	// misconfiguration source (per AC: "single-line error referencing the
+	// configured tool name").
+	if !strings.Contains(msg, "br") {
+		t.Errorf("error must name the configured tool; got: %v", err)
+	}
+	// Must surface the BEADS_TOOL_ERROR prefix so the diagnostic trail
+	// matches the plan-021 contract (internal/beads/beads.go).
+	if !strings.Contains(msg, "BEADS_TOOL_ERROR") {
+		t.Errorf("error must include BEADS_TOOL_ERROR diagnostic; got: %v", err)
+	}
+}
+
+// TestNextCmd_SilenceUsageOnError pins kerf-1d6's secondary fix: when runNext
+// returns an error, cobra must NOT dump the usage block. SilenceUsage is the
+// flag that prevents that; assert it on the command definition so a future
+// refactor cannot silently regress it (the usage dump is what made the
+// dogfood report describe the failure as "kerf next dumps help on br
+// failure").
+func TestNextCmd_SilenceUsageOnError(t *testing.T) {
+	if !nextCmd.SilenceUsage {
+		t.Fatalf("nextCmd.SilenceUsage must be true so subprocess errors do not trigger a usage dump (kerf-1d6)")
+	}
+}
+
+// --- kerf-fx5: near-match advisor fires on realistic dogfood corpus -------
+
+// TestRunNext_Fx5_AdvisorFiresOnDogfoodCorpus exercises the dogfood-2026-05-18
+// repro that kerf-fx5 was opened for: work `gama` with `bead_filter:
+// label=gama` against a store carrying open beads tagged `codename:gama`
+// must produce the inline `try:` hint pointing at the prefix-swap clause.
+//
+// Prior to the kerf-fx5 fix the test failed even at the dogfood-observed
+// scale (2 beads): labelsample.ProposeFilter's absolute floor was 3, and the
+// 2-bead match produced ReasonBelowFloor / no proposal. The fix introduces a
+// caller-tunable floor (ProposeFilterWithFloor) and lowers it to 2 on the
+// advisor path while leaving bootstrap-filters strict.
+//
+// This test exercises the cmd-level integration (not the labelsample unit)
+// because the AC explicitly calls out "a test that exercises the repro
+// shape, not the unit-test stub data kerf-d9f originally used".
+func TestRunNext_Fx5_AdvisorFiresOnDogfoodCorpus(t *testing.T) {
+	// Stage two open beads tagged `codename:gama` — the exact corpus the
+	// dogfood log captured. The advisor must surface a hint despite the
+	// 2-bead count being below the bootstrap-filters floor.
+	stubBr(t, `[
+		{"id":"x-1","labels":["codename:gama"],"status":"open"},
+		{"id":"x-2","labels":["codename:gama"],"status":"open"}
+	]`)
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	projDir := filepath.Join(tmp, ".kerf", "projects", "test-proj")
+	if err := mkdirp(projDir); err != nil {
+		t.Fatal(err)
+	}
+	// Work `gama` with `bead_filter: label=gama` — the exact spec shape
+	// the dogfood-2026-05-18 repro used.
+	specPath := filepath.Join(projDir, "gama", "spec.yaml")
+	content := `codename: gama
+title: Gama
+type: plan
+project:
+  id: test-proj
+jig: plan
+jig_version: 1
+status: research
+status_values: [research, spec, implementing]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+depends_on: []
+areas: []
+bead_filter:
+  label: gama
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	if err := os.MkdirAll(filepath.Dir(specPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resetNextFlags()
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
+	}
+	body := buf.String()
+	wantClause := "try: kerf work edit gama --bead-filter 'label=codename:gama'"
+	if !strings.Contains(body, wantClause) {
+		t.Fatalf("expected advisor hint %q in output; got:\n%s", wantClause, body)
+	}
+}
+
+// TestRunNext_Fx5_NoSpuriousHintOnUnrelatedStore is the negative pair: a
+// store containing no labels resembling the work's codename must NOT
+// produce a `try:` line. Locks the AC's "no-near-match case still produces
+// silence" requirement against floor-relaxation overreach.
+func TestRunNext_Fx5_NoSpuriousHintOnUnrelatedStore(t *testing.T) {
+	stubBr(t, `[
+		{"id":"x-1","labels":["subsystem:auth"],"status":"open"},
+		{"id":"x-2","labels":["area:storage"],"status":"open"}
+	]`)
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	projDir := filepath.Join(tmp, ".kerf", "projects", "test-proj")
+	if err := mkdirp(projDir); err != nil {
+		t.Fatal(err)
+	}
+	specPath := filepath.Join(projDir, "ghost", "spec.yaml")
+	content := `codename: ghost
+title: Ghost
+type: plan
+project:
+  id: test-proj
+jig: plan
+jig_version: 1
+status: research
+status_values: [research, spec, implementing]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+depends_on: []
+areas: []
+bead_filter:
+  label: ghost
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	if err := os.MkdirAll(filepath.Dir(specPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resetNextFlags()
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
+	}
+	body := buf.String()
+	if strings.Contains(body, "try:") {
+		t.Fatalf("expected no advisor hint when no candidate matches; got:\n%s", body)
+	}
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func mkdirp(path string) error {
