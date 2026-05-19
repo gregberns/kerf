@@ -1,0 +1,28 @@
+# .golangci.yml — minimal opinionated lint config.
+#
+# Plan 024 (CI Foundation), bead kerf-l51g. Spec: specs/testing.md § "CI Strategy".
+#
+# Preset is intentionally narrow: bug-catching linters only. No style-only
+# linters (revive, stylecheck, gocritic) on day one — they generate noise that
+# trains people to dismiss the signal. Tighten later in a follow-up bead, not
+# here. See Plan 024 § "Lint level".
+
+run:
+  timeout: 5m
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - gofmt
+    - goimports
+
+issues:
+  # Surface every finding; no max-per-linter cap. Baseline must be green at
+  # merge — if it isn't, fix in the PR rather than ignoring.
+  max-issues-per-linter: 0
+  max-same-issues: 0
