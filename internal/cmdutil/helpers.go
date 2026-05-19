@@ -30,9 +30,17 @@ func ResolveProject(flagValue string) (string, error) {
 		return "", err
 	}
 
-	// Try git repo identifier.
-	if id, err := project.Resolve(cwd, bp); err == nil {
+	// Try git repo identifier. A corrupt .kerf/project-identifier file
+	// (kerf-dlb / kerf-vu0r) must surface non-zero rather than silently
+	// falling through to default_project, which would route the command at
+	// the wrong project. Other errors (no git repo, missing identifier) are
+	// the legitimate fall-through.
+	id, rerr := project.Resolve(cwd, bp)
+	if rerr == nil {
 		return id, nil
+	}
+	if project.IsCorruptIdentifier(rerr) {
+		return "", rerr
 	}
 
 	// Try default_project from config.

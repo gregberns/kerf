@@ -348,8 +348,16 @@ func resolveProjectForNew() (string, bool, error) {
 		return "", false, fmt.Errorf("not in a git repository. Use --project <project-id> to specify a project")
 	}
 
-	// Try existing identifier.
-	if id, err := project.ReadIdentifier(gitRoot); err == nil {
+	// Try existing identifier. A missing file is the legitimate fall-through
+	// to derive-and-write below. A corrupt file (kerf-dlb / kerf-vu0r) must
+	// surface non-zero so we never silently write a fresh derived identifier
+	// over a damaged one or route `kerf new` at the wrong project.
+	idPath := filepath.Join(gitRoot, ".kerf", "project-identifier")
+	if _, statErr := os.Stat(idPath); statErr == nil {
+		id, err := project.ReadIdentifier(gitRoot)
+		if err != nil {
+			return "", false, err
+		}
 		return id, false, nil
 	}
 
