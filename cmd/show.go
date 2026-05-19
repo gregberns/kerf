@@ -26,7 +26,13 @@ var showCmd = &cobra.Command{
 	Use:   "show <codename>",
 	Short: "Display full details for a work",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runShow,
+	// SilenceUsage: errors returned by runShow (including BEADS_TOOL_ERROR
+	// from the configured `tools.tasks` subprocess) are user-facing
+	// diagnostics, not flag-misuse signals. Suppress cobra's default usage
+	// dump so scripts see only the single-line error before exit 1 — mirrors
+	// kerf-1d6 / kerf-jy2i on next / triage / doctor.
+	SilenceUsage: true,
+	RunE:         runShow,
 }
 
 func init() {
@@ -125,8 +131,14 @@ func runShow(cmd *cobra.Command, args []string) error {
 	// Bead status (best-effort via configured beads tool; default "br").
 	// Per Plan 008 / B5: filter beads via the resolved per-work + project
 	// bead_filter (spec-conformant, case-sensitive matching) rather than
-	// counting every bead in the project.
-	if beadSummary := getBeadSummary(s.Project.ID, s.Codename, s.BeadFilter); beadSummary != "" {
+	// counting every bead in the project. Tool-failure errors are surfaced
+	// (kerf-cz2t / kerf-1d6 invariant): "not on PATH" is silent degrade,
+	// "on PATH but failed" is exit-non-zero.
+	beadSummary, err := getBeadSummary(s.Project.ID, s.Codename, s.BeadFilter)
+	if err != nil {
+		return err
+	}
+	if beadSummary != "" {
 		fmt.Println(beadSummary)
 		fmt.Println()
 	}
@@ -134,8 +146,13 @@ func runShow(cmd *cobra.Command, args []string) error {
 	// Attached beads block (Plan 009 / B7).
 	// Lists beads attached to this work via resolved filter, plus any
 	// pinned_beads, annotated with drift markers from the cached baseline.
-	// Silent no-op when the bead store is unavailable.
-	if block := getAttachedBeadsBlock(s); block != "" {
+	// Silent no-op when the bead store is unavailable; tool-failure errors
+	// are surfaced (kerf-cz2t / kerf-1d6 invariant).
+	block, err := getAttachedBeadsBlock(s)
+	if err != nil {
+		return err
+	}
+	if block != "" {
 		fmt.Println(block)
 		fmt.Println()
 	}
@@ -312,7 +329,7 @@ func computePassStatus(statusValues []string, currentStatus, passStatus string) 
 // case-sensitive matcher (Plan 008 / B5; specs/coordination.md §"Bead
 // Attachment"). The filter is resolved per work via beads.Resolve(perWork,
 // project) — first-defined-wins, no merge.
-func getBeadSummary(projectID, codename string, perWork *beads.Filter) string {
+func getBeadSummary(projectID, codename string, perWork *beads.Filter) (string, error) {
 	toolName := beads.DefaultToolName
 	var projectFilter *beads.Filter
 	if r, err := cmdutil.Resolver(projectID); err == nil {
@@ -322,15 +339,24 @@ func getBeadSummary(projectID, codename string, perWork *beads.Filter) string {
 		}
 	}
 
+	// "Tool not on PATH" is a silent degrade (kerf works without a bead
+	// store); "tool on PATH but failed" is a hard error so scripts see the
+	// misconfiguration (kerf-cz2t / kerf-1d6 invariant).
+	if !beads.IsAvailableNamed(toolName) {
+		return "", nil
+	}
 	bs, err := beads.ListNamed(toolName)
-	if err != nil || len(bs) == 0 {
-		return ""
+	if err != nil {
+		return "", err
+	}
+	if len(bs) == 0 {
+		return "", nil
 	}
 
 	resolved := beads.Resolve(perWork, projectFilter)
 	matched := beads.ForWorkWithFilter(bs, codename, resolved)
 	if len(matched) == 0 {
-		return ""
+		return "", nil
 	}
 
 	total := len(matched)
@@ -345,7 +371,7 @@ func getBeadSummary(projectID, codename string, perWork *beads.Filter) string {
 		}
 	}
 
-	return fmt.Sprintf("Beads: %d total, %d closed, %d open", total, closed, open)
+	return fmt.Sprintf("Beads: %d total, %d closed, %d open", total, closed, open), nil
 }
 
 // getAttachedBeadsBlock renders the "Attached beads (N open / M closed)" block
@@ -362,7 +388,7 @@ func getBeadSummary(projectID, codename string, perWork *beads.Filter) string {
 //     "Bead status" line above already covers the empty case).
 //
 // This function never advances the drift baseline.
-func getAttachedBeadsBlock(s *spec.SpecYAML) string {
+func getAttachedBeadsBlock(s *spec.SpecYAML) (string, error) {
 	toolName := beads.DefaultToolName
 	var projectFilter *beads.Filter
 	r, err := cmdutil.Resolver(s.Project.ID)
@@ -375,12 +401,13 @@ func getAttachedBeadsBlock(s *spec.SpecYAML) string {
 
 	// Silent no-op if the bead store is unavailable.
 	if !beads.IsAvailableNamed(toolName) {
-		return ""
+		return "", nil
 	}
 
+	// Tool on PATH but failed → surface error (kerf-cz2t / kerf-1d6).
 	all, err := beads.ListNamed(toolName)
 	if err != nil {
-		return ""
+		return "", err
 	}
 
 	resolved := beads.Resolve(s.BeadFilter, projectFilter)
@@ -524,7 +551,7 @@ func getAttachedBeadsBlock(s *spec.SpecYAML) string {
 	}
 
 	if len(rows) == 0 {
-		return ""
+		return "", nil
 	}
 
 	// Sort: open beads first, then closed; within each group, by ID.
@@ -576,7 +603,7 @@ func getAttachedBeadsBlock(s *spec.SpecYAML) string {
 		b.WriteByte('\n')
 	}
 	// Trim trailing newline so the caller's fmt.Println() does not double-blank.
-	return strings.TrimRight(b.String(), "\n")
+	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 // renderBeadFilterSlot returns the single-line literal for a work's

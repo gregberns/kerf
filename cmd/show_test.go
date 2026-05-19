@@ -122,9 +122,15 @@ func TestShowNonComposableJig(t *testing.T) {
 }
 
 func TestGetBeadSummary_NoBr(t *testing.T) {
-	// br may or may not be installed in test env; if no beads exist for the
-	// (nonexistent) test project, the function returns empty string silently.
-	got := getBeadSummary("any-project", "any-work", nil)
+	// Scrub PATH so `br` cannot be resolved; the function must degrade
+	// silently with no error (kerf-cz2t: "tool not on PATH" → silent OK,
+	// distinct from "tool on PATH but failed" → surfaced error).
+	empty := t.TempDir()
+	t.Setenv("PATH", empty)
+	got, gbErr := getBeadSummary("any-project", "any-work", nil)
+	if gbErr != nil {
+		t.Fatalf("getBeadSummary: %v", gbErr)
+	}
 	if got != "" {
 		t.Errorf("expected empty string when beads tool unavailable or no beads, got %q", got)
 	}
@@ -146,7 +152,8 @@ func TestShow_BeadsAttached_RendersCounts(t *testing.T) {
 		{"id":"x-4","status":"in-progress","labels":["work:demo"]}
 	]`)
 
-	got := getBeadSummary("any-project", "demo", nil)
+	got, gbErr := getBeadSummary("any-project", "demo", nil)
+	if gbErr != nil { t.Fatalf("getBeadSummary: %v", gbErr) }
 	// 4 total: 2 terminal (closed+done) + 2 non-terminal (open, in-progress)
 	want := "Beads: 4 total, 2 closed, 2 open"
 	if got != want {
@@ -263,7 +270,8 @@ func TestShow_BeadToolUnavailable_DegradesGracefully(t *testing.T) {
 	empty := t.TempDir()
 	t.Setenv("PATH", empty)
 
-	got := getBeadSummary("any-project", "any-work", nil)
+	got, gbErr := getBeadSummary("any-project", "any-work", nil)
+	if gbErr != nil { t.Fatalf("getBeadSummary: %v", gbErr) }
 	if got != "" {
 		t.Errorf("expected empty summary when br unavailable, got %q", got)
 	}
@@ -301,7 +309,8 @@ func TestShow_CaseSensitiveLabelMatching(t *testing.T) {
 		{"id":"b-other","status":"closed","labels":["subsystem:other"]}
 	]`)
 
-	got := getBeadSummary(projectID, codename, nil)
+	got, gbErr := getBeadSummary(projectID, codename, nil)
+	if gbErr != nil { t.Fatalf("getBeadSummary: %v", gbErr) }
 	want := "Beads: 1 total, 0 closed, 1 open"
 	if got != want {
 		t.Errorf("getBeadSummary = %q, want %q (case-sensitive match must reject 'Subsystem:bridge')", got, want)
@@ -337,7 +346,8 @@ func TestShow_AttachedBeads_BlockRenders(t *testing.T) {
 	]`)
 
 	s := mkShowSpec("show-attached-proj", "demo", nil, nil)
-	got := getAttachedBeadsBlock(s)
+	got, gbErr := getAttachedBeadsBlock(s)
+	if gbErr != nil { t.Fatalf("getAttachedBeadsBlock: %v", gbErr) }
 
 	testutil.AssertStringContains(t, got, "Attached beads (2 open / 1 closed):")
 	testutil.AssertStringContains(t, got, "hk-001")
@@ -362,7 +372,8 @@ func TestShow_AttachedBeads_PinnedAnnotated(t *testing.T) {
 	]`)
 
 	s := mkShowSpec("show-pinned-proj", "pin-test", nil, []string{"hk-200"})
-	got := getAttachedBeadsBlock(s)
+	got, gbErr := getAttachedBeadsBlock(s)
+	if gbErr != nil { t.Fatalf("getAttachedBeadsBlock: %v", gbErr) }
 
 	testutil.AssertStringContains(t, got, "Attached beads (2 open / 0 closed):")
 	testutil.AssertStringContains(t, got, "hk-100")
@@ -389,7 +400,8 @@ func TestShow_AttachedBeads_BeadToolUnavailable(t *testing.T) {
 	t.Setenv("PATH", empty)
 
 	s := mkShowSpec("show-nobr-proj", "any-work", nil, []string{"would-pin"})
-	got := getAttachedBeadsBlock(s)
+	got, gbErr := getAttachedBeadsBlock(s)
+	if gbErr != nil { t.Fatalf("getAttachedBeadsBlock: %v", gbErr) }
 	if got != "" {
 		t.Errorf("expected empty block when br unavailable, got %q", got)
 	}
@@ -434,7 +446,8 @@ func TestShow_AttachedBeads_ClosedExternallyDriftMarker(t *testing.T) {
 	]`)
 
 	s := mkShowSpec(projectID, "bridge", nil, nil)
-	got := getAttachedBeadsBlock(s)
+	got, gbErr := getAttachedBeadsBlock(s)
+	if gbErr != nil { t.Fatalf("getAttachedBeadsBlock: %v", gbErr) }
 
 	testutil.AssertStringContains(t, got, "hk-901")
 	testutil.AssertStringContains(t, got, "! closed externally since last triage")
@@ -483,7 +496,8 @@ func TestShow_AttachedBeads_DeletedBeadStillRenders(t *testing.T) {
 	]`)
 
 	s := mkShowSpec(projectID, "gateway", nil, nil)
-	got := getAttachedBeadsBlock(s)
+	got, gbErr := getAttachedBeadsBlock(s)
+	if gbErr != nil { t.Fatalf("getAttachedBeadsBlock: %v", gbErr) }
 
 	testutil.AssertStringContains(t, got, "hk-700")
 	testutil.AssertStringContains(t, got, "hk-701")
@@ -617,7 +631,8 @@ func TestShow_AttachedBeads_NoAttachments_OmitsBlock(t *testing.T) {
 	]`)
 
 	s := mkShowSpec("show-empty-proj", "lonely", nil, nil)
-	got := getAttachedBeadsBlock(s)
+	got, gbErr := getAttachedBeadsBlock(s)
+	if gbErr != nil { t.Fatalf("getAttachedBeadsBlock: %v", gbErr) }
 	if got != "" {
 		t.Errorf("expected empty block when no beads attach to work, got %q", got)
 	}

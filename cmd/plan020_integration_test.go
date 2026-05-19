@@ -307,6 +307,12 @@ func TestShow_Compact_AllPlan020Invariants(t *testing.T) {
 // Filenames.
 func TestShow_Default_PassOutputLines_FullCycle(t *testing.T) {
 	_ = makePlan020Work(t, "plan020-passlines-proj", "passlines-demo")
+	// Scrub PATH so `br` cannot be resolved: this test exercises pass-output
+	// rendering, not bead-store integration. Without scrubbing, a real `br`
+	// on the developer's PATH fails (no bd store in the tmp HOME) and the
+	// post-kerf-cz2t error path surfaces it — masking the pass-line check.
+	empty := t.TempDir()
+	t.Setenv("PATH", empty)
 
 	out := captureOutput(t, func() {
 		projectFlag = "plan020-passlines-proj"

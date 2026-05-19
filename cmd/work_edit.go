@@ -64,6 +64,11 @@ Examples:
                     --bead-filter-add 'label=subsystem:api'
 `,
 	Args: cobra.ExactArgs(1),
+	// SilenceUsage: errors returned by runWorkEdit (including
+	// BEADS_TOOL_ERROR from the configured `tools.tasks` subprocess) are
+	// user-facing diagnostics, not flag-misuse signals. Mirrors kerf-1d6 /
+	// kerf-jy2i on next / triage / doctor (kerf-cz2t).
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runWorkEdit(args[0])
 	},
@@ -114,8 +119,12 @@ func runWorkEdit(cn string) error {
 	}
 
 	// Optional: pre-edit attached-bead count, for the "was: N beads" delta.
-	// If `br` is unavailable we silently skip the count.
-	beforeTotal, beforeOpen, beforeClosed, beforeOK := attachedBeadCount(cn, specPath, projectID, r)
+	// If `br` is unavailable we silently skip the count; if `br` is on PATH
+	// but fails, surface the error (kerf-cz2t / kerf-1d6 invariant).
+	beforeTotal, beforeOpen, beforeClosed, beforeOK, err := attachedBeadCount(cn, specPath, projectID, r)
+	if err != nil {
+		return err
+	}
 
 	// 3. Apply removals first.
 	var noMatchRemovals []string
@@ -162,7 +171,10 @@ func runWorkEdit(cn string) error {
 	}
 
 	// Post-edit count.
-	afterTotal, afterOpen, afterClosed, afterOK := attachedBeadCount(cn, specPath, projectID, r)
+	afterTotal, afterOpen, afterClosed, afterOK, err := attachedBeadCount(cn, specPath, projectID, r)
+	if err != nil {
+		return err
+	}
 	if beforeOK && afterOK {
 		fmt.Println()
 		// Disambiguate open vs. closed on both sides so an agent can tell
@@ -427,30 +439,35 @@ func specHasBeadFilter(specPath string) bool {
 // Note: deliberately re-reads spec.yaml from disk (rather than reusing a
 // pre-edit *spec.SpecYAML) so the same code path serves both the "before"
 // and "after" sites.
-func attachedBeadCount(cn, specPath, projectID string, _ interface{}) (int, int, int, bool) {
+func attachedBeadCount(cn, specPath, projectID string, _ interface{}) (int, int, int, bool, error) {
 	s, err := spec.Read(specPath)
 	if err != nil {
-		return 0, 0, 0, false
+		return 0, 0, 0, false, nil
 	}
 	// Honor project.yaml tools.tasks (default "br") so the before/after count
-	// hits the same store as the rest of kerf (plan 021). Best-effort: any
-	// failure to resolve the tool name simply falls back to the default.
+	// hits the same store as the rest of kerf (plan 021).
 	toolName := beads.DefaultToolName
 	if r, rerr := cmdutil.Resolver(projectID); rerr == nil {
 		if cfg, cerr := config.LoadProjectConfig(r.ProjectConfigPath()); cerr == nil && cfg != nil {
 			toolName = beads.ResolveToolName(cfg.Tools)
 		}
 	}
+	// "Not on PATH" is silent degrade; "on PATH but failed" is surfaced
+	// (kerf-cz2t / kerf-1d6 invariant) so subprocess misconfiguration does
+	// not silently exit zero.
+	if !beads.IsAvailableNamed(toolName) {
+		return 0, 0, 0, false, nil
+	}
 	all, err := beads.ListNamed(toolName)
 	if err != nil {
-		return 0, 0, 0, false
+		return 0, 0, 0, false, err
 	}
 	resolved := beads.Resolve(s.BeadFilter, nil)
 	if resolved == nil {
-		return 0, 0, 0, false
+		return 0, 0, 0, false, nil
 	}
 	if err := resolved.Validate(); err != nil {
-		return 0, 0, 0, false
+		return 0, 0, 0, false, nil
 	}
 	matches := beads.ForWorkWithFilter(all, cn, resolved)
 	var open, closed int
@@ -461,5 +478,5 @@ func attachedBeadCount(cn, specPath, projectID string, _ interface{}) (int, int,
 			open++
 		}
 	}
-	return len(matches), open, closed, true
+	return len(matches), open, closed, true, nil
 }

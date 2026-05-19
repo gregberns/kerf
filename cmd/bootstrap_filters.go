@@ -59,6 +59,11 @@ Examples:
   kerf bootstrap-filters --apply                    Apply with a single confirmation prompt
 `,
 	Args: cobra.NoArgs,
+	// SilenceUsage: errors returned by runBootstrapFilters (including
+	// BEADS_TOOL_ERROR from the configured `tools.tasks` subprocess) are
+	// user-facing diagnostics, not flag-misuse signals. Mirrors kerf-1d6 /
+	// kerf-jy2i on next / triage / doctor (kerf-cz2t).
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBootstrapFilters(cmd.OutOrStdout(), cmd.InOrStdin())
 	},

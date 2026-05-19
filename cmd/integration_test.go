@@ -15,6 +15,11 @@ import (
 func TestIntegration_FullLifecycle(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	// Scrub PATH so the developer's real `br` cannot be resolved during
+	// this integration test (post-kerf-cz2t, kerf show / triage / next
+	// surface tool-on-PATH-but-failed errors; without scrubbing those
+	// would mask the lifecycle assertions below).
+	t.Setenv("PATH", t.TempDir())
 
 	bp := filepath.Join(tmp, ".kerf")
 	proj := "lifecycle-proj"
@@ -170,6 +175,9 @@ func TestIntegration_StatusWriteNonRecommended(t *testing.T) {
 func TestIntegration_ShowWithDeps(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	// Scrub PATH so `br` cannot be resolved; the test exercises Dependencies
+	// rendering, not bead-store integration. See kerf-cz2t.
+	t.Setenv("PATH", t.TempDir())
 
 	bp := filepath.Join(tmp, ".kerf")
 	proj := "dep-proj"
