@@ -126,6 +126,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 | Jig not found | `Error: jig '{name}' not found. Run 'kerf jig list' to see available jigs.` |
 | Area name not in `areas.yaml` | `Error: area '{name}' not found. Run 'kerf areas list' to see defined areas, or 'kerf areas add <name>' to create one.` |
 | `--bead-filter` value does not parse as `label=<value>` or `id_prefix=<value>` | `Error: --bead-filter expects 'label=<value>' or 'id_prefix=<value>', got '{value}'.` |
+| Corrupt `.kerf/project-identifier` | `Error: corrupt project identifier at {path}: {reason}; replace with a clean slug.` |
 | `default_jig` unset and no `--jig` flag | See First-Run Onboarding below. |
 
 ### First-Run Onboarding
@@ -212,6 +213,7 @@ Commands:
 | Condition | Message |
 |-----------|---------|
 | No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+| Corrupt `.kerf/project-identifier` | `Error: corrupt project identifier at {path}: {reason}; replace with a clean slug.` |
 
 ---
 
@@ -309,6 +311,7 @@ The compact form omits jig instructions, file tree, attached-beads listing, and 
 | Condition | Message |
 |-----------|---------|
 | Work not found | `Error: work '{codename}' not found in project '{project-id}'.` |
+| Corrupt `.kerf/project-identifier` | `Error: corrupt project identifier at {path}: {reason}; replace with a clean slug.` |
 
 ---
 
@@ -1423,6 +1426,7 @@ The instructions are agent-agnostic. kerf does not know or reference any specifi
 | `--bead-filter` value does not parse | `Error: --bead-filter expects 'label=<value>' or 'id_prefix=<value>', got '{value}'.` |
 | Existing `project.yaml` detected, no `--force` | Not an error. kerf prints `project.yaml already exists at {path} — skipping re-initialisation. Use 'kerf init --force' to overwrite, or edit the file directly.` and exits 0 after running the safe-to-repeat steps (project-identifier creation, `--jig` update, `kerf setup`). |
 | `--force` passed but `project.yaml` could not be read for the pre-overwrite summary | `Error: --force requested but existing project.yaml at {path} is unreadable: {details}. Move or delete the file manually before re-running.` |
+| Corrupt existing `.kerf/project-identifier` | `Error: corrupt project identifier at {path}: {reason}; replace with a clean slug.` |
 
 ---
 
@@ -1560,6 +1564,7 @@ All available jigs can be used with `kerf new --jig <name>`.
 |-----------|---------|
 | Not in a git repository | `Error: not in a git repository. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
 | No `.kerf/project-identifier` found | `Error: project not initialized. Run 'kerf init' first.` |
+| Corrupt `.kerf/project-identifier` | `Error: corrupt project identifier at {path}: {reason}; replace with a clean slug.` |
 
 ---
 
@@ -2292,6 +2297,7 @@ The match-count delta is informational and breaks out open vs. closed beads on b
 | Neither `--bead-filter-add` nor `--bead-filter-remove` given | `Error: at least one of --bead-filter-add or --bead-filter-remove is required.` |
 | Clause value does not parse as `label=<value>` or `id_prefix=<value>` | `Error: clause '{value}' does not parse. Expected 'label=<value>' or 'id_prefix=<value>'.` |
 | No project resolvable | `Error: cannot determine project. Use --project <project-id> or run from inside a git repo with .kerf/project-identifier.` |
+| Corrupt `.kerf/project-identifier` | `Error: corrupt project identifier at {path}: {reason}; replace with a clean slug.` |
 
 A `--bead-filter-remove` clause that matches no existing clause emits a warning but does not error:
 
