@@ -203,6 +203,23 @@ func TestAddBeadFilterClause_Idempotent(t *testing.T) {
 	}
 }
 
+func TestAddBeadFilterClause_PresentButNull(t *testing.T) {
+	// `kerf new` emits `bead_filter:` with a null value (Plan 019 / kerf-3ac).
+	// The first --bead-filter-add should accept it and write a direct leaf.
+	src := "codename: bridge\nbead_filter:\n"
+	p := writeFixture(t, "spec.yaml", src)
+	if err := AddBeadFilterClause(p, "label=x:y"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	got := readFile(t, p)
+	if !strings.Contains(got, "label: x:y") {
+		t.Fatalf("expected direct clause written into null slot, got:\n%s", got)
+	}
+	if strings.Contains(got, "any:") {
+		t.Fatalf("expected direct form (no any:), got:\n%s", got)
+	}
+}
+
 func TestRemoveBeadFilterClause_CollapsesTwoToOne(t *testing.T) {
 	src := `codename: bridge
 bead_filter:
