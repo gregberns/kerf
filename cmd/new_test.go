@@ -463,6 +463,80 @@ func TestNewCommand_BeadFilter_Absent(t *testing.T) {
 	testutil.AssertStringContains(t, rawStr, "pinned_beads: []")
 }
 
+// kerf-r1i: KERF_SESSION_ID env var must be recorded as sessions[0].id so that
+// `kerf list --created-by self` can attribute the work to the agent that
+// created it. When unset, the session must remain anonymous (sessions[0].id is
+// nil, ActiveSession is "anonymous").
+func TestNewCommand_RecordsKerfSessionIDFromEnv(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("KERF_SESSION_ID", "alice")
+
+	captureOutput(t, func() {
+		projectFlag = "proj"
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		defer func() { projectFlag = ""; newJigFlag = "" }()
+		if err := newCmd.RunE(newCmd, []string{"sid-work"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	bp := filepath.Join(tmp, ".kerf")
+	specPath := filepath.Join(bp, "projects", "proj", "sid-work", "spec.yaml")
+	s, err := spec.Read(specPath)
+	if err != nil {
+		t.Fatalf("reading spec.yaml: %v", err)
+	}
+	if len(s.Sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(s.Sessions))
+	}
+	if s.Sessions[0].ID == nil {
+		t.Fatalf("expected sessions[0].id to be 'alice', got nil")
+	}
+	if *s.Sessions[0].ID != "alice" {
+		t.Errorf("sessions[0].id = %q, want %q", *s.Sessions[0].ID, "alice")
+	}
+	if s.ActiveSession == nil || *s.ActiveSession != "alice" {
+		t.Errorf("active_session = %v, want 'alice'", s.ActiveSession)
+	}
+}
+
+func TestNewCommand_AnonymousWhenKerfSessionIDUnset(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	// Ensure env var is unset for this test, regardless of host env.
+	t.Setenv("KERF_SESSION_ID", "")
+
+	captureOutput(t, func() {
+		projectFlag = "proj"
+		newJigFlag = "plan"
+		newTitle = ""
+		newType = ""
+		defer func() { projectFlag = ""; newJigFlag = "" }()
+		if err := newCmd.RunE(newCmd, []string{"anon-work"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	bp := filepath.Join(tmp, ".kerf")
+	specPath := filepath.Join(bp, "projects", "proj", "anon-work", "spec.yaml")
+	s, err := spec.Read(specPath)
+	if err != nil {
+		t.Fatalf("reading spec.yaml: %v", err)
+	}
+	if len(s.Sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(s.Sessions))
+	}
+	if s.Sessions[0].ID != nil {
+		t.Errorf("expected sessions[0].id to be nil (anonymous), got %q", *s.Sessions[0].ID)
+	}
+	if s.ActiveSession == nil || *s.ActiveSession != "anonymous" {
+		t.Errorf("active_session = %v, want 'anonymous'", s.ActiveSession)
+	}
+}
+
 func TestNewCommand_ConfigDefaultJig_NoFlag(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

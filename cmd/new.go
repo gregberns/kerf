@@ -199,8 +199,10 @@ func runNew(cn string) error {
 		},
 	}
 
-	// 7. Record initial session.
-	session.StartSession(s, "")
+	// 7. Record initial session. Honour KERF_SESSION_ID so `kerf list
+	// --created-by self` can attribute the work to the agent that created it
+	// (kerf-r1i). When unset, the session is anonymous.
+	session.StartSession(s, os.Getenv("KERF_SESSION_ID"))
 
 	specPath := filepath.Join(workDir, "spec.yaml")
 	if err := spec.Write(specPath, s); err != nil {
