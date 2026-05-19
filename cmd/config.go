@@ -186,10 +186,26 @@ func configSet(cfg *config.Config, cfgPath, benchPath, key, value string) error 
 
 // unknownKeyError builds the canonical error for unknown keys, listing
 // project-scoped surfaces alongside bench keys so agents can self-correct.
+// Project-scoped and bench key lists overlap (e.g. default_jig is dual-scoped),
+// so dedupe while preserving project-first canonical order.
 func unknownKeyError(key string) error {
-	bench := strings.Join(config.ValidKeys(), ", ")
-	proj := strings.Join(projectScopedKeys, ", ")
-	return fmt.Errorf("unknown configuration key '%s'. Valid keys: %s, %s", key, proj, bench)
+	seen := make(map[string]struct{})
+	ordered := make([]string, 0, len(projectScopedKeys)+len(config.ValidKeys()))
+	for _, k := range projectScopedKeys {
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		ordered = append(ordered, k)
+	}
+	for _, k := range config.ValidKeys() {
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		ordered = append(ordered, k)
+	}
+	return fmt.Errorf("unknown configuration key '%s'. Valid keys: %s", key, strings.Join(ordered, ", "))
 }
 
 // getProjectScoped returns the value of a project-scoped key from the

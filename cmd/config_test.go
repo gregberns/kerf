@@ -204,6 +204,34 @@ func TestConfigCommand_UnknownKeyListsValidKeys(t *testing.T) {
 	}
 }
 
+func TestConfigCommand_UnknownKeyValidKeysDeduped(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	os.MkdirAll(filepath.Join(tmp, ".kerf"), 0o755)
+
+	err := configCmd.RunE(configCmd, []string{"foo", "bar"})
+	if err == nil {
+		t.Fatal("expected error for unknown key")
+	}
+	msg := err.Error()
+	// Extract the comma-separated keys after "Valid keys: ".
+	idx := strings.Index(msg, "Valid keys: ")
+	if idx < 0 {
+		t.Fatalf("error missing 'Valid keys:' prefix; got: %s", msg)
+	}
+	keys := strings.Split(msg[idx+len("Valid keys: "):], ", ")
+	seen := make(map[string]int)
+	for _, k := range keys {
+		k = strings.TrimSpace(k)
+		seen[k]++
+	}
+	for k, n := range seen {
+		if n > 1 {
+			t.Errorf("key %q appears %d times in valid-keys list; want 1", k, n)
+		}
+	}
+}
+
 func TestConfigCommand_DefaultJigWritesBothLayers(t *testing.T) {
 	repo := setupProjectContext(t, "test-proj")
 	_ = repo
