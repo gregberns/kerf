@@ -1,5 +1,7 @@
 # kerf
 
+[![Tests](https://github.com/gregberns/kerf/actions/workflows/test.yml/badge.svg)](https://github.com/gregberns/kerf/actions/workflows/test.yml)
+
 Spec-writing CLI for AI agents. Single binary. Go.
 
 *Measure twice, cut once.*
