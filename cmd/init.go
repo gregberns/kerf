@@ -211,6 +211,12 @@ func runInit() error {
 
 	// Step 4 (specs/commands.md §"kerf init"): detect existing project.yaml and
 	// dispatch per the re-run rule.
+	//
+	// kerf-45x: a malformed project.yaml must NOT silently fall through to the
+	// overwrite path. Distinguish three cases on the existing file:
+	//   1. stat() failed with IsNotExist  -> fresh init, write project.yaml.
+	//   2. stat() ok, parse ok            -> skip-with-summary (or --force overwrite).
+	//   3. stat() ok, parse failed        -> hard error, never overwrite without --force.
 	var existingCfg *config.ProjectConfig
 	if _, statErr := os.Stat(projCfgPath); statErr == nil {
 		existingCfg, err = config.LoadProjectConfig(projCfgPath)
@@ -218,9 +224,14 @@ func runInit() error {
 			if initForceFlag {
 				return fmt.Errorf("--force requested but existing project.yaml at %s is unreadable: %v. Move or delete the file manually before re-running.", projCfgPath, err)
 			}
-			// Without --force we still want to be informative but cannot
-			// summarise; fall through to the skip-path with what we have.
-			existingCfg = nil
+			// Parse failure without --force: refuse to overwrite. The spec
+			// (specs/commands.md §"kerf init" re-run rule) requires "skip with
+			// informative output" when project.yaml exists; falling through
+			// would silently clobber the user's malformed-but-recoverable file.
+			return fmt.Errorf(
+				"project.yaml at %s exists but could not be parsed: %v\n"+
+					"  Refusing to overwrite. Fix the file by hand, or re-run with --force to replace it with defaults.",
+				projCfgPath, err)
 		}
 	}
 

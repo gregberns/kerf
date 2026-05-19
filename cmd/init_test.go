@@ -561,3 +561,91 @@ func parseStateChanges(t *testing.T, out string) map[string]string {
 	}
 	return rows
 }
+
+// kerf-dlb: a corrupt .kerf/project-identifier (garbage bytes / control chars
+// / path separators) used to flow through to mkdir(2) and surface a low-level
+// Go error. The fix validates the identifier on read in internal/project and
+// surfaces a clear, actionable message at the kerf init layer.
+func TestInit_CorruptProjectIdentifier_RejectedWithClearError(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[]`)
+
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	gitRepo := testutil.SetupGitRepo(t)
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(gitRepo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(oldWd) })
+
+	if err := os.MkdirAll(filepath.Join(gitRepo, ".kerf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	garbage := []byte("bad/\x00id\n")
+	idPath := filepath.Join(gitRepo, ".kerf", "project-identifier")
+	if err := os.WriteFile(idPath, garbage, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := captureErr(func() error {
+		return initCmd.RunE(initCmd, []string{})
+	})
+	if err == nil {
+		t.Fatal("expected error when project-identifier is corrupt, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"corrupt project identifier", idPath, "replace with a clean slug"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+
+	// Bytes on disk are unchanged — kerf must not paper over the corruption.
+	after, readErr := os.ReadFile(idPath)
+	if readErr != nil {
+		t.Fatalf("reading project-identifier after refused init: %v", readErr)
+	}
+	if string(after) != string(garbage) {
+		t.Errorf("corrupt project-identifier was modified; want %q got %q", garbage, after)
+	}
+}
+
+// kerf-45x: malformed project.yaml on rerun must NOT be silently overwritten.
+// The fix in cmd/init.go distinguishes "parse failed" from "missing file" and
+// errors out, preserving the original bytes on disk so a user can recover by
+// hand (or re-run with --force).
+func TestInit_RerunWithMalformedProjectYAML_RefusesToOverwrite(t *testing.T) {
+	resetInitFlags(t)
+	stubBr(t, `[]`)
+
+	_, _, projCfgPath := runInitInRepo(t)
+
+	// Corrupt project.yaml with syntactically invalid YAML.
+	garbage := []byte("jigs: [unclosed\n: : :\n\tnot yaml at all\n")
+	if err := os.WriteFile(projCfgPath, garbage, 0o644); err != nil {
+		t.Fatalf("writing malformed project.yaml: %v", err)
+	}
+
+	err := captureErr(func() error {
+		return initCmd.RunE(initCmd, []string{})
+	})
+	if err == nil {
+		t.Fatal("expected error from re-init with malformed project.yaml, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{projCfgPath, "could not be parsed", "--force"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+
+	// Original bytes must be preserved on disk.
+	after, readErr := os.ReadFile(projCfgPath)
+	if readErr != nil {
+		t.Fatalf("reading project.yaml after refused re-init: %v", readErr)
+	}
+	if string(after) != string(garbage) {
+		t.Errorf("malformed project.yaml was modified; want %q got %q", garbage, after)
+	}
+}
