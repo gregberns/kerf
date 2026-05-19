@@ -50,6 +50,12 @@ findings across project.yaml shape, storage drift, symlink integrity
 
 kerf doctor is read-only: it surfaces findings and names the command
 that would fix each. It does not mutate state.`,
+	// SilenceUsage: errors returned by runDoctor are user-facing
+	// diagnostics (scaffolding failures, unreadable project state), not
+	// flag-misuse signals. Suppress cobra's default usage dump so scripts
+	// see only the single-line error before exit 1 (kerf-jy2i — symmetry
+	// with kerf next / kerf-1d6).
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runDoctor(cmd)
 	},

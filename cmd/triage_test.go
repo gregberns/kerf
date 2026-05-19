@@ -1368,3 +1368,13 @@ func TestTriage_StorageDriftFooter_Suppression(t *testing.T) {
 		t.Fatalf("KERF_DOCTOR_FOOTER=1 must override config=false; got:\n%s", envWinsOut)
 	}
 }
+
+// TestTriageCmd_SilenceUsageOnError pins kerf-jy2i: when runTriage returns
+// an error (e.g. BEADS_TOOL_ERROR from the configured tools.tasks
+// subprocess), cobra must NOT dump the usage block. Mirrors
+// TestNextCmd_SilenceUsageOnError; symmetry with kerf next (kerf-1d6).
+func TestTriageCmd_SilenceUsageOnError(t *testing.T) {
+	if !triageCmd.SilenceUsage {
+		t.Fatalf("triageCmd.SilenceUsage must be true so subprocess errors do not trigger a usage dump (kerf-jy2i)")
+	}
+}
