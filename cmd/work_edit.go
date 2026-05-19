@@ -189,6 +189,13 @@ func runWorkEdit(cn string) error {
 // in the spec.yaml's bead_filter. Used to emit the warning when a removal is
 // a no-op. Errors only on unreadable YAML or unparseable clauses; the latter
 // is already pre-checked, so this is best-effort.
+//
+// For `any:` union input (kerf-ccxk), returns true if AT LEAST ONE leaf of
+// the union currently matches a stored clause. This mirrors the per-leaf
+// removal semantics of RemoveBeadFilterClause: a union remove is "successful"
+// (no warning) as soon as any one of its leaves was applied. Only when NONE
+// of the leaves were present in the filter is a single "no clauses matched"
+// warning emitted.
 func clauseExistsBefore(specPath, clause string) (bool, error) {
 	parsed, err := beads.ParseFilterClause(clause)
 	if err != nil {
@@ -219,7 +226,9 @@ func clauseExistsBefore(specPath, clause string) (bool, error) {
 	if bf == nil || bf.Kind != yaml.MappingNode {
 		return false, nil
 	}
-	// Either direct leaf or any:.
+	// Gather the set of existing leaves: either the elements of any: or the
+	// single direct-leaf form.
+	var existing []*beads.Filter
 	var anyNode *yaml.Node
 	for i := 0; i < len(bf.Content); i += 2 {
 		if bf.Content[i].Kind == yaml.ScalarNode && bf.Content[i].Value == "any" {
@@ -229,14 +238,30 @@ func clauseExistsBefore(specPath, clause string) (bool, error) {
 	}
 	if anyNode != nil && anyNode.Kind == yaml.SequenceNode {
 		for _, item := range anyNode.Content {
-			if leaf := readLeafFromMapping(item); leaf != nil && beads.FilterClauseEquals(leaf, parsed) {
+			if leaf := readLeafFromMapping(item); leaf != nil {
+				existing = append(existing, leaf)
+			}
+		}
+	} else if leaf := readLeafFromMapping(bf); leaf != nil {
+		existing = append(existing, leaf)
+	}
+	// Build the list of input leaves to look for. For a leaf input there is
+	// one; for an any: union input there are the union members.
+	var inputLeaves []*beads.Filter
+	if len(parsed.Any) > 0 {
+		for i := range parsed.Any {
+			leaf := parsed.Any[i]
+			inputLeaves = append(inputLeaves, &leaf)
+		}
+	} else {
+		inputLeaves = append(inputLeaves, parsed)
+	}
+	for _, in := range inputLeaves {
+		for _, e := range existing {
+			if beads.FilterClauseEquals(e, in) {
 				return true, nil
 			}
 		}
-		return false, nil
-	}
-	if leaf := readLeafFromMapping(bf); leaf != nil && beads.FilterClauseEquals(leaf, parsed) {
-		return true, nil
 	}
 	return false, nil
 }
