@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gberns/kerf/internal/testutil"
@@ -275,4 +277,96 @@ passes:
 	testutil.AssertStringContains(t, out, "Tool requirements")
 	testutil.AssertStringContains(t, out, "ntm")
 	testutil.AssertStringContains(t, out, "agent-mail")
+}
+
+// TestSetupGitignorePattern verifies kerf setup advertises the corrected
+// .gitignore negation pattern. Git negation requires the parent to use
+// '.kerf/*' (with trailing /*); '.kerf/' alone shadows the negation and
+// re-ignores project-identifier. See bead kerf-73h.
+func TestSetupGitignorePattern(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	gitRepo := testutil.SetupGitRepo(t)
+	os.MkdirAll(filepath.Join(gitRepo, ".kerf"), 0o755)
+	os.WriteFile(filepath.Join(gitRepo, ".kerf", "project-identifier"), []byte("gi-proj\n"), 0o644)
+
+	projDir := filepath.Join(tmp, ".kerf", "projects", "gi-proj")
+	os.MkdirAll(projDir, 0o755)
+	os.WriteFile(filepath.Join(projDir, "project.yaml"), []byte("jigs:\n  - plan\n"), 0o644)
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(gitRepo)
+	defer os.Chdir(oldWd)
+
+	out := captureOutput(t, func() {
+		if err := setupCmd.RunE(setupCmd, []string{}); err != nil {
+			t.Fatalf("setup error: %v", err)
+		}
+	})
+
+	// Must contain the working pattern.
+	testutil.AssertStringContains(t, out, ".kerf/*")
+	testutil.AssertStringContains(t, out, "!.kerf/project-identifier")
+
+	// Must NOT contain the broken pattern as a standalone line.
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == ".kerf/" {
+			t.Errorf("output contains broken pattern '.kerf/' as a standalone line (negation will not work); got line: %q", line)
+		}
+	}
+}
+
+// TestSetupGitignorePatternWorksWithGit is an integration test that writes
+// the advertised .gitignore pattern into a real git repo and verifies that
+// git check-ignore behaves as documented.
+func TestSetupGitignorePatternWorksWithGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repo := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s failed: %v: %s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "test")
+
+	// Write the exact pattern kerf setup advertises.
+	gitignore := ".kerf/*\n!.kerf/project-identifier\n"
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte(gitignore), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".kerf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".kerf", "foo"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".kerf", "project-identifier"), []byte("p"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// .kerf/foo should be ignored (exit 0).
+	cmd := exec.Command("git", "check-ignore", "--quiet", ".kerf/foo")
+	cmd.Dir = repo
+	if err := cmd.Run(); err != nil {
+		t.Errorf(".kerf/foo should be ignored by '.kerf/*', but check-ignore did not match: %v", err)
+	}
+
+	// .kerf/project-identifier should NOT be ignored (exit 1).
+	cmd = exec.Command("git", "check-ignore", "--quiet", ".kerf/project-identifier")
+	cmd.Dir = repo
+	err := cmd.Run()
+	if err == nil {
+		t.Error(".kerf/project-identifier should NOT be ignored (negation must apply), but check-ignore matched it")
+	} else if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 1 {
+		t.Errorf("expected exit code 1 from check-ignore on project-identifier, got: %v", err)
+	}
 }
