@@ -985,6 +985,146 @@ func TestNextCmd_SilenceUsageOnError(t *testing.T) {
 	}
 }
 
+// --- kerf-fx5: near-match advisor fires on realistic dogfood corpus -------
+
+// TestRunNext_Fx5_AdvisorFiresOnDogfoodCorpus exercises the dogfood-2026-05-18
+// repro that kerf-fx5 was opened for: work `gama` with `bead_filter:
+// label=gama` against a store carrying open beads tagged `codename:gama`
+// must produce the inline `try:` hint pointing at the prefix-swap clause.
+//
+// Prior to the kerf-fx5 fix the test failed even at the dogfood-observed
+// scale (2 beads): labelsample.ProposeFilter's absolute floor was 3, and the
+// 2-bead match produced ReasonBelowFloor / no proposal. The fix introduces a
+// caller-tunable floor (ProposeFilterWithFloor) and lowers it to 2 on the
+// advisor path while leaving bootstrap-filters strict.
+//
+// This test exercises the cmd-level integration (not the labelsample unit)
+// because the AC explicitly calls out "a test that exercises the repro
+// shape, not the unit-test stub data kerf-d9f originally used".
+func TestRunNext_Fx5_AdvisorFiresOnDogfoodCorpus(t *testing.T) {
+	// Stage two open beads tagged `codename:gama` — the exact corpus the
+	// dogfood log captured. The advisor must surface a hint despite the
+	// 2-bead count being below the bootstrap-filters floor.
+	stubBr(t, `[
+		{"id":"x-1","labels":["codename:gama"],"status":"open"},
+		{"id":"x-2","labels":["codename:gama"],"status":"open"}
+	]`)
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	projDir := filepath.Join(tmp, ".kerf", "projects", "test-proj")
+	if err := mkdirp(projDir); err != nil {
+		t.Fatal(err)
+	}
+	// Work `gama` with `bead_filter: label=gama` — the exact spec shape
+	// the dogfood-2026-05-18 repro used.
+	specPath := filepath.Join(projDir, "gama", "spec.yaml")
+	content := `codename: gama
+title: Gama
+type: plan
+project:
+  id: test-proj
+jig: plan
+jig_version: 1
+status: research
+status_values: [research, spec, implementing]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+depends_on: []
+areas: []
+bead_filter:
+  label: gama
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	if err := os.MkdirAll(filepath.Dir(specPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resetNextFlags()
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
+	}
+	body := buf.String()
+	wantClause := "try: kerf work edit gama --bead-filter 'label=codename:gama'"
+	if !strings.Contains(body, wantClause) {
+		t.Fatalf("expected advisor hint %q in output; got:\n%s", wantClause, body)
+	}
+}
+
+// TestRunNext_Fx5_NoSpuriousHintOnUnrelatedStore is the negative pair: a
+// store containing no labels resembling the work's codename must NOT
+// produce a `try:` line. Locks the AC's "no-near-match case still produces
+// silence" requirement against floor-relaxation overreach.
+func TestRunNext_Fx5_NoSpuriousHintOnUnrelatedStore(t *testing.T) {
+	stubBr(t, `[
+		{"id":"x-1","labels":["subsystem:auth"],"status":"open"},
+		{"id":"x-2","labels":["area:storage"],"status":"open"}
+	]`)
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	projDir := filepath.Join(tmp, ".kerf", "projects", "test-proj")
+	if err := mkdirp(projDir); err != nil {
+		t.Fatal(err)
+	}
+	specPath := filepath.Join(projDir, "ghost", "spec.yaml")
+	content := `codename: ghost
+title: Ghost
+type: plan
+project:
+  id: test-proj
+jig: plan
+jig_version: 1
+status: research
+status_values: [research, spec, implementing]
+created: 2026-04-09T00:00:00Z
+updated: 2026-04-09T00:00:00Z
+sessions: []
+depends_on: []
+areas: []
+bead_filter:
+  label: ghost
+implementation:
+  branch: null
+  pr: null
+  commits: []
+`
+	if err := os.MkdirAll(filepath.Dir(specPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resetNextFlags()
+	t.Cleanup(resetNextFlags)
+	projectFlag = "test-proj"
+	t.Cleanup(func() { projectFlag = "" })
+
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext: %v", err)
+	}
+	body := buf.String()
+	if strings.Contains(body, "try:") {
+		t.Fatalf("expected no advisor hint when no candidate matches; got:\n%s", body)
+	}
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func mkdirp(path string) error {

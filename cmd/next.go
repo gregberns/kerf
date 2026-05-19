@@ -47,6 +47,13 @@ const nextEmptyText = "No items. Run 'kerf new' to start a work, or check 'kerf 
 // Footer tip per spec sample output.
 const nextFooterTip = "run with --format=json for machine output, --help for filters"
 
+// advisorMinFloor is the absolute match-count floor the near-match advisor
+// passes to labelsample.ProposeFilterWithFloor. Lower than the
+// bootstrap-filters default (3) because the advisor only surfaces an inline
+// hint — the user/agent reviews before applying — so a softer signal is
+// acceptable. See kerf-fx5 and the comment in computeNearMatchHints.
+const advisorMinFloor = 2
+
 // Help-text contract — six elements in fixed order per specs/commands.md
 // §"kerf next" → "Help text". Tests assert ordering; changing this text
 // requires a spec change.
@@ -469,7 +476,14 @@ func computeNearMatchHints(cleanupItems []feed.Item, allBeads []beads.Bead) map[
 			continue
 		}
 		cn := *it.WorkCodename
-		proposal := labelsample.ProposeFilter(allBeads, cn)
+		// kerf-fx5: the advisor uses a softer floor (2) than the
+		// bootstrap-filters path (3). The hint surfaces inline on the
+		// cleanup row — a human / agent reads it before applying — so a
+		// thinner signal is acceptable. The strict floor caused the
+		// dogfood-2026-05-18 miss (a work `gama` with `bead_filter:
+		// label=gama` against 2 open beads carrying `codename:gama`
+		// produced no advisor output because count<3 → ReasonBelowFloor).
+		proposal := labelsample.ProposeFilterWithFloor(allBeads, cn, advisorMinFloor)
 		if proposal.Reason != labelsample.ReasonDominant || proposal.Filter == nil {
 			continue
 		}
