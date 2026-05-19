@@ -257,7 +257,7 @@ func printGitignoreBlock() {
 	fmt.Println("Add these two lines to the repo's `.gitignore` so bench-side state stays out of git while project identity stays committed:")
 	fmt.Println()
 	fmt.Println("```")
-	fmt.Println(".kerf/")
+	fmt.Println(".kerf/*")
 	fmt.Println("!.kerf/project-identifier")
 	fmt.Println("```")
 }
