@@ -15,3 +15,6 @@ HANDOFF.md
 .codex/
 .ntm/
 .vscode/
+
+# Local coverage profiles (CI uploads as artifact; never commit).
+coverage.out

@@ -60,7 +60,14 @@ jobs:
       - name: go test -race -cover
         run: go test -race -cover -coverprofile=coverage.out ./...
 
-      # 6. Upload coverage profile for downstream beads (ratchet, badge).
+      # 6. Coverage ratchet (bead kerf-9vkt). Fails the job if any package
+      #    drops below its floor in .github/coverage.floor.json. Hard-fail
+      #    is the default per Plan 024 OQ2; set KERF_RATCHET_WARN_ONLY=1
+      #    on the job to downgrade to a warning during stabilisation.
+      - name: Coverage ratchet
+        run: go run ./scripts/coverage-ratchet.go -profile coverage.out -floor .github/coverage.floor.json
+
+      # 7. Upload coverage profile for downstream beads (badge, future tools).
       #    Best-effort: if the test step failed, this is skipped automatically.
       - name: Upload coverage artifact
         if: success()
