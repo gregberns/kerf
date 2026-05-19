@@ -994,7 +994,7 @@ None.
 
 ### Purpose
 
-View or modify bench configuration. Configuration is stored in `~/.kerf/config.yaml`. See [architecture.md](architecture.md) for the full config schema.
+View or modify configuration. Configuration lives on two layers: the bench-wide `~/.kerf/config.yaml` and the per-project `project.yaml` (stored under the project's storage mode — see [architecture.md](architecture.md)). `kerf config` routes each key to the correct layer; reads resolve through both layers with project-overrides-bench precedence.
 
 ### Syntax
 
@@ -1009,21 +1009,36 @@ kerf config [key] [value]
 | `key` | No | Configuration key to read or set, using dot notation (e.g., `default_jig`, `snapshots.enabled`, `finalize.repo_spec_path`). |
 | `value` | No | Value to set. If omitted with a key, displays the current value. |
 
+### Valid keys and routing
+
+Each key writes to one layer (or, for `default_jig`, both):
+
+| Key | Write target | Notes |
+|-----|--------------|-------|
+| `default_jig` | Both `project.yaml` and bench `config.yaml` (dual-write) | The project-level value wins in jig resolution; the bench value is the fallback for projects that have not pinned one. |
+| `tools.<name>` | `project.yaml` | Per-project tool wiring (e.g., `tools.tasks`). |
+| `doctor.footer` | `project.yaml` | Per-project doctor footer string. |
+| `default_project`, `spec_path`, `snapshots.enabled`, `snapshots.interval_enabled`, `snapshots.interval_seconds`, `snapshots.max_snapshots`, `sessions.stale_threshold_hours`, `finalize.repo_spec_path` | Bench `config.yaml` | Bench-wide defaults. |
+| `bead_filter` | Read-only via this command | `bead_filter` is a structured value managed by `kerf init`, `kerf bootstrap-filters`, and `kerf work edit --bead-filter-add` (see [coordination.md](coordination.md#bead-attachment)). `kerf config bead_filter <value>` rejects the write with an error directing the operator to those commands. |
+
+Reads (no value supplied) resolve the key across both layers with `project.yaml` taking precedence over `~/.kerf/config.yaml`. When neither layer sets the key, the built-in default is reported.
+
 ### Behavior (no arguments — display all)
 
-1. Read `~/.kerf/config.yaml`. If the file does not exist, display all defaults.
-2. Display all configuration values with their current settings and defaults.
+1. Read `~/.kerf/config.yaml` and (when inside a project) the resolved `project.yaml`. If a file does not exist, display defaults for the keys it would carry.
+2. Display all configuration values with their current settings and defaults, naming the source layer (project or bench) for each key that is set.
 
 ### Behavior (key only — read)
 
-1. Read `~/.kerf/config.yaml`.
-2. Display the value for the given key. If the key is not set, display the default value.
+1. Resolve the key across `project.yaml` and `~/.kerf/config.yaml` using project-overrides-bench precedence.
+2. Display the resolved value. If the key is not set on either layer, display the default value.
 
 ### Behavior (key and value — write)
 
-1. Read `~/.kerf/config.yaml` (create with empty content if it does not exist).
-2. Set the key to the given value.
-3. Write the updated config file.
+1. Determine the write target for the key per the routing table above. Reject `bead_filter` writes with the read-only error.
+2. Read the target file (create with empty content if it does not exist). For `default_jig`, read both files.
+3. Set the key to the given value on each target layer.
+4. Write the updated file(s).
 
 ### Output (no arguments)
 
@@ -1058,6 +1073,7 @@ Set {key} = {value}
 |-----------|---------|
 | Unknown key | `Error: unknown configuration key '{key}'.` |
 | Invalid value for key | `Error: invalid value for '{key}': {details}` |
+| Write attempted against `bead_filter` | `Error: 'bead_filter' is read-only via 'kerf config'. Use 'kerf init', 'kerf bootstrap-filters', or 'kerf work edit --bead-filter-add' to set it.` |
 
 ---
 
