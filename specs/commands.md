@@ -59,7 +59,7 @@ Create a new [work](works.md) on the bench.
 ### Syntax
 
 ```
-kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <name>...] [--bead-filter <expr>] [--project <project-id>]
+kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <name>...] [--bead-filter <expr>] [--no-auto-filter] [--project <project-id>]
 ```
 
 ### Arguments and Flags
@@ -72,6 +72,7 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 | `--jig` | No | `default_jig` from `project.yaml`, falling back to `~/.kerf/config.yaml` (required if unset on both layers) | Jig to use for this work. Resolved via jig resolution order (see [jig-system.md](jig-system.md)). |
 | `--area` | No | `[]` | One or more area names to associate with the work. May be repeated (e.g., `--area auth --area api`). Each name must exist in `areas.yaml`. |
 | `--bead-filter` | No | — | A single bead-filter clause to write into the new work's `spec.yaml` as its per-work `bead_filter`. Accepts either `label=<value>` or `id_prefix=<value>` (e.g., `--bead-filter 'label=subsystem:bridge'`). One-shot: not repeatable on `kerf new` — to compose a multi-clause `any:` union, create the work with one clause and then add additional clauses via `kerf work edit --bead-filter-add` (which is repeatable). See [coordination.md](coordination.md#bead-attachment). |
+| `--no-auto-filter` | No | `false` | Skip the auto-populate step that would otherwise propose a `bead_filter` clause from the codename when `--bead-filter` is not provided. See behavior step 6a below. |
 | `--project` | No | Inferred from `.kerf/project-identifier` | Project to create the work under. |
 
 ### Behavior
@@ -86,6 +87,11 @@ kerf new [codename] [--title <title>] [--type <type>] [--jig <name>] [--area <na
 4. **Resolve jig.** Look up the jig via the resolution order (see [jig-system.md](jig-system.md)). Error if the jig is not found.
 5. **Create the work directory** at the location dictated by the project's storage mode: `~/.kerf/projects/{project-id}/{codename}/` in bench mode, or `{repo}/.kerf/works/{codename}/` in local mode. If local mode is active and the bench symlink at `~/.kerf/projects/{project-id}` does not yet exist, kerf creates it pointing at `{repo}/.kerf/works/`. See [architecture.md](architecture.md#storage-modes).
 6. **Initialize `spec.yaml`** with: codename, title, type, project ID, jig name, jig version, initial status (first value in the jig's `status_values`), `created` and `updated` timestamps, empty `sessions` list, empty `depends_on` list, empty `related_to` list, null `implementation` fields, the jig's `status_values` list, the `areas` list from `--area` flags (empty if none provided), an empty `pinned_beads` list, and a `bead_filter` key. The `bead_filter` key is **always present** in the emitted `spec.yaml`: when `--bead-filter` is given, its value is built from the supplied clause (written as a direct, non-union clause); when omitted, the key is emitted with an empty value (`bead_filter:`) so the work is identifiable as `unwired` rather than silently absent. Multi-clause `any:` unions are composed post-creation via `kerf work edit --bead-filter-add` (see [coordination.md](coordination.md#bead-attachment)). For filter resolution, "absent key" and "present-but-empty key" are equivalent — only the latter is canonical for new works (the schema detail lives in [works.md](works.md)). Drift baseline is not advanced (see [coordination.md](coordination.md#baseline-advancement)).
+6a. **Auto-populate `bead_filter` from the codename.** When `--bead-filter` is not supplied and `--no-auto-filter` is not set, kerf calls the same proposer used by [`kerf bootstrap-filters`](#kerf-bootstrap-filters) (`internal/labelsample.ProposeFilter`) against the resolved codename. The proposer reuses the bootstrap thresholds: an absolute-count floor of 3 and a dominance fraction of 0.80. When the proposer returns a `ReasonDominant` result, that clause is written into the new work's `spec.yaml` as its `bead_filter`, and a single notice line is printed:
+   ```
+   Auto-bead-filter: <clause> (use --no-auto-filter to skip)
+   ```
+   For any other proposer outcome (no dominant candidate, no matches, ambiguous union, below floors), the `bead_filter` slot is left as the empty key written in step 6 and no notice is printed. When `--no-auto-filter` is set, this step is skipped regardless of what the proposer would have returned.
 7. **Check area overlap.** If `--area` flags were provided, scan other active (non-archived) works in the project for overlapping areas. If any other work shares an area, emit an overlap warning in the output (see Output below). This is informational — it does not block creation.
 8. **Record session.** Append a session entry to `sessions` with the current timestamp and `ended: null`. Set `active_session`.
 9. **Take a snapshot** of the initial state (see [snapshots.md](snapshots.md)).
