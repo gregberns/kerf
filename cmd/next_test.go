@@ -1318,3 +1318,51 @@ func TestRenderNext_ValidationCoverageFooter_SuppressedWhenZero(t *testing.T) {
 		t.Fatalf("footer must be silent when count=0 (suppression knob path); got:\n%s", body)
 	}
 }
+
+// TestD1WarningTitle_SpecFormat asserts that D1 (abandoned_dispatch) warning
+// items render with the spec-mandated title "Abandoned dispatch: {bead-id}".
+func TestD1WarningTitle_SpecFormat(t *testing.T) {
+	bid := "kerf-0001"
+	warn := feed.Item{
+		Kind:   feed.KindWarning,
+		Title:  "Abandoned dispatch: " + bid,
+		Action: "kerf show " + bid,
+		Reason: "test reason",
+		BeadID: &bid,
+	}
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, nil, []feed.Item{warn}, driftSummaryCounts{}, false, nil, 0, 0); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	body := buf.String()
+	if !strings.Contains(body, "Abandoned dispatch: kerf-0001") {
+		t.Fatalf("D1 title must be 'Abandoned dispatch: {bead-id}'; got:\n%s", body)
+	}
+	if strings.Contains(body, "abandoned_dispatch:") {
+		t.Fatalf("D1 title must not use snake_case kind; got:\n%s", body)
+	}
+}
+
+// TestD6WarningTitle_SpecFormat asserts that D6 (reviewer_absent) warning
+// items render with the spec-mandated title "Reviewer absent: {bead-id}".
+func TestD6WarningTitle_SpecFormat(t *testing.T) {
+	bid := "kerf-0002"
+	warn := feed.Item{
+		Kind:   feed.KindWarning,
+		Title:  "Reviewer absent: " + bid,
+		Action: "kerf show " + bid,
+		Reason: "test reason",
+		BeadID: &bid,
+	}
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, nil, []feed.Item{warn}, driftSummaryCounts{}, false, nil, 0, 0); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	body := buf.String()
+	if !strings.Contains(body, "Reviewer absent: kerf-0002") {
+		t.Fatalf("D6 title must be 'Reviewer absent: {bead-id}'; got:\n%s", body)
+	}
+	if strings.Contains(body, "reviewer_absent:") {
+		t.Fatalf("D6 title must not use snake_case kind; got:\n%s", body)
+	}
+}

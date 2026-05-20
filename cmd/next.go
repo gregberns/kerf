@@ -586,7 +586,7 @@ func collectD1Warnings(repoRoot string, cfg *config.ProjectConfig) []feed.Item {
 		bid := f.BeadID
 		// Title / Action / Reason follow specs/commands.md
 		// §"Warning kinds" → `abandoned_dispatch`.
-		title := fmt.Sprintf("%s: %s", diagnostics.WarningKindAbandonedDispatch, bid)
+		title := "Abandoned dispatch: " + bid
 		action := fmt.Sprintf("kerf show %s", bid)
 		reason := fmt.Sprintf(
 			"Sub-agent dispatched at %s ran %ds with no commit; reason: %s. Session %s.",
@@ -671,7 +671,7 @@ func collectD6Warnings(repoRoot string) []feed.Item {
 	items := make([]feed.Item, 0, len(findings))
 	for _, f := range findings {
 		bid := f.BeadID
-		title := fmt.Sprintf("%s: %s", diagnostics.WarningKindReviewerAbsent, bid)
+		title := "Reviewer absent: " + bid
 		// The spec's `action` slot reads `kerf review {codename}`. The
 		// detector operates on transcript events that carry bead IDs,
 		// not work codenames; resolving bead→work is the project
