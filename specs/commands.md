@@ -1572,7 +1572,7 @@ All available jigs can be used with `kerf new --jig <name>`.
 
 ### Purpose
 
-Health check for the current project. Reports green / yellow / red findings on `project.yaml` shape, storage drift between the repo's `.kerf/` and the bench at `~/.kerf/projects/<project-id>/`, symlink integrity (in local mode), per-work `bead_filter` coverage, and archive orphans. `kerf doctor` is read-only by default: it surfaces findings and names the command that would fix each. It does not mutate any state.
+Health check for the current project. Reports green / yellow / red findings on `project.yaml` shape, storage drift between the repo's `.kerf/` and the bench at `~/.kerf/projects/<project-id>/`, symlink integrity (in local mode), per-work `bead_filter` coverage, validation-section coverage on per-jig planning artifacts, and archive orphans. `kerf doctor` is read-only by default: it surfaces findings and names the command that would fix each. It does not mutate any state.
 
 ### Syntax
 
@@ -1598,6 +1598,7 @@ kerf doctor [--format <format>] [--detector <id>] [--quiet] [--strict] [--projec
    - **`storage-drift`** — presence-level only. Reports drift when a work directory, `project.yaml`, or `areas.yaml` lives in the non-canonical location for the active mode (a `.kerf/works/<codename>/` directory under bench mode, or a real `~/.kerf/projects/<project-id>/<codename>/` directory under local mode), when a work appears in both locations, or when `project.yaml` / `areas.yaml` exist in both at once. Content-level (hash) drift is out of scope in v1.
    - **`symlink-integrity`** (local mode only) — checks that `~/.kerf/projects/<project-id>` is a symlink, that the target exists, and that the target matches the resolver's expected path. Reports broken, missing, or real-directory-where-symlink-expected cases.
    - **`bead-filter-coverage`** — reports each active work whose `bead_filter` resolves to zero beads, labelled by the rank-label vocabulary documented under [`kerf next`](#kerf-next) (`empty` or `unwired` today; `broken` lands when parser support arrives — see plan 019 OQ5). The hint for an unwired work names the filter-bootstrap entry point (see [plan 019]). When the configured bead tool is present on PATH but its subprocess fails (non-zero exit, malformed JSON, or unreadable output), this detector surfaces a single RED finding naming the tool and an stderr snippet, and other detectors continue to run. The exit code is 0 unless `--strict` is given (see Exit codes).
+   - **`validation-section-coverage`** — reports each active work whose jig is `plan`, `spec`, `bug`, or `implementation` and whose normative planning artifact (per the affected-pass list in [jig-system.md](jig-system.md#validation-test-requirement)) does not list both a scenario-test item ID and an exploratory-test item ID in its "What done looks like" checklist. The detector scans only the artifact files on disk; it does not query the bead tool or any tracker. A finding is emitted when an affected-pass artifact exists and is missing one or both checklist items, when the checklist items are present but carry no `<id>` value, or when the "What done looks like" block itself is absent from an affected-pass artifact. The detector emits one item per offending artifact, naming the work codename, the affected pass, and which of the two IDs (scenario, exploratory, or both) is missing. The hint line names the backfill location: `add the two items to <file> § What done looks like` where `<file>` is the artifact path relative to the work directory. Works using the `retrofit` or `spike` jig are excluded; works whose status is `archived` are excluded. Severity is **yellow**: the finding warns but does not block. The exit code is 0 regardless of findings; `--strict` does not promote yellow findings to a non-zero exit. The detector contributes to the `kerf next` warning footer on the same terms as the other non-green detectors (see [`kerf next`](#storage-drift-footer)).
    - **`archive-orphans`** — reports any `~/.kerf/archive/<project-id>/<codename>/` entry whose codename also appears as a live work in the project.
 3. Aggregate findings, assign severity (`green` for healthy, `yellow` for warnings without immediate damage, `red` for findings that block normal use), and render.
 
@@ -1617,6 +1618,9 @@ kerf doctor — project: {project-id} ({mode} mode)
 [red]    bead_filter coverage: 2 of 6 works unwired
          - works without bead_filter: {codename-1}, {codename-2}
            hint: see 'kerf next' warning rows for per-work next steps
+[yellow] validation-section coverage: 1 finding
+         - work '{codename}' pass '{pass-name}': missing scenario-test ID
+           hint: add the two items to {file} § What done looks like
 [green]  archive: 1 entry, no live collisions
 ```
 
