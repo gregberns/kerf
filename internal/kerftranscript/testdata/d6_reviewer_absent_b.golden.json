@@ -1,0 +1,14 @@
+{
+  "findings": [
+    {
+      "kind": "reviewer_absent",
+      "bead_id": "hk-zixbp",
+      "detail": {
+        "session_id": "4c818416-0000-4000-8000-000000000002",
+        "commit_sha": "cc3da5c1b255fd5bd2c94e859d4d653ae6d1e5c6",
+        "committed_at": "2026-05-15T19:03:48Z",
+        "implementer_sub_agent_id": "b22b22b22b22b22b2"
+      }
+    }
+  ]
+}

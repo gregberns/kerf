@@ -1,0 +1,4 @@
+{"timestamp":"2026-05-15T18:10:20Z","kind":"dispatch","session_id":"fed61a3d-3aa9-4c8a-91e7-0b1acb4ec1e8","sub_agent_id":"a97ff03cb5db4f5d9","bead_id":"hk-2ubs8","role":"implementer","text":"dispatch implementer for hk-2ubs8"}
+{"timestamp":"2026-05-15T18:10:55Z","kind":"tool_result","session_id":"fed61a3d-3aa9-4c8a-91e7-0b1acb4ec1e8","sub_agent_id":"a97ff03cb5db4f5d9","bead_id":"hk-2ubs8","text":"explore plan source"}
+{"timestamp":"2026-05-15T18:13:14Z","kind":"tool_result","session_id":"fed61a3d-3aa9-4c8a-91e7-0b1acb4ec1e8","sub_agent_id":"a97ff03cb5db4f5d9","bead_id":"hk-2ubs8","text":"sub-agent finished assistant turn; no tool calls in final events"}
+{"timestamp":"2026-05-15T19:42:08Z","kind":"bead_close","session_id":"fed61a3d-3aa9-4c8a-91e7-0b1acb4ec1e8","bead_id":"hk-2ubs8","commit_sha":"4a3c217","text":"close hk-2ubs8 as SUBSUMED in same retirement burst"}

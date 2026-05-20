@@ -1,0 +1,16 @@
+{
+  "findings": [
+    {
+      "kind": "abandoned_dispatch",
+      "bead_id": "hk-qo08q.15",
+      "detail": {
+        "session_id": "fed61a3d-3aa9-4c8a-91e7-0b1acb4ec1e8",
+        "sub_agent_id": "aa848865eff923eae",
+        "dispatched_at": "2026-05-15T18:10:11Z",
+        "last_activity_at": "2026-05-15T18:12:02Z",
+        "reason_category": "appears_completed_no_commit",
+        "close_commit": "4a3c217"
+      }
+    }
+  ]
+}
