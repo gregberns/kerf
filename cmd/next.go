@@ -412,6 +412,17 @@ func runNext(cmd *cobra.Command) error {
 	// git-log errors all yield zero findings).
 	warningItems = append(warningItems, collectD1Warnings(r.RepoRoot, projCfg)...)
 
+	// --- D6 reviewer_absent (Plan 013 / B-D6 — kerf-z0gh) ---------------
+	// Scan recent Claude transcripts for bead commit_ref events whose
+	// Claude session contains no reviewer dispatch (per the normative
+	// reviewer-dispatch definition in specs/diagnostics.md §"Reviewer
+	// dispatch"). Spec: specs/diagnostics.md §"D6 — reviewer-absent
+	// commit". Discovery failures are silent. The 30-bead window and the
+	// min-history guard are applied here (the pure detector is
+	// window-agnostic so unit tests against small fixtures still
+	// exercise it).
+	warningItems = append(warningItems, collectD6Warnings(r.RepoRoot)...)
+
 	// --- Compute drift-summary counters (Plan 009 / Bead 11b) ------------
 	// Per specs/commands.md §"kerf next" drift summary line:
 	//   ! N untriaged beads · ! M beads multi-matched · ! K bead(s) changed externally — run 'kerf triage'
@@ -582,6 +593,99 @@ func collectD1Warnings(repoRoot string, cfg *config.ProjectConfig) []feed.Item {
 			f.DispatchedAt.UTC().Format(time.RFC3339),
 			int(f.Duration().Seconds()),
 			f.ReasonCategory,
+			f.SessionID,
+		)
+		items = append(items, feed.Item{
+			Kind:   feed.KindWarning,
+			Score:  0,
+			Title:  title,
+			Action: action,
+			Reason: reason,
+			BeadID: &bid,
+		})
+	}
+	return items
+}
+
+// collectD6Warnings runs the D6 reviewer-absent detector and renders
+// each finding as a `kerf next` warning item per
+// specs/commands.md §"Warning kinds" → `reviewer_absent`. Silent
+// short-circuits (return nil) on every failure mode the spec lists as
+// "silent no-op": missing transcript directory, no jsonl files, parse
+// errors. Unlike D1 this helper does not need a project bead.id_pattern
+// — D6 is keyed on bead-id fields the parser extracts directly from
+// transcript events, not on regex over commit messages.
+//
+// The 30-bead window and the min-history guard from
+// specs/diagnostics.md §"Threshold and window" are applied here:
+//   - Below D6MinHistoryBeads dispatched beads in the transcript
+//     universe, D6 emits zero findings ("insufficient history").
+//   - Otherwise, only the most recent D6WindowBeads findings (ordered
+//     by committed_at descending) are surfaced.
+//
+// The pure detector (diagnostics.DetectD6) is intentionally
+// window-agnostic so unit tests against small fixtures exercise the
+// detection logic without tripping the guard.
+func collectD6Warnings(repoRoot string) []feed.Item {
+	if repoRoot == "" {
+		return nil
+	}
+
+	dir := kerftranscript.ResolveTranscriptDir(repoRoot)
+	files, err := kerftranscript.DiscoverTranscripts(dir)
+	if err != nil || len(files) == 0 {
+		return nil
+	}
+
+	var events []kerftranscript.Event
+	for _, p := range files {
+		res, perr := kerftranscript.ParseFile(p)
+		if perr != nil {
+			continue
+		}
+		events = append(events, res.Events...)
+	}
+	if len(events) == 0 {
+		return nil
+	}
+
+	// Min-history guard. Below the threshold, D6 suppresses entirely
+	// per specs/diagnostics.md §"Minimum history guard" — avoids loud
+	// alerts on new or small projects.
+	if diagnostics.DispatchedBeadCount(events) < diagnostics.D6MinHistoryBeads {
+		return nil
+	}
+
+	findings := diagnostics.DetectD6(events, diagnostics.DetectD6Options{})
+	if len(findings) == 0 {
+		return nil
+	}
+
+	// Window: keep only the most recent D6WindowBeads by CommittedAt.
+	// DetectD6 returns findings in ascending-time order; take the
+	// trailing slice.
+	if len(findings) > diagnostics.D6WindowBeads {
+		findings = findings[len(findings)-diagnostics.D6WindowBeads:]
+	}
+
+	items := make([]feed.Item, 0, len(findings))
+	for _, f := range findings {
+		bid := f.BeadID
+		title := fmt.Sprintf("%s: %s", diagnostics.WarningKindReviewerAbsent, bid)
+		// The spec's `action` slot reads `kerf review {codename}`. The
+		// detector operates on transcript events that carry bead IDs,
+		// not work codenames; resolving bead→work is the project
+		// registry's job and is out of scope for this bead. Fall back
+		// to `kerf show {bead-id}` so the action is concretely
+		// invocable; the codename-aware form lands when the registry
+		// lookup is wired (see plans/013_self_diagnostics/beads.md
+		// §"B-E2E").
+		action := fmt.Sprintf("kerf show %s", bid)
+		reason := fmt.Sprintf(
+			"Commit %s for bead '%s' landed at %s with no reviewer dispatch in session %s.",
+			f.CommitSHA,
+			bid,
+			f.CommittedAt.UTC().Format(time.RFC3339),
 			f.SessionID,
 		)
 		items = append(items, feed.Item{
