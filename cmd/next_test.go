@@ -104,7 +104,7 @@ func TestNextFlags_ExpectedFlagsRegistered(t *testing.T) {
 
 func TestRenderNextText_EmptyFeed(t *testing.T) {
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, false, nil, 0); err != nil {
+	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, false, nil, 0, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	got := strings.TrimRight(buf.String(), "\n")
@@ -199,7 +199,7 @@ func TestRenderNextText_PayloadAboveWarnings(t *testing.T) {
 		{Kind: feed.KindWarning, Title: "untriaged_beads", Action: "check bead_filter"},
 	}
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, main, warnings, driftSummaryCounts{}, false, nil, 0); err != nil {
+	if err := renderNextText(&buf, main, warnings, driftSummaryCounts{}, false, nil, 0, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	body := buf.String()
@@ -229,7 +229,7 @@ func TestRenderNextText_StorageDriftFooter_Silent(t *testing.T) {
 		{Kind: feed.KindBead, Score: 10, Title: "do X", WorkCodename: &wc, BeadID: &beadID},
 	}
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, main, nil, driftSummaryCounts{}, false, nil, 0); err != nil {
+	if err := renderNextText(&buf, main, nil, driftSummaryCounts{}, false, nil, 0, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	body := buf.String()
@@ -248,7 +248,7 @@ func TestRenderNextText_StorageDriftFooter_PluralAndOrder(t *testing.T) {
 		{Kind: feed.KindWarning, Title: "untriaged_beads", Action: "check bead_filter"},
 	}
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, main, warnings, driftSummaryCounts{}, false, nil, 3); err != nil {
+	if err := renderNextText(&buf, main, warnings, driftSummaryCounts{}, false, nil, 3, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	body := buf.String()
@@ -267,7 +267,7 @@ func TestRenderNextText_StorageDriftFooter_PluralAndOrder(t *testing.T) {
 
 func TestRenderNextText_StorageDriftFooter_Singular(t *testing.T) {
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, false, nil, 1); err != nil {
+	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, false, nil, 1, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	body := buf.String()
@@ -617,7 +617,7 @@ func TestRenderNextText_DriftSummary_AllThreeCategories(t *testing.T) {
 		MultiMatched:  2,
 		ExternalDrift: 1,
 	}
-	if err := renderNextText(&buf, nil, nil, summary, true, nil, 0); err != nil {
+	if err := renderNextText(&buf, nil, nil, summary, true, nil, 0, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	body := buf.String()
@@ -633,7 +633,7 @@ func TestRenderNextText_DriftSummary_AllThreeCategories(t *testing.T) {
 func TestRenderNextText_DriftSummary_OmitsZeroSegments(t *testing.T) {
 	var buf bytes.Buffer
 	summary := driftSummaryCounts{Untriaged: 0, MultiMatched: 1, ExternalDrift: 0}
-	if err := renderNextText(&buf, nil, nil, summary, true, nil, 0); err != nil {
+	if err := renderNextText(&buf, nil, nil, summary, true, nil, 0, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	body := buf.String()
@@ -652,7 +652,7 @@ func TestRenderNextText_DriftSummary_OmitsZeroSegments(t *testing.T) {
 // is omitted when all three counts are zero (or when no baseline exists).
 func TestRenderNextText_DriftSummary_ZeroDriftNoLine(t *testing.T) {
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, true, nil, 0); err != nil {
+	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, true, nil, 0, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	if strings.Contains(buf.String(), "kerf triage") {
@@ -662,7 +662,7 @@ func TestRenderNextText_DriftSummary_ZeroDriftNoLine(t *testing.T) {
 	buf.Reset()
 	// Even with non-zero counters, absent baseline suppresses the headline.
 	summary := driftSummaryCounts{Untriaged: 3}
-	if err := renderNextText(&buf, nil, nil, summary, false, nil, 0); err != nil {
+	if err := renderNextText(&buf, nil, nil, summary, false, nil, 0, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	if strings.Contains(buf.String(), "untriaged") {
@@ -884,7 +884,7 @@ func TestRenderNextText_EmptyRowEmbedsHintInline(t *testing.T) {
 		cn: "try: kerf work edit bridge --bead-filter 'label=subsystem:bridge'",
 	}
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, main, nil, driftSummaryCounts{}, false, hints, 0); err != nil {
+	if err := renderNextText(&buf, main, nil, driftSummaryCounts{}, false, hints, 0, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	out := buf.String()
@@ -910,7 +910,7 @@ func TestRenderNextText_EmptyRowWithoutHintKeepsActionLine(t *testing.T) {
 		RankLabel:    "empty",
 	}}
 	var buf bytes.Buffer
-	if err := renderNextText(&buf, main, nil, driftSummaryCounts{}, false, nil, 0); err != nil {
+	if err := renderNextText(&buf, main, nil, driftSummaryCounts{}, false, nil, 0, 0); err != nil {
 		t.Fatalf("renderNextText: %v", err)
 	}
 	out := buf.String()
