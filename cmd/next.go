@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,9 +24,11 @@ import (
 	"github.com/gberns/kerf/internal/cmdutil"
 	"github.com/gberns/kerf/internal/config"
 	"github.com/gberns/kerf/internal/dep"
+	"github.com/gberns/kerf/internal/diagnostics"
 	"github.com/gberns/kerf/internal/doctor"
 	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/feed"
+	"github.com/gberns/kerf/internal/kerftranscript"
 	"github.com/gberns/kerf/internal/labelsample"
 	"github.com/gberns/kerf/internal/queue"
 	"github.com/gberns/kerf/internal/spec"
@@ -400,6 +403,15 @@ func runNext(cmd *cobra.Command) error {
 		warningItems = append(warningItems, d.Detect(in)...)
 	}
 
+	// --- D1 abandoned_dispatch (Plan 013 / B-D1 — kerf-d3u3) -------------
+	// Scan recent Claude transcripts for sub-agent dispatches that ran
+	// past the 60s floor without producing a commit referencing the
+	// dispatched bead (per the indexer's parent/child rollup). Spec:
+	// specs/diagnostics.md §"D1 — abandoned dispatch". Discovery failures
+	// are silent (missing transcript dir, missing project bead.id_pattern,
+	// git-log errors all yield zero findings).
+	warningItems = append(warningItems, collectD1Warnings(r.RepoRoot, projCfg)...)
+
 	// --- Compute drift-summary counters (Plan 009 / Bead 11b) ------------
 	// Per specs/commands.md §"kerf next" drift summary line:
 	//   ! N untriaged beads · ! M beads multi-matched · ! K bead(s) changed externally — run 'kerf triage'
@@ -487,6 +499,101 @@ func runNext(cmd *cobra.Command) error {
 	default:
 		return renderNextText(out, main, warnings, driftSummary, hasBaseline, nearMatchHints, storageDriftCount, validationCoverageCount)
 	}
+}
+
+// collectD1Warnings runs the D1 abandoned-dispatch detector and renders
+// each finding as a `kerf next` warning item per
+// specs/commands.md §"Warning kinds" → `abandoned_dispatch`. Silent
+// short-circuits (return nil) on every failure mode the spec lists as
+// "silent no-op": missing transcript directory, missing or invalid
+// bead.id_pattern, no jsonl files, git-log error in the indexer.
+//
+// The indexer is read-only over the repo's `git log --all`; building it
+// once per `kerf next` invocation is the spec-intended path (D1 is the
+// load-bearing user of the indexer per plan-013 beads.md).
+//
+// Burst-dedup is deliberately NOT applied here. Plan 013 defers it to a
+// future renderer flag or v2 detector; calibration captured the
+// ~53%-within-60s sibling pattern as observation only (see
+// specs/diagnostics.md §"Burst-dedup note (capture only)").
+func collectD1Warnings(repoRoot string, cfg *config.ProjectConfig) []feed.Item {
+	if repoRoot == "" {
+		return nil
+	}
+	patternStr := cfg.BeadIDPattern()
+	if patternStr == "" {
+		// Spec: "kerf does not hard-code a regex." Without a project
+		// pattern the indexer cannot key commits; D1 silently no-ops.
+		return nil
+	}
+	pattern, err := regexp.Compile(patternStr)
+	if err != nil {
+		// Malformed regex in project.yaml: silent no-op. A future bead
+		// may surface this as a `corrupt_project_config` warning.
+		return nil
+	}
+
+	// Transcript discovery.
+	dir := kerftranscript.ResolveTranscriptDir(repoRoot)
+	files, err := kerftranscript.DiscoverTranscripts(dir)
+	if err != nil || len(files) == 0 {
+		return nil
+	}
+
+	// Parse every jsonl file in the directory; concatenate events. The
+	// detector groups by sub_agent_id internally so source order across
+	// files is not load-bearing for correctness.
+	var events []kerftranscript.Event
+	for _, p := range files {
+		res, perr := kerftranscript.ParseFile(p)
+		if perr != nil {
+			// Skip unreadable files (silent). Malformed lines inside a
+			// readable file are already accumulated in res.Errors and
+			// the file's good events are kept.
+			continue
+		}
+		events = append(events, res.Events...)
+	}
+	if len(events) == 0 {
+		return nil
+	}
+
+	// Build the indexer over `git log --all`. Errors here are silent
+	// (e.g. repoRoot is not a git repo); D1 emits zero findings.
+	idx, err := kerftranscript.NewIndex(repoRoot, pattern)
+	if err != nil {
+		return nil
+	}
+
+	findings := diagnostics.DetectD1(events, idx.HasCommitFor)
+	if len(findings) == 0 {
+		return nil
+	}
+
+	items := make([]feed.Item, 0, len(findings))
+	for _, f := range findings {
+		bid := f.BeadID
+		// Title / Action / Reason follow specs/commands.md
+		// §"Warning kinds" → `abandoned_dispatch`.
+		title := fmt.Sprintf("%s: %s", diagnostics.WarningKindAbandonedDispatch, bid)
+		action := fmt.Sprintf("kerf show %s", bid)
+		reason := fmt.Sprintf(
+			"Sub-agent dispatched at %s ran %ds with no commit; reason: %s. Session %s.",
+			f.DispatchedAt.UTC().Format(time.RFC3339),
+			int(f.Duration().Seconds()),
+			f.ReasonCategory,
+			f.SessionID,
+		)
+		items = append(items, feed.Item{
+			Kind:   feed.KindWarning,
+			Score:  0,
+			Title:  title,
+			Action: action,
+			Reason: reason,
+			BeadID: &bid,
+		})
+	}
+	return items
 }
 
 // computeNearMatchHints walks cleanup items rank-labelled `empty` and asks
