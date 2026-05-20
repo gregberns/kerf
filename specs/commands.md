@@ -1952,6 +1952,42 @@ Detectors run during feed assembly; the feed (the actionable-work list) is still
     Run 'kerf init' to initialise this project.
   ```
 
+#### `abandoned_dispatch`
+
+- **When it fires:** the diagnostics family (see [diagnostics.md](diagnostics.md#d1--abandoned-dispatch)) detects a sub-agent dispatch in the project's Claude transcripts that ran longer than the dispatch floor (60s) and produced no commit referencing the dispatched bead ID across `git log --all`, and whose bead has no terminal status update. One warning per finding.
+- **Effect on the feed:** non-fatal. The feed listing still renders.
+- **Fields:**
+  - `title`: `Abandoned dispatch: {bead-id}`
+  - `action`: `kerf show {bead-id}` (so the operator can inspect the bead and the dispatch context).
+  - `reason`: `Sub-agent dispatched at {dispatched_at} ran {duration}s with no commit; reason: {reason_category}. Session {session_id}.`
+- **Message shape (one warning per finding):**
+
+  ```
+  Warning: abandoned dispatch for '{bead-id}' ({reason_category}).
+    Dispatched at {dispatched_at}, last activity {last_activity_at}.
+    Run 'kerf show {bead-id}' to inspect.
+  ```
+
+See [diagnostics.md](diagnostics.md) for the detector signal, threshold rationale, reason-category vocabulary, and finding `detail` schema.
+
+#### `reviewer_absent`
+
+- **When it fires:** the diagnostics family (see [diagnostics.md](diagnostics.md#d6--reviewer-absent-commit)) detects a bead commit within the last 30 beads (dispatch-timestamp ordered) for which no reviewer dispatch was made in the same Claude session. "Reviewer dispatch" is defined normatively in [diagnostics.md §Reviewer dispatch](diagnostics.md#reviewer-dispatch-normative-definition) and aligns with `kerf review`'s output markers. One warning per finding. Suppressed entirely when the project has fewer than 30 beads in its dispatch history.
+- **Effect on the feed:** non-fatal. The feed listing still renders.
+- **Fields:**
+  - `title`: `Reviewer absent: {bead-id}`
+  - `action`: `kerf review {codename}` (so the operator can render and dispatch the missing reviewer prompt).
+  - `reason`: `Commit {commit_sha} for bead '{bead-id}' landed at {committed_at} with no reviewer dispatch in session {session_id}.`
+- **Message shape (one warning per finding):**
+
+  ```
+  Warning: reviewer absent for '{bead-id}'.
+    Commit {commit_sha} at {committed_at}; no 'kerf review' dispatch in session.
+    Run 'kerf review {codename}' to render the reviewer prompt.
+  ```
+
+See [diagnostics.md](diagnostics.md) for the detector signal, window definition, the multi-bead-transcript rule (per-bead query when `--bead` is given; all-beads query otherwise), and the calibrated baseline finding counts.
+
 When multiple warnings fire on the same invocation, they are printed in the order they were detected, before the feed listing. The feed listing is omitted entirely when a fatal warning fires.
 
 ### Errors

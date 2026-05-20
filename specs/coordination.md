@@ -437,6 +437,8 @@ The boundary is clean: kerf owns planning artifacts, beads owns execution state.
 |------|--------|-------------------|-----------------|
 | `corrupt_spec` | No — the offending work is excluded, the feed is still emitted for the remaining works. | Spec loader inside `kerf next` feed assembly (per-work `spec.yaml` read). | A per-work `spec.yaml` cannot be parsed (malformed YAML, invalid timestamp, schema violation). Replaces the legacy silent drop. |
 | `no_project_yaml` | Yes — no feed is produced; the command exits non-zero. | Project resolver inside `kerf next`, before feed assembly. | The project id resolves but `project.yaml` is absent from both the local-storage and bench paths. Suggests `kerf init`. |
+| `abandoned_dispatch` | No — the feed still renders; one warning per finding. | Diagnostics family (`internal/kerftranscript/`), D1 detector. See [diagnostics.md §D1](diagnostics.md#d1--abandoned-dispatch). | A sub-agent dispatch ran >60s with no commit referencing the dispatched bead ID across `git log --all` and no terminal bead status. |
+| `reviewer_absent` | No — the feed still renders; one warning per finding. Suppressed when project has fewer than 30 beads. | Diagnostics family (`internal/kerftranscript/`), D6 detector. See [diagnostics.md §D6](diagnostics.md#d6--reviewer-absent-commit). | A bead commit in the last-30-beads (dispatch-ts desc) window landed with no reviewer dispatch (per [diagnostics.md §Reviewer dispatch](diagnostics.md#reviewer-dispatch-normative-definition)) in the same Claude session. |
 
 Rules that apply to every warning kind:
 

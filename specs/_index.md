@@ -54,6 +54,7 @@ The tool provides opinionated, built-in processes (**jigs**) that guide agents t
 - [commands.md](commands.md) — All command specifications
 - [finalization.md](finalization.md) — Finalization process and git operations
 - [verification.md](verification.md) — Square verification checks
+- [diagnostics.md](diagnostics.md) — Self-diagnostics: D1 (abandoned dispatch) and D6 (reviewer-absent), surfaced as `kerf next` warnings
 
 ### Engineering
 - [testing.md](testing.md) — Testing strategy, layers, CI approach
