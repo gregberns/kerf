@@ -278,6 +278,11 @@ This naming convention makes finalization a direct copy: each file in `05-spec-d
 **Driven by:** 04-design/jig-spec-design.md
 ```
 
+**What done looks like:**
+
+- Scenario-test item filed with ID `<id>` (see [jig-system.md](jig-system.md) §Validation-test requirement)
+- Exploratory-test item filed with ID `<id>` (see [jig-system.md](jig-system.md) §Validation-test requirement)
+
 **Done when reviewer approves on:**
 
 **This is the most critical review** — the drafted text becomes normative at finalization.
@@ -352,6 +357,11 @@ Break the spec changes into implementation tasks. Each task defines what code ch
 4. Define the dependency graph. Which tasks must complete before others? Which can run in parallel?
 5. Keep the format implementation-agnostic — tasks should be portable to any tracker or execution system.
 6. Save to `07-tasks.md`.
+
+**What done looks like:**
+
+- Scenario-test item filed with ID `<id>` (see [jig-system.md](jig-system.md) §Validation-test requirement)
+- Exploratory-test item filed with ID `<id>` (see [jig-system.md](jig-system.md) §Validation-test requirement)
 
 **Done when reviewer approves on:**
 
