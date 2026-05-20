@@ -39,7 +39,7 @@ Examples:
   kerf config                          Display all bench settings
   kerf config default_jig              Display value (project wins, falls back to bench)
   kerf config default_jig bug          Set value in bench and project
-  kerf config tools.tasks bd           Set per-project tasks-tool binary
+  kerf config tools.tasks br           Set per-project tasks-tool binary
   kerf config snapshots.enabled false  Set nested bench value`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {

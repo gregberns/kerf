@@ -140,17 +140,17 @@ Fuzz tests use Go's built-in fuzz testing (`testing.F`). They focus on input par
 
 5. **Snapshot correctness is critical.** Snapshots that silently lose data cause unrecoverable work loss. Snapshot tests verify byte-level correctness.
 
-## CI Strategy
+## Test Cadence
 
-Workflow files in `.github/workflows/` implement this table; see plan 024.
+kerf does not use CI. Tests are run locally on a regular cadence by the contributor or orchestrator, not enforced by a hosted workflow.
 
-| Trigger | Layers run |
+| Cadence | Layers run |
 |---------|-----------|
-| Every commit | Unit, property-based, integration |
-| Pull request | Unit, property-based, integration, fuzz, E2E |
-| Nightly | Unit, property-based, integration, fuzz |
-| Significant CLI output or jig changes | Agentic/exploratory |
+| Before merging substantive work | Unit, property-based, integration |
+| Before a release-shaped milestone | Unit, property-based, integration, fuzz, E2E |
+| Periodically (e.g., weekly) | Unit, property-based, integration, fuzz |
+| When CLI output or jig definitions change significantly | Agentic/exploratory |
 
-Integration tests are fast when well-designed and run on every commit alongside unit and property-based tests. Fuzz tests and E2E tests are slower and run on PRs. Agentic tests require LLM calls and run only when CLI output format or jig definitions change significantly.
+Integration tests are fast when well-designed and run alongside unit and property-based tests on every local pre-merge invocation. Fuzz tests and E2E tests are slower and run at milestone boundaries. Agentic tests require LLM calls and run only when CLI output format or jig definitions change significantly.
 
-The project runs CI on every PR via GitHub Actions. Test, vet, race, lint, and coverage checks are PR-blocking; fuzz targets run on a nightly schedule with a per-target time budget. Coverage is enforced via a per-package ratchet against a checked-in floor file — a PR that drops any package below its current floor fails. The `bd` binary is provisioned on the runner at a pinned version before tests run. <!-- TBD: open question 2 from plan 024 — coverage ratchet as hard-fail vs. warn-only during stabilisation --> <!-- TBD: open question 5 from plan 024 — `bd` version pinning strategy (commit pin vs. release tag) -->
+The expectation is `go test ./...` (and `go vet ./...`) passes before merging to `main`. Enforcement is by reviewer discipline, not by a hosted check.

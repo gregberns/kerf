@@ -4,7 +4,7 @@
 
 This spec defines the `implementation` jig that ships with kerf. It is the primary jig for taking a completed spec or plan and turning it into working code. This is a **composable** jig — projects select which passes to include based on their workflow. See [jig-system.md](jig-system.md) for jig file format, composable passes, and the review pattern.
 
-> Beads-CLI binary name comes from `project.yaml` `tools.tasks` (default `br`). If you have configured a different binary (e.g. `bd`), translate the argv shape — this spec uses the `br` CLI syntax verbatim.
+> Beads-CLI binary name comes from `project.yaml` `tools.tasks` (default `br`). If you have configured a different binary, translate the argv shape — this spec uses the `br` CLI syntax verbatim.
 
 ## When To Use
 

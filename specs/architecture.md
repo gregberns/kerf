@@ -286,7 +286,7 @@ This section is the canonical home for the `project.yaml` schema. Other specs th
 # `tasks` is functional: every kerf code path that reads from a bead store
 # (`kerf next`, `kerf triage`, `kerf show`, `kerf map`, `kerf pin`,
 # `kerf work edit`, and the `kerf init` bead-filter detector) shells out to
-# the binary named here. Default is `br`; common alternative is `bd`. The
+# the binary named here. Default is `br`. The
 # key must name a binary on PATH that accepts the `br`-shape argv
 # (`<tool> list --format json --all --limit 0`) and emits the same JSON
 # envelope. Other keys (e.g. `orchestrator`) are informational and emitted

@@ -53,7 +53,7 @@ const beadFilterCoverageHint = "kerf bootstrap-filters  (project-wide suggestion
 // beadStoreUnavailableHint points operators at the configuration knob and
 // the per-tool bootstrap step for the canonical "bead tool on PATH but
 // failing" case (bead kerf-pq5).
-const beadStoreUnavailableHint = "check kerf config tools.tasks; ensure the configured tool is initialized (e.g. 'bd init' or 'br init') and its JSON output is current"
+const beadStoreUnavailableHint = "check kerf config tools.tasks; ensure the configured tool is initialized (e.g. 'br init') and its JSON output is current"
 
 func (beadFilterCoverageDetector) Run(ctx *Context) ([]Finding, error) {
 	if ctx == nil || ctx.Resolver == nil {

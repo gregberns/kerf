@@ -32,15 +32,15 @@
 - [x] Remove docs/ directory
 
 ## Phase 4: Implementation Planning — COMPLETE
-- [x] Break specs into implementation beads (tasks via `bd`)
+- [x] Break specs into implementation beads (tasks via `br`)
 - [x] Create beads.md in plans/001_init/ with full breakdown
 - [x] Review beads with 3 agents (spec coverage, Go architecture, parallelization)
 - [x] Revise beads based on review feedback
-- [x] Initialize bd, create 22 beads with dependency chains in bd
+- [x] Initialize br, create 22 beads with dependency chains in br
 
 ## Next: Implementation
 
-### Beads are in bd (`bd list --limit 0` to see all, `bd ready` for what's unblocked)
+### Beads are in br (`br list --limit 0` to see all, `br ready` for what's unblocked)
 
 ### Execution order:
 1. **Bead 0** (kerf-5b9): Project scaffold — Go module, cobra, stub files. Must go first.
@@ -57,5 +57,5 @@
 
 ### Key files:
 - `plans/001_init/beads.md` — full bead specs with deliverables, specs refs, test requirements
-- `bd list`, `bd ready`, `bd show <id>` — bead status and details
+- `br list`, `br ready`, `br show <id>` — bead status and details
 - Cross-cutting concerns (global --project flag, stale session check, jig version warning, interval snapshots) documented in beads.md

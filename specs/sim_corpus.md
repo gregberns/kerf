@@ -110,4 +110,4 @@ written to. The command validates the result through
 ## Known limitations (Phase 1)
 
 - **Kerf plan ingestion** is stubbed and returns an error.
-- **`bd` export JSON** ingestion is not yet implemented.
+- **`br` export JSON** ingestion is not yet implemented.
