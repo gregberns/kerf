@@ -133,6 +133,8 @@ You are turning a finalized spec into an actionable task list. Each task becomes
 - `01-breakdown.md` exists with the full task list, dependency graph, and spec traceability
 - Every spec section and acceptance criterion maps to at least one bead
 - Dependencies form a DAG
+- Scenario-test item filed with ID `<id>` — creation point (see [jig-system.md](jig-system.md) §Validation-test requirement)
+- Exploratory-test item filed with ID `<id>` — creation point (see [jig-system.md](jig-system.md) §Validation-test requirement)
 
 ### Pass 2: Dispatch (dispatch)
 
@@ -288,6 +290,8 @@ You are doing a final check that the implementation, taken as a whole, satisfies
 - All tests pass
 - No unaddressed divergences between spec and code
 - The implementation is complete
+- Scenario-test item with ID `<id>` is closed — closure-check (see [jig-system.md](jig-system.md) §Validation-test requirement)
+- Exploratory-test item with ID `<id>` is closed — closure-check (see [jig-system.md](jig-system.md) §Validation-test requirement)
 
 ### Pass 5: Complete (complete)
 

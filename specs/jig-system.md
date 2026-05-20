@@ -343,6 +343,33 @@ Every pass MUST save its artifacts to disk before the pass status advances. This
 
 If an agent is compacted mid-pass, it re-reads the work directory to restore context and continues from where it left off. The numbered file structure (`01-`, `02-`, ...) shows exactly which passes are complete.
 
+## Validation-test requirement
+
+Every pass that produces a **normative planning artifact** MUST list, in its "What done looks like" checklist, two tracked test-item IDs — one **scenario-level** and one **exploratory** — and the artifact's downstream beads MUST be gated on those items closing.
+
+A normative planning artifact is one that downstream implementation reads as authoritative: a plan's Change Spec or Tasks output, a spec jig's Spec Draft or Tasks output, a bug jig's Fix Spec, and an implementation jig's Breakdown and Verify outputs. See the per-jig specs ([jig-plan.md](jig-plan.md), [jig-spec.md](jig-spec.md), [jig-bug.md](jig-bug.md), [jig-implementation.md](jig-implementation.md)) for the exact passes affected.
+
+The two checklist items take this shape inside the existing "What done looks like" block:
+
+- `Scenario-test item filed with ID <id>` — one end-to-end test against a runnable substrate (twin substrate, real binary, or equivalent).
+- `Exploratory-test item filed with ID <id>` — one operator-facing exercise of the live surface.
+
+Recommended title conventions (not enforced): `scenario: <codename> — <brief>` and `explore: <codename> — <brief>`.
+
+The mechanism is **tracker-agnostic**. `<id>` may be any stable identifier the project's tracker emits. As one example, a project using `br` would file the items with `br create` and paste the returned issue IDs into the checklist. Other trackers work the same way.
+
+For the implementation jig, the requirement has two touch points: the **creation point** (Pass 1, Breakdown) where the IDs are filed and recorded, and the **closure-check point** (Pass 4, Verify) where the items are confirmed closed before the work advances.
+
+### What this does not guarantee
+
+This requirement does not structurally guarantee the filed scenario test exercises an integration surface. A planning agent can satisfy the "scenario-test item filed" checkbox by writing a unit-against-fake test — the harmonik incident `hk-37zy8` (handler-pause goroutine, unit-tested and reviewer-approved, never wired into the composition root) is the cautionary case. The mechanism's power is "force the agent to name the integration-surface gap at planning time, before code is written," not "structurally guarantee a working integration test exists."
+
+The requirement also does not detect missing exploratory coverage on a live binary; it only detects that two IDs were filed in the artifact. Any downstream detector (see [commands.md](commands.md) § `kerf doctor`) is read-only against the artifact file and does not query the tracker.
+
+### Retrofit and spike exclusion
+
+The `retrofit` and `spike` jigs are excluded from this requirement. Rationale: retrofit reconciles existing code against drifted specs (the integration surface already exists and is being documented after the fact), and spike is structured exploration where the approach itself is unknown (filing scenario/exploratory tests against an undefined surface is premature). Both jigs may still file test items when appropriate; they are not gated on doing so.
+
 ## Design Principles
 
 These principles govern the jig system and the design of individual jigs:

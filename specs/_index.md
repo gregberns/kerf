@@ -22,6 +22,8 @@ The tool provides opinionated, built-in processes (**jigs**) that guide agents t
 | **codename** | Immutable identifier for a work (`adjective-noun` slug or user-chosen). |
 | **session** | A link between a work and an agent conversation. Tracked for history and resumability. |
 | **finalization** | The process of moving a completed work from the bench into the git repo. |
+| **scenario-test bead** | A tracked test item filed against a planning artifact that exercises the change end-to-end against a runnable substrate. Required (alongside an exploratory-test bead) on every pass that produces a normative planning artifact. See [jig-system.md](jig-system.md) §Validation-test requirement. |
+| **exploratory-test bead** | A tracked test item filed against a planning artifact that exercises the operator-facing surface of the live binary or running system. Required (alongside a scenario-test bead) on every pass that produces a normative planning artifact. See [jig-system.md](jig-system.md) §Validation-test requirement. |
 
 ## Spec Map
 
