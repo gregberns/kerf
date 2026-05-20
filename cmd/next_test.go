@@ -1216,3 +1216,105 @@ func TestNextJSON_BeadReasonIncludesGraphSignals(t *testing.T) {
 		t.Fatalf("expected non-empty reason on round-trip: %+v", got)
 	}
 }
+
+// --- Validation-section-coverage footer (Plan 025 / B4 — kerf-ystq / kerf-13ca) ---
+//
+// Exercises renderNextText for validationCoverageCount > 0. The kerf-ystq
+// implementer added the parameter but only threaded zero in existing tests;
+// this fills the gap. Spec: specs/commands.md §"Storage-drift footer" — the
+// detector emits a parallel `note:` line with detector-id "validation-section-
+// coverage" using `finding`/`findings` singular/plural and the same suppression
+// knob (`doctor.footer` / KERF_DOCTOR_FOOTER=0) as storage-drift.
+//
+// The suppression knob is enforced in runNext (it zeroes the count before
+// renderNextText is called). The renderer-level contract is: when the count
+// arrives as 0, no validation-section-coverage line is emitted. We assert
+// that contract here — the integration ("env var → suppression → zero count")
+// is owned by runNext-level tests.
+
+func TestRenderNext_ValidationCoverageFooter_Singular(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, false, nil, 0, 1); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	body := buf.String()
+	if !strings.Contains(body, "note: 1 validation-section-coverage finding — run 'kerf doctor' for details") {
+		t.Fatalf("expected singular validation-section-coverage line; got:\n%s", body)
+	}
+	if strings.Contains(body, "1 validation-section-coverage findings") {
+		t.Fatalf("singular form regressed to plural; got:\n%s", body)
+	}
+}
+
+func TestRenderNext_ValidationCoverageFooter_Plural(t *testing.T) {
+	wc := "alpha"
+	beadID := "hk-001"
+	main := []feed.Item{
+		{Kind: feed.KindBead, Score: 10, Title: "do X", WorkCodename: &wc, BeadID: &beadID},
+	}
+	warnings := []feed.Item{
+		{Kind: feed.KindWarning, Title: "untriaged_beads", Action: "check bead_filter"},
+	}
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, main, warnings, driftSummaryCounts{}, false, nil, 0, 3); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	body := buf.String()
+	expected := "note: 3 validation-section-coverage findings — run 'kerf doctor' for details"
+	if !strings.Contains(body, expected) {
+		t.Fatalf("expected footer %q; got:\n%s", expected, body)
+	}
+	// Footer follows warnings, precedes tail-tip.
+	wi := strings.Index(body, "warning:")
+	vi := strings.Index(body, "note: 3 validation-section-coverage findings")
+	ti := strings.Index(body, nextFooterTip)
+	if !(wi < vi && vi < ti) {
+		t.Fatalf("expected warning < validation-coverage-footer < tail-tip; w=%d v=%d t=%d\n%s", wi, vi, ti, body)
+	}
+}
+
+// Parallel-line rendering: when both storage-drift and validation-section-
+// coverage have non-green findings, both `note:` lines render — one per
+// detector, in registration order, no blank line between them. Per the kc5g-
+// pinned spec: "Lines render in detector-registration order. A single blank
+// line separates the footer block from the content above it; lines within
+// the block are not separated by blank lines."
+func TestRenderNext_ValidationCoverageFooter_ParallelWithStorageDrift(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, nil, nil, driftSummaryCounts{}, false, nil, 2, 4); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	body := buf.String()
+	si := strings.Index(body, "note: 2 storage findings")
+	vi := strings.Index(body, "note: 4 validation-section-coverage findings")
+	if si < 0 || vi < 0 {
+		t.Fatalf("expected both detector lines; got:\n%s", body)
+	}
+	if !(si < vi) {
+		t.Fatalf("expected storage line before validation-section-coverage line; s=%d v=%d\n%s", si, vi, body)
+	}
+	// No blank line between the two `note:` lines.
+	between := body[si:vi]
+	if strings.Contains(between, "\n\n") {
+		t.Fatalf("expected no blank line between footer notes; got between:\n%q", between)
+	}
+}
+
+// Suppression: when the count arrives as 0 (which runNext does when
+// KERF_DOCTOR_FOOTER=0 or `doctor.footer: false` is configured), no
+// validation-section-coverage line renders — even if other content is present.
+func TestRenderNext_ValidationCoverageFooter_SuppressedWhenZero(t *testing.T) {
+	wc := "alpha"
+	beadID := "hk-001"
+	main := []feed.Item{
+		{Kind: feed.KindBead, Score: 10, Title: "do X", WorkCodename: &wc, BeadID: &beadID},
+	}
+	var buf bytes.Buffer
+	if err := renderNextText(&buf, main, nil, driftSummaryCounts{}, false, nil, 0, 0); err != nil {
+		t.Fatalf("renderNextText: %v", err)
+	}
+	body := buf.String()
+	if strings.Contains(body, "validation-section-coverage") {
+		t.Fatalf("footer must be silent when count=0 (suppression knob path); got:\n%s", body)
+	}
+}
