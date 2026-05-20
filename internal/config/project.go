@@ -18,6 +18,25 @@ import (
 // specs/commands.md §"Storage-drift footer".
 const DoctorFooterEnvVar = "KERF_DOCTOR_FOOTER"
 
+// Maturity values declared at the project.yaml top level. See
+// specs/architecture.md §"Project Configuration" → Maturity. Consumers
+// such as the queue collision-tolerance floor read this value; v1 has
+// no per-work override (deferred).
+const (
+	MaturityExperimental = "experimental"
+	MaturityStable       = "stable"
+	MaturityFrozen       = "frozen"
+)
+
+// DefaultMaturity is the project maturity when project.yaml omits the
+// field. See specs/architecture.md §"Project Configuration" → Maturity.
+const DefaultMaturity = MaturityStable
+
+// validMaturities is the closed enum of accepted values for the
+// project-level `maturity` field. Unknown values are rejected at load
+// time. No per-work override (deferred).
+var validMaturities = []string{MaturityExperimental, MaturityStable, MaturityFrozen}
+
 // ProjectConfig represents per-project jig configuration stored in
 // ~/.kerf/projects/{project-id}/project.yaml
 type ProjectConfig struct {
@@ -27,6 +46,12 @@ type ProjectConfig struct {
 	// architecture.md §"Project Configuration" for the schema slot and
 	// commands.md §"kerf new" for the resolution order.
 	DefaultJig string              `yaml:"default_jig,omitempty"`
+	// Maturity declares the project's process posture: one of
+	// `experimental`, `stable`, `frozen`. Empty / unset means the default
+	// (`stable`). Consumers should call ResolvedMaturity() rather than
+	// reading this field directly so the default is applied uniformly.
+	// no per-work override (deferred)
+	Maturity   string              `yaml:"maturity,omitempty"`
 	Jigs       []string            `yaml:"jigs,omitempty"`
 	Passes     map[string][]string `yaml:"passes,omitempty"`
 	Tools      map[string]string   `yaml:"tools,omitempty"`
@@ -144,7 +169,33 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 		}
 	}
 
+	if err := validateMaturity(cfg.Maturity); err != nil {
+		return nil, fmt.Errorf("project config: %w", err)
+	}
+
 	return cfg, nil
+}
+
+// validateMaturity returns nil for the empty string (unset → default
+// applied by ResolvedMaturity) or any of the three legal enum values.
+// Unknown values yield an error naming the three legal values.
+func validateMaturity(v string) error {
+	switch v {
+	case "", MaturityExperimental, MaturityStable, MaturityFrozen:
+		return nil
+	}
+	return fmt.Errorf("invalid maturity %q: must be one of %s, %s, %s",
+		v, MaturityExperimental, MaturityStable, MaturityFrozen)
+}
+
+// ResolvedMaturity returns the project's effective maturity, applying
+// the default (`stable`) when the field is unset or the receiver is
+// nil. See specs/architecture.md §"Project Configuration" → Maturity.
+func (c *ProjectConfig) ResolvedMaturity() string {
+	if c == nil || c.Maturity == "" {
+		return DefaultMaturity
+	}
+	return c.Maturity
 }
 
 // SaveProjectConfig writes project.yaml to disk, creating parent directories if needed.

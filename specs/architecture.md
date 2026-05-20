@@ -332,6 +332,14 @@ This section is the canonical home for the `project.yaml` schema. Other specs th
 #      distinguishes malformed clauses from zero-match clauses; affects the
 #      `broken` vs `empty` rank labels -->
 
+# Maturity declares the project's process posture. One of:
+# `experimental` (early exploration; collision tolerance loosened),
+# `stable` (steady-state work at today's defaults; this is the default
+# when the field is unset), or `frozen` (lockdown changes only;
+# collision tolerance tightened). Consumers (e.g. queue collision floor)
+# read this value; v1 has no per-work override.
+# maturity: stable
+
 # Drift-detection footer suppression for `kerf next` and `kerf triage`.
 # When storage-layout drift exists (see Drift Detection above), kerf appends
 # a one-line footer pointing at `kerf doctor`. Setting this to false
@@ -348,6 +356,11 @@ This section is the canonical home for the `project.yaml` schema. Other specs th
 - **Created by `kerf init`.** When `kerf init` runs in a project, it creates `project.yaml` with the user's jig selections. The user is prompted to choose active jigs and configure composable passes.
 - **Updated by `kerf setup`.** Running `kerf setup` re-reads `project.yaml` to generate fresh agent config. It does not modify `project.yaml` — that is the user's configuration.
 - **Unknown keys.** kerf ignores unrecognized keys without error.
+- **Maturity.** A project MAY declare `maturity: experimental | stable | frozen` at the top level of `project.yaml`. Default is `stable` when unset. The three values signal:
+    - `experimental` — early exploration; downstream consumers (e.g. the queue collision-tolerance floor) loosen their defaults to favour throughput over caution.
+    - `stable` — steady-state work; consumers preserve today's defaults. This is the default when the field is unset.
+    - `frozen` — lockdown changes only; consumers tighten defaults to favour caution over throughput.
+  Unknown values are rejected at load time. There is no per-work override in v1.
 - **Relationship to `config.yaml`.** `project.yaml` contains project-specific jig configuration. `config.yaml` contains bench-wide defaults (snapshot settings, finalization defaults, etc.). For fields that appear in both (e.g., `default_jig`), the `project.yaml` value takes precedence for that project.
 
 ### Interaction with `kerf jig list`
