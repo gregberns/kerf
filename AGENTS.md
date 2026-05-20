@@ -66,6 +66,7 @@ For each bead, the reviewer:
 3. Pastes the observed output.
 4. Confirms the observed output matches the spec.
 5. **Audits all call sites of the changed function/feature**, not just the bead's specific surface — the bead-tool config feature (commit `d965b9e`) shipped with 6 of 9 callers ignoring the config because the reviewer only checked the surface the bead named.
+6. **When multiple parallel agents touch the same package, runs `go test ./...` against the integrated (merged) state**, not just the worktree-only state. Three parallel doctor-detector worktrees each landed a `newTestContext` test helper; each compiled in isolation but the merged package failed (`newTestContext redeclared`). Worktree-local green is necessary but not sufficient.
 
 If any of those steps cannot be done, the bead is not approved.
 
