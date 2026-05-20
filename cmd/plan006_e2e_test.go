@@ -429,6 +429,7 @@ func TestE2E_Plan006_JSONNullContract(t *testing.T) {
 func TestE2E_Plan006_EmptyFeedMessage(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("KERF_DOCTOR_FOOTER", "0")
 	projectID := "empty-proj"
 
 	projDir := filepath.Join(tmp, ".kerf", "projects", projectID)
