@@ -232,6 +232,37 @@ func TestValidationCoverage_NoArtifactNoFinding(t *testing.T) {
 	}
 }
 
+// tighterRegexFalsePositiveCase exercises the kerf-jka2 false-positive: free
+// prose inside the WDLL block that mentions the marker phrase without a
+// bullet prefix must NOT be treated as a checklist match. Before the
+// list-item-prefix tightening, this artifact flipped from `missing` to
+// `emptyBoth` because the regex matched the prose line and then found no
+// backtick id on it.
+const tighterRegexFalsePositiveCase = `# Tasks
+
+**What done looks like:**
+
+- Tasks listed
+- Some random description of Scenario-test item flow and how Exploratory-test item is created
+`
+
+func TestValidationCoverage_TighterRegexFalsePositive(t *testing.T) {
+	ctx, r := newValidationCoverageCase(t)
+	writeValidationWork(t, r, "wing-jka2", "bug", "fix-spec", "05-fix-spec.md", tighterRegexFalsePositiveCase)
+
+	findings := runValidationDetector(t, ctx)
+	if len(findings) != 1 || findings[0].Severity != Yellow {
+		t.Fatalf("expected yellow, got %+v", findings)
+	}
+	detail := findings[0].Items[0].Detail
+	if !strings.Contains(detail, "missing both") {
+		t.Errorf("expected 'missing both' (free prose must not count as checklist item), got %q", detail)
+	}
+	if strings.Contains(detail, "empty <id>") {
+		t.Errorf("regex must not match free prose; got empty-id detail %q", detail)
+	}
+}
+
 func TestValidationCoverage_ImplementationVerifyClosurePhrasing(t *testing.T) {
 	ctx, r := newValidationCoverageCase(t)
 	// implementation jig Verify pass uses "with ID ... is closed" wording —
