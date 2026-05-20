@@ -320,6 +320,15 @@ func runNext(cmd *cobra.Command) error {
 	}
 	entries := queue.Compute(works, beadsByWork, weights)
 
+	// --- T=0 static analyzer (Plan 014 / Bead B2 — kerf-n9vq) -----------
+	// Appends graph-shape signals (critical-path, fan-out, area-overlap)
+	// to each Entry.Reasons slice and returns the freshly-added strings
+	// keyed by work codename. The signals later flow into each ranked
+	// bead Item's `reason` field for `kerf next --format=json` consumers
+	// (specs/coordination.md §"Graph signals"). Read-only decoration; no
+	// scoring or ordering change in this bead — Plan 014/B3 owns that.
+	graphSignals := queue.DecorateGraphSignals(entries, works)
+
 	// --- Compute BlockedWorks (must-complete-first not met) --------------
 	workByName := make(map[string]*spec.SpecYAML, len(works))
 	for _, w := range works {
@@ -361,6 +370,27 @@ func runNext(cmd *cobra.Command) error {
 
 	// --- Run sources + detectors -----------------------------------------
 	beadItems := feed.BeadSource(in)
+	// Plan 014 / B2 (kerf-n9vq): surface T=0 graph signals on each bead
+	// item's `reason` field. We append, joined with "; ", and only when
+	// the parent work's codename has signals — beads attached to works
+	// off the critical path with no fan-out / no overlap stay silent.
+	if len(graphSignals) > 0 {
+		for i := range beadItems {
+			if beadItems[i].Kind != feed.KindBead || beadItems[i].WorkCodename == nil {
+				continue
+			}
+			sigs := graphSignals[*beadItems[i].WorkCodename]
+			if len(sigs) == 0 {
+				continue
+			}
+			joined := strings.Join(sigs, "; ")
+			if beadItems[i].Reason == "" {
+				beadItems[i].Reason = joined
+			} else {
+				beadItems[i].Reason = beadItems[i].Reason + "; " + joined
+			}
+		}
+	}
 	var cleanupItems []feed.Item
 	for _, d := range feed.NewCleanupDetectors(projectFilter) {
 		cleanupItems = append(cleanupItems, d.Detect(in)...)

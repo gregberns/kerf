@@ -1878,6 +1878,8 @@ The footer is on by default. It is suppressed when `kerf config doctor.footer fa
 
 The set of valid `kind` values comes from the current build (v1: `bead`, `cleanup`, `warning`). Future kinds (e.g., `pr`) are additive. Consumers should treat unknown kinds as informational rather than erroring.
 
+The `reason` field is a `;`-separated free-text summary. For `bead` items, in addition to the scoring narrative (rework, momentum, fan-out, creation order), it may include **graph-shape signals** from the T=0 static analyzer — critical-path membership, graph fan-out, and area-overlap density — per [coordination.md](coordination.md#graph-signals-t0-static-analyzer). Signals are descriptive: they do not change the item's `score` or rank. Consumers that parse `reason` for downstream use should treat the field as an unstructured human-readable string.
+
 Top-level output shape depends on whether a drift baseline is recorded for the project (see [coordination.md](coordination.md#baseline-advancement)):
 
 - **No baseline recorded** — output is a bare JSON array of items in rank order. An empty feed emits `[]`.
