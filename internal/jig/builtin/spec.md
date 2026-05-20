@@ -195,6 +195,11 @@ Write the actual spec text as it should appear in the system specs. This is the 
 6. Save the draft to `05-spec-drafts/{target-filename}.md`.
 7. After all drafts are written, produce the changelog (`05-changelog.md`). The changelog documents for each spec file: the target filename, status (new/modified/removed), what was changed, and which change design motivated the change.
 
+**What done looks like:**
+
+- Scenario-test item filed with ID `<id>` (see `jig-system.md` §Validation-test requirement)
+- Exploratory-test item filed with ID `<id>` (see `jig-system.md` §Validation-test requirement)
+
 **Done when reviewer approves on:**
 
 **This is the most critical review** -- the drafted text becomes normative at finalization.
@@ -265,6 +270,11 @@ Break the spec changes into implementation tasks. Each task defines what code ch
 4. Define the dependency graph. Which tasks must complete before others? Which can run in parallel?
 5. Keep the format implementation-agnostic -- tasks should be portable to any tracker or execution system.
 6. Save to `07-tasks.md`.
+
+**What done looks like:**
+
+- Scenario-test item filed with ID `<id>` (see `jig-system.md` §Validation-test requirement)
+- Exploratory-test item filed with ID `<id>` (see `jig-system.md` §Validation-test requirement)
 
 **Done when reviewer approves on:**
 

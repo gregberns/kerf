@@ -238,6 +238,8 @@ You are writing the spec that an implementing agent will follow. Everything an i
 - Every requirement from `03-components.md` appears in a component spec
 - File paths reference real locations in the codebase (validated against `02-analysis.md`)
 - Acceptance criteria are testable -- no vague language
+- Scenario-test item filed with ID `<id>` (see `jig-system.md` §Validation-test requirement)
+- Exploratory-test item filed with ID `<id>` (see `jig-system.md` §Validation-test requirement)
 
 ### Review Criteria
 
@@ -334,6 +336,8 @@ You are producing a task list that makes the assembled spec actionable.
   - A dependency graph showing task ordering and parallelization opportunities
   - Complete coverage -- every spec section and acceptance criterion is assigned to a task
 - Dependencies form a DAG (no circular dependencies)
+- Scenario-test item filed with ID `<id>` (see `jig-system.md` §Validation-test requirement)
+- Exploratory-test item filed with ID `<id>` (see `jig-system.md` §Validation-test requirement)
 
 ### Review Criteria
 
