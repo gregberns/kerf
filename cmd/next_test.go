@@ -17,6 +17,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1124,6 +1125,71 @@ implementation:
 	body := buf.String()
 	if strings.Contains(body, "try:") {
 		t.Fatalf("expected no advisor hint when no candidate matches; got:\n%s", body)
+	}
+}
+
+// --- collectD6Warnings wiring tests (Plan 013 / kerf-pflj) -----------------
+//
+// Coverage:
+//   - Min-history guard: < D6MinHistoryBeads dispatched beads → nil.
+//   - Silent no-op: non-existent transcript dir → nil, no panic.
+//   - Silent no-op: empty transcript dir (no .jsonl) → nil.
+//   - Silent no-op: malformed JSONL → nil.
+
+func TestCollectD6Warnings_MinHistoryGuard(t *testing.T) {
+	tDir := t.TempDir()
+	t.Setenv("KERF_TRANSCRIPT_DIR", tDir)
+
+	// Synthesise a transcript with 5 dispatched beads (< D6MinHistoryBeads=30)
+	// where one bead has a commit_ref but no reviewer dispatch — would be a
+	// finding if the guard weren't active.
+	var lines string
+	for i := 0; i < 5; i++ {
+		bid := fmt.Sprintf("hk-test-%03d", i)
+		lines += fmt.Sprintf(
+			`{"timestamp":"2026-05-15T20:%02d:00Z","kind":"dispatch","session_id":"sess-001","sub_agent_id":"impl-%d","bead_id":"%s","role":"implementer","text":"dispatch"}`,
+			i, i, bid) + "\n"
+	}
+	// commit_ref for bead 0, no reviewer dispatch in session → reviewer-absent.
+	lines += `{"timestamp":"2026-05-15T20:30:00Z","kind":"commit_ref","session_id":"sess-001","bead_id":"hk-test-000","commit_sha":"aaa111","text":"commit"}` + "\n"
+
+	if err := os.WriteFile(filepath.Join(tDir, "session.jsonl"), []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := collectD6Warnings("/some/repo")
+	if len(got) != 0 {
+		t.Fatalf("expected nil/empty when dispatched beads < D6MinHistoryBeads; got %d items: %+v", len(got), got)
+	}
+}
+
+func TestCollectD6Warnings_SilentNoOp_NonExistentDir(t *testing.T) {
+	t.Setenv("KERF_TRANSCRIPT_DIR", filepath.Join(t.TempDir(), "nonexistent"))
+	got := collectD6Warnings("/some/repo")
+	if got != nil {
+		t.Fatalf("expected nil for non-existent transcript dir; got %+v", got)
+	}
+}
+
+func TestCollectD6Warnings_SilentNoOp_EmptyDir(t *testing.T) {
+	tDir := t.TempDir()
+	t.Setenv("KERF_TRANSCRIPT_DIR", tDir)
+	// Dir exists but contains no .jsonl files.
+	got := collectD6Warnings("/some/repo")
+	if got != nil {
+		t.Fatalf("expected nil for empty transcript dir; got %+v", got)
+	}
+}
+
+func TestCollectD6Warnings_SilentNoOp_MalformedJSONL(t *testing.T) {
+	tDir := t.TempDir()
+	t.Setenv("KERF_TRANSCRIPT_DIR", tDir)
+	if err := os.WriteFile(filepath.Join(tDir, "bad.jsonl"), []byte("{{not json}}\n{{also bad}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := collectD6Warnings("/some/repo")
+	if got != nil {
+		t.Fatalf("expected nil when all JSONL lines fail to parse; got %+v", got)
 	}
 }
 
