@@ -415,6 +415,97 @@ tools:
 	}
 }
 
+// TestMaturity — Plan 014 / B1 (kerf-3ka1): the project-level
+// `maturity` field on project.yaml. Default is `stable` when unset;
+// `experimental`, `stable`, and `frozen` parse; unknown values error
+// with a message naming the three legal values.
+func TestMaturity(t *testing.T) {
+	t.Run("default is stable when unset", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "project.yaml")
+		if err := os.WriteFile(path, []byte("jigs:\n  - plan\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadProjectConfig(path)
+		if err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
+		if cfg.Maturity != "" {
+			t.Errorf("raw Maturity = %q, want \"\" (unset)", cfg.Maturity)
+		}
+		if got := cfg.ResolvedMaturity(); got != MaturityStable {
+			t.Errorf("ResolvedMaturity() = %q, want %q", got, MaturityStable)
+		}
+		// nil receiver also defaults to stable.
+		if got := (*ProjectConfig)(nil).ResolvedMaturity(); got != MaturityStable {
+			t.Errorf("nil cfg ResolvedMaturity() = %q, want %q", got, MaturityStable)
+		}
+		// missing-file path also resolves to stable.
+		missing, err := LoadProjectConfig(filepath.Join(dir, "nope.yaml"))
+		if err != nil {
+			t.Fatalf("missing-file Load error: %v", err)
+		}
+		if got := missing.ResolvedMaturity(); got != MaturityStable {
+			t.Errorf("missing-file ResolvedMaturity() = %q, want %q", got, MaturityStable)
+		}
+	})
+
+	t.Run("all three enum values parse", func(t *testing.T) {
+		for _, v := range []string{MaturityExperimental, MaturityStable, MaturityFrozen} {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "project.yaml")
+			content := "maturity: " + v + "\n"
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadProjectConfig(path)
+			if err != nil {
+				t.Fatalf("Load(%q) error: %v", v, err)
+			}
+			if cfg.Maturity != v {
+				t.Errorf("Maturity = %q, want %q", cfg.Maturity, v)
+			}
+			if got := cfg.ResolvedMaturity(); got != v {
+				t.Errorf("ResolvedMaturity() = %q, want %q", got, v)
+			}
+		}
+	})
+
+	t.Run("unknown value errors cleanly", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "project.yaml")
+		if err := os.WriteFile(path, []byte("maturity: bogus\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := LoadProjectConfig(path)
+		if err == nil {
+			t.Fatal("expected error for unknown maturity, got nil")
+		}
+		msg := err.Error()
+		for _, want := range []string{"bogus", MaturityExperimental, MaturityStable, MaturityFrozen} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("error %q should mention %q", msg, want)
+			}
+		}
+	})
+
+	t.Run("save/load round-trip", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "project.yaml")
+		cfg := &ProjectConfig{Maturity: MaturityFrozen}
+		if err := SaveProjectConfig(path, cfg); err != nil {
+			t.Fatalf("Save error: %v", err)
+		}
+		got, err := LoadProjectConfig(path)
+		if err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
+		if got.Maturity != MaturityFrozen {
+			t.Errorf("round-trip Maturity = %q, want %q", got.Maturity, MaturityFrozen)
+		}
+	})
+}
+
 // TestDoctorFooterEnabled — Plan 017 / B13 (kerf-bwd): default-on,
 // project.yaml override, env-var override, env wins on conflict.
 func TestDoctorFooterEnabled(t *testing.T) {
