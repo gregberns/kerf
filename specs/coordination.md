@@ -200,6 +200,22 @@ Signal-emission rules:
 
 The analyzer lives in `internal/static/`; the queue-side adapter that emits per-work signal strings lives in `internal/queue/` alongside `Compute` and is invoked by `kerf next` after scoring. Later beads in the Plan 014 track may attach the same signals to non-`bead` item kinds (e.g., the cleanup row that names a stale work near the top of the critical path); v1 attaches signals only to `bead` items.
 
+### Collision Tolerance (driven by `maturity`)
+
+The 5% area-collisions floor is a default driven by project `maturity` (see [architecture.md](architecture.md#project-configuration) → Maturity), not a universal decision rule. `frozen` tightens it; `experimental` loosens it; `stable` preserves today's 5%.
+
+The floor is the fraction of work pairs in a candidate set that may share an `areas:` label before downstream callers (sweep-comparison rules, advisory surfaces) treat the candidate set as collision-saturated. v1 ships the floor as a queue-package lookup; v1 does NOT gate `kerf next` ranking on it. Consumers — currently none in production, eventually the sim's weight-comparison decision rule and any `kerf advise` surface added by Plan 014d — read the floor via `queue.CollisionFloor(maturity)`.
+
+The defaults are:
+
+| Maturity       | Collision floor | Rationale                                                                  |
+| -------------- | --------------: | -------------------------------------------------------------------------- |
+| `experimental` |            0.20 | Early exploration tolerates higher merge-conflict pressure for throughput. |
+| `stable`       |            0.05 | Today's value, preserved verbatim. Steady-state default.                   |
+| `frozen`       |            0.02 | Lockdown changes only; tighter than today.                                 |
+
+An unknown or empty maturity value yields the `stable` floor (0.05), matching the project-config default-resolution rule. The numeric defaults above are kerf-internal and may be tuned without a maturity-API change; consumers should not hardcode them. The floor is informational in v1: `kerf next`'s ranking and the T=0 graph signals are unaffected by it.
+
 ### Batches Are Ephemeral
 
 When an agent pulls multiple beads to work on together (e.g., beads in the same area), that grouping is a batch. Batches are ephemeral — assembled, worked, done. kerf does not store dispatch history or batch records. The beads themselves carry all necessary traceability; the batch is just a transient convenience.
