@@ -179,6 +179,27 @@ queue:
 
 When the `queue:` section is absent, or any individual field is unset, the defaults above are used. Each field is independent — specifying `fan_out` alone leaves `momentum` and `creation` at their defaults.
 
+### Graph signals (T=0 static analyzer)
+
+In addition to the live scoring factors above, kerf computes **graph-shape signals** on the work-dependency graph as it stands today, with no execution data. These are the T=0 layer of the two-layer scheduler reframe captured in Plan 014; the live-data T>0 layer is out of scope here. The signals are descriptive — they do not change the ranking — and they surface on the existing `reason` field of each ranked item in `kerf next --format=json` output (see [commands.md](commands.md#kerf-next)). No new top-level field, no new command, no new item kind.
+
+Three signals are defined in v1:
+
+- **Critical-path length.** The longest weighted chain through the work graph, measured by node estimate. With per-node estimates fixed at 1.0 today the chain length is the longest dependency chain in node count; later beads in the plan-014 track may swap in real duration estimates. Every work whose codename appears on the chosen chain (lex tie-break on the chain-root codename when chains are equal length) carries a `on critical path (length N)` signal in its `reason` text.
+
+- **Fan-out width.** For a work W, the count of works that directly list W in their `depends_on` with relationship `must-complete-first`. A work with fan-out > 0 carries a `graph fan-out N` signal. Fan-out is the same notion used elsewhere in this file's Computed Priority section; it is restated here for clarity because the static analyzer also exposes it as an explicit reason text.
+
+- **Area-overlap density.** For a candidate set of works (today: the actionable entries `kerf next` is about to rank), the fraction of unordered work pairs that share at least one `areas:` label. The result is in [0.0, 1.0]; 0.0 means the candidate set touches strictly disjoint areas, 1.0 means every pair shares an area. The signal `area-overlap density D` is appended to every entry's `reason` text when the candidate set has at least two works with declared areas. The density is a proxy for expected merge-conflict pressure when the set runs in parallel; it informs the collision-tolerance discussion in Plan 014 but does not itself enforce a threshold.
+
+Signal-emission rules:
+
+1. Signals are append-only. They join existing reason text with `; ` as the separator; they do not replace or reorder any other reason content.
+2. Signals do not enter scoring. The ordering of `kerf next` is unchanged by the T=0 layer in v1.
+3. A signal is omitted from a work's reason text when it would be silent — fan-out 0, off the critical chain, fewer than two candidate areas — so the absence of a signal is meaningful (the work is genuinely off that dimension).
+4. The analyzer is read-only. It consults the work-dependency graph and `areas:` slices; it does not call out to the bead store or write any state.
+
+The analyzer lives in `internal/static/`; the queue-side adapter that emits per-work signal strings lives in `internal/queue/` alongside `Compute` and is invoked by `kerf next` after scoring. Later beads in the Plan 014 track may attach the same signals to non-`bead` item kinds (e.g., the cleanup row that names a stale work near the top of the critical path); v1 attaches signals only to `bead` items.
+
 ### Batches Are Ephemeral
 
 When an agent pulls multiple beads to work on together (e.g., beads in the same area), that grouping is a batch. Batches are ephemeral — assembled, worked, done. kerf does not store dispatch history or batch records. The beads themselves carry all necessary traceability; the batch is just a transient convenience.

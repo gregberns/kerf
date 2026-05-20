@@ -25,6 +25,8 @@ import (
 	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/feed"
+	"github.com/gberns/kerf/internal/queue"
+	"github.com/gberns/kerf/internal/spec"
 )
 
 // isolatePATH points PATH at an empty tempdir so that real `br` / `bd`
@@ -1144,4 +1146,73 @@ func mkdirp(path string) error {
 		}
 	}
 	return nil
+}
+
+// --- Plan 014 / B2 (kerf-n9vq): T=0 static analyzer surfaces via reason ----
+//
+// Golden-shape test: build a 5-work graph, run the queue.DecorateGraphSignals
+// decorator, stitch the returned signals onto a bead Item's `reason` field
+// (the same stitching runNext performs), and assert that the JSON output of
+// `kerf next --format=json` carries at least one graph-shape signal in the
+// `reason` field. This is the consumer-side contract per
+// specs/coordination.md §"Graph signals".
+func TestNextJSON_BeadReasonIncludesGraphSignals(t *testing.T) {
+	mustFirst := "must-complete-first"
+	dep := func(cn string) spec.Dependency {
+		return spec.Dependency{Codename: cn, Relationship: mustFirst}
+	}
+	works := []*spec.SpecYAML{
+		{Codename: "alpha", Areas: []string{"cli"}},
+		{Codename: "beta", Areas: []string{"cli"}},
+		{Codename: "gamma", Areas: []string{"cli", "core"},
+			DependsOn: []spec.Dependency{dep("alpha"), dep("beta")}},
+		{Codename: "delta", Areas: []string{"cli"},
+			DependsOn: []spec.Dependency{dep("beta")}},
+		{Codename: "epsilon", Areas: []string{"db"}},
+	}
+	entries := []queue.Entry{
+		{Codename: "alpha", Areas: []string{"cli"}},
+		{Codename: "beta", Areas: []string{"cli"}},
+		{Codename: "gamma", Areas: []string{"cli", "core"}},
+		{Codename: "delta", Areas: []string{"cli"}},
+		{Codename: "epsilon", Areas: []string{"db"}},
+	}
+
+	signals := queue.DecorateGraphSignals(entries, works)
+	if len(signals["alpha"]) == 0 {
+		t.Fatalf("decorator returned no signals for alpha (on critical path, fan-out 1)")
+	}
+
+	wc := "alpha"
+	id := "hk-alpha-001"
+	beadItem := feed.Item{
+		Kind:         feed.KindBead,
+		Score:        9.0,
+		Title:        "implement alpha",
+		WorkCodename: &wc,
+		BeadID:       &id,
+		Reason:       strings.Join(signals["alpha"], "; "),
+	}
+
+	var buf bytes.Buffer
+	if err := renderNextJSON(&buf, []feed.Item{beadItem}, nil, driftSummaryCounts{}, false); err != nil {
+		t.Fatalf("renderNextJSON: %v", err)
+	}
+	body := buf.String()
+	if !strings.Contains(body, `"reason":`) {
+		t.Fatalf("JSON missing reason field:\n%s", body)
+	}
+	// Alpha is on the critical path AND has fan-out 1, so at least one
+	// of those signals must appear.
+	if !strings.Contains(body, "critical path") && !strings.Contains(body, "fan-out") {
+		t.Errorf("JSON reason missing graph-shape signal:\n%s", body)
+	}
+
+	var got []feed.Item
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if len(got) != 1 || got[0].Reason == "" {
+		t.Fatalf("expected non-empty reason on round-trip: %+v", got)
+	}
 }
