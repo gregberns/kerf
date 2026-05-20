@@ -193,6 +193,11 @@ func TestRunNext_E2E_AbandonedDispatch_TextAndJSON(t *testing.T) {
 	if !strings.Contains(body, nextFooterTip) {
 		t.Errorf("text: footer tip must render (non-fatal warning); got:\n%s", body)
 	}
+	// Cardinality: exactly one D1 row. Guards against duplicate-emission
+	// regressions (e.g. detector loop emitting once per session-row).
+	if n := strings.Count(body, "Abandoned dispatch:"); n != 1 {
+		t.Errorf("text: D1 title count = %d, want 1; got:\n%s", n, body)
+	}
 
 	// --- JSON rendering ----------------------------------------------------
 	buf.Reset()
@@ -209,6 +214,10 @@ func TestRunNext_E2E_AbandonedDispatch_TextAndJSON(t *testing.T) {
 	got := findItemByTitlePrefix(items, "Abandoned dispatch:")
 	if got == nil {
 		t.Fatalf("json: no abandoned_dispatch item; items=%+v", items)
+	}
+	// Cardinality: exactly one D1 item. Guards duplicate-emission regressions.
+	if n := countItemsByTitlePrefix(items, "Abandoned dispatch:"); n != 1 {
+		t.Errorf("json: D1 item count = %d, want 1; items=%+v", n, items)
 	}
 	if got.Kind != feed.KindWarning {
 		t.Errorf("json: D1 item kind = %q, want %q", got.Kind, feed.KindWarning)
@@ -288,6 +297,18 @@ func TestRunNext_E2E_ReviewerAbsent_TextAndJSON(t *testing.T) {
 	if !strings.Contains(body, "Reviewer absent: hk-iuaed.6") {
 		t.Errorf("text: missing D6 title; got:\n%s", body)
 	}
+	// Pin the current action string. cmd/next.go currently emits
+	// `kerf show {bead-id}` for D6, a deferred divergence from the spec's
+	// `kerf review {codename}` (intentional; documented in cmd/next.go
+	// comments). This assertion exists so any future silent change to that
+	// line trips the test — it does not assert the spec.
+	if !strings.Contains(body, "kerf show hk-iuaed.6") {
+		t.Errorf("text: missing D6 action `kerf show hk-iuaed.6`; got:\n%s", body)
+	}
+	// Cardinality: exactly one D6 row. Guards duplicate-emission regressions.
+	if n := strings.Count(body, "Reviewer absent:"); n != 1 {
+		t.Errorf("text: D6 title count = %d, want 1; got:\n%s", n, body)
+	}
 	// Spec: reason shape "Commit {commit_sha} for bead '{bead-id}' landed
 	// at {committed_at} with no reviewer dispatch in session {session_id}."
 	for _, want := range []string{
@@ -321,11 +342,20 @@ func TestRunNext_E2E_ReviewerAbsent_TextAndJSON(t *testing.T) {
 	if got == nil {
 		t.Fatalf("json: no reviewer_absent item; items=%+v", items)
 	}
+	// Cardinality: exactly one D6 item. Guards duplicate-emission regressions.
+	if n := countItemsByTitlePrefix(items, "Reviewer absent:"); n != 1 {
+		t.Errorf("json: D6 item count = %d, want 1; items=%+v", n, items)
+	}
 	if got.Kind != feed.KindWarning {
 		t.Errorf("json: D6 kind = %q, want %q", got.Kind, feed.KindWarning)
 	}
 	if got.Title != "Reviewer absent: hk-iuaed.6" {
 		t.Errorf("json: D6 title = %q", got.Title)
+	}
+	// Pin the current action string — see text-side comment above. This
+	// asserts cmd/next.go's deferred behaviour, not the spec.
+	if got.Action != "kerf show hk-iuaed.6" {
+		t.Errorf("json: D6 action = %q, want %q", got.Action, "kerf show hk-iuaed.6")
 	}
 	if got.BeadID == nil || *got.BeadID != "hk-iuaed.6" {
 		t.Errorf("json: D6 bead_id = %v", got.BeadID)
@@ -408,4 +438,17 @@ func findItemByTitlePrefix(items []feed.Item, prefix string) *feed.Item {
 		}
 	}
 	return nil
+}
+
+// countItemsByTitlePrefix returns the number of items whose Title begins
+// with prefix. Used to assert that a given diagnostic warning is emitted
+// exactly once (duplicate-emission regression guard).
+func countItemsByTitlePrefix(items []feed.Item, prefix string) int {
+	n := 0
+	for i := range items {
+		if strings.HasPrefix(items[i].Title, prefix) {
+			n++
+		}
+	}
+	return n
 }
