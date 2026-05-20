@@ -98,8 +98,15 @@ var wdllHeadingRE = regexp.MustCompile(`(?im)^\s{0,3}(#{1,6}\s+|\*\*)\s*What don
 // "What done looks like" block. We are permissive on phrasing so that the
 // "filed with ID" (creation point) and "with ID … is closed" (closure-check)
 // shapes both match.
-var scenarioItemRE = regexp.MustCompile(`(?i)Scenario-test item`)
-var exploratoryItemRE = regexp.MustCompile(`(?i)Exploratory-test item`)
+//
+// The regexes require a list-item prefix (leading whitespace + `-` or `*`
+// bullet + whitespace) so that free prose inside the WDLL block that merely
+// mentions the marker phrase (e.g. "Some description of Scenario-test item
+// flow") does NOT count as a checklist item. Without this anchoring, the
+// detector flipped findings from `missing` to `emptyBoth` when prose
+// happened to mention the phrase. See plan-025-ystq-fu2 (kerf-jka2).
+var scenarioItemRE = regexp.MustCompile(`(?im)^\s*[-*]\s+Scenario-test item`)
+var exploratoryItemRE = regexp.MustCompile(`(?im)^\s*[-*]\s+Exploratory-test item`)
 
 // idBacktickRE captures the first backtick-quoted token on the line. The
 // canonical shape is `<id>` (literal placeholder) or `kerf-xxx` (real ID).
