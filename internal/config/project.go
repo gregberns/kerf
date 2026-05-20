@@ -65,6 +65,38 @@ type ProjectConfig struct {
 	// drift-footer toggle consumed by `kerf next` and `kerf triage`. See
 	// specs/architecture.md §"Project Configuration" → `doctor.footer`.
 	Doctor *DoctorConfig `yaml:"doctor,omitempty"`
+	// Bead carries bead-store-shape knobs read by the diagnostics family.
+	// Currently just `id_pattern`, the regex the bead-ID indexer applies
+	// to commit messages and transcript bead-id fields. See
+	// specs/diagnostics.md §"Bead-ID resolution" — "The pattern source is
+	// the project's own configuration — kerf does not hard-code a
+	// regex." When unset, diagnostics that need the pattern (D1) silently
+	// skip rather than fabricating a default; this mirrors the
+	// "Discovery failure is silent" rule for transcript directories.
+	Bead *BeadConfig `yaml:"bead,omitempty"`
+}
+
+// BeadConfig holds bead-store-shape knobs read by diagnostics. See
+// specs/diagnostics.md §"Bead-ID resolution".
+type BeadConfig struct {
+	// IDPattern is the regex string the indexer applies to commit
+	// messages (subject + body) and to transcript event bead-id fields
+	// to extract bead IDs. Per spec, kerf does not hard-code a default
+	// here — projects whose bead store uses a non-kerf prefix (e.g.
+	// harmonik's `hk-…`) declare their own pattern. Empty means
+	// "unset"; diagnostics that need this pattern skip silently.
+	IDPattern string `yaml:"id_pattern,omitempty"`
+}
+
+// BeadIDPattern returns the configured project bead.id_pattern regex
+// string, or "" when unset. Receiver may be nil. Callers compile the
+// returned string with regexp.Compile; a "" return signals "no pattern
+// configured" and detectors should treat it as a silent no-op.
+func (c *ProjectConfig) BeadIDPattern() string {
+	if c == nil || c.Bead == nil {
+		return ""
+	}
+	return c.Bead.IDPattern
 }
 
 // DoctorConfig holds project-level doctor surface knobs.
