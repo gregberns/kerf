@@ -1,6 +1,57 @@
 # Plan 014 — Process-Management Reframe
 
-> **Status: REFRAME.** No code, no spec changes. This plan exists to lock in a shift in how we frame kerf's scheduler — captured after Plan 011 / D (weight tuning) returned null results on two full sweeps. Follow-on plans will translate the reframe into spec changes; this one only captures the shared understanding so the next round of work doesn't drift back into the old frame.
+> **Status: REFRAME + v1 MVP slice.** No code or spec changes have landed yet. The reframe (weights are an internal control surface; users describe their work, not their weights) stays. Following the 2026-05-19 independent review, the v1 slice cut from 11 beads to 3. See "2026-05-19 revision" immediately below for what changed; sections further down preserve the original reasoning.
+
+## 2026-05-19 revision (post independent-review)
+
+The independent review (`critiques/independent_review.md`) returned **proceed-with-changes, cut roughly in half**. Accepted in full. Concretely:
+
+**v1 ships as 3 beads, one wave (see `beads.md`):**
+1. **B1** — `maturity` field at project level (`experimental` / `stable` / `frozen`), enum confirmed by user.
+2. **B2** — T=0 analyzer skeleton; graph-shape signals append to `kerf next`'s existing `reason` field (no new command). Reusing the existing surface is the explicit antidote to the "two tools that do similar things" concern.
+3. **B3** — Collision-tolerance refactor in `internal/queue/`, driven by `maturity`.
+
+**Spun out into follow-on plans (not in 014):**
+- **Plan 014b** (`plans/014b_adaptive_scheduler/`) — T>0 adaptive scheduler (was B9) + derived-weights joiner (was B4) + kerfsim symmetry (was B6/B11). Gated on Plan 013 closing.
+- **Plan 014c** (`plans/014c_deferred_queue/`) — Deferred-queue data model + UX (was B5/B10). Orthogonal to weight derivation; its own user-flow design.
+- **Plan 014d** (`plans/014d_advise_surface/`) — `kerf advise --explain` surface (was B7). "Open until justified" — only if B2's reuse of `kerf next.reason` proves insufficient after dogfooding.
+
+**Dropped from v1 entirely (see "deferred fields" below for the preserved enums):**
+- `work_shape` bead field — overlaps existing `rework:` / `finding:` label vocabulary in `specs/coordination.md` §79. Derive from labels if needed later; do not declare.
+- `correctness` bead field — aspirational; will drift to `untested` or get set to `verified` once and never revisited. If real, derive from CI / test presence.
+- Per-work override of `maturity` — project-level alone covers the 80% case (review §2).
+- Named profile surface (`throughput` / `balanced` / `safety`) as a user-visible noun — was B8. v1 commits to a single user-facing noun: `maturity`. Profile framing is deferred until B2 proves the graph signal is actually useful (review §3, §6).
+- A new `kerf advise` command — deferred to 014d behind a justification gate (review §1).
+
+**Why one user-facing noun?** Both critique A and the independent review flagged that the original plan shipped *two* declarative surfaces simultaneously (B1 declarative inputs + B8 profile surface). That is the worst outcome — users see two parallel naming axes. v1 picks `maturity` because it is the only field in the original three that "pulls its weight" (review §2) and because it composes cleanly with existing config patterns.
+
+### Deferred fields (preserved from user-confirmed enums)
+
+The user confirmed the following enum values on 2026-05-19. They are preserved here so 014b–d can pick them up without re-litigating:
+
+- `maturity` — `experimental` / `stable` / `frozen` *(SHIPS in B1)*.
+- `correctness` — `untested` / `tested` / `verified` *(deferred; derive from CI/test presence if needed; do not ship as a static enum)*.
+- `work_shape` — `feature` / `bug` / `refactor` / `spike` / `infra` *(deferred; derive from existing `rework:` / `finding:` labels in `specs/coordination.md` §79 if needed)*.
+- Profile names — `throughput` / `balanced` / `safety` *(deferred to a possible 014d follow-on; v1 has no profile surface)*.
+
+### What the revision preserves unchanged
+
+- The reframe itself (weights are internal; users describe work, not weights).
+- The T=0 / T>0 two-layer architecture as a guide for follow-ons.
+- The "kerf is the process-management layer" framing.
+- All decisions in the "Critique reconciliation (2026-05-19)" section further below remain valid for v1's smaller scope.
+
+---
+
+## 2026-05-19 freshness check
+
+### 2026-05-19 freshness check (pre-revision context, preserved)
+
+- **Still relevant — the core reframe and the T=0 / T>0 layering.** Nothing shipped since 2026-05-15 has implemented declarative inputs, T=0 static analysis, derived weights, deferred queue, profile surface, or collision-tolerance refactor. The scheduler in `internal/queue` still uses one global weight vector (`specs/coordination.md` §165–180, `momentum` default 5.0).
+- **Outdated — the "likely follow-on plans" numbering.** Plans 015–020 shipped, but for the harmonik-beta-feedback track (triage / init / storage / filter / jigs), NOT for the items 014 sketched. The reframe's own follow-ons need fresh numbers (≥ 025) and to absorb the `kerf next` ranking + entry items routed in from Plan 015 (the harmonik beta-feedback triage) Theme 3.
+- **Plan 013 (self-diagnostics) is concurrently being re-planned** in a sibling agent; it remains 014's named feed for the T>0 adaptive layer. Disjoint scope: 013 owns transcript-extraction and detector surfaces; 014 owns how those signals enter the queue's weight derivation.
+- **New input absorbed from Plan 015:** `kerf next` ranking-and-entry items (Theme 3 of `plans/015_harmonik_beta_feedback/triage.md`) explicitly route to 014. Plan 019 ships the payload-ordering and rank-label vocabulary (`empty` / `unwired` / `broken`); 014 still owns the algorithm itself and the new "later" bucket.
+- **No conflicts** with Plans 022 / 023 / 024 (test harness / property contracts / CI) — they are testing infrastructure, orthogonal to scheduler architecture.
 
 ## Intent
 
@@ -123,3 +174,34 @@ One line each. Not drafted; not sequenced.
 
 - Plan 011 / D's null results are not a failure; they are the evidence that "one winning weight set" was the wrong question. Future plans should cite this when explaining why the scheduler architecture changed.
 - The two-layer (T=0 graph, T>0 adaptive) structure is a guide for follow-on plans, not a contract. If a follow-on finds a better decomposition it should say so and update this plan.
+
+## Critique reconciliation (2026-05-19)
+
+Three critiques live in `critiques/`: (A) architecture/spec coherence, (B) parallelization, (C) spec coverage.
+
+**Accepted:**
+
+- **A1 — Re-number follow-ons to ≥ 025.** The 015–021 numbers Plan 014 originally sketched have been consumed by the harmonik-beta track. Beads in this plan refer to follow-ons as "P025…" placeholders.
+- **A2 — `coordination.md` is the primary spec home.** Carve out `process-management.md` only if the new content exceeds ~200 lines.
+- **A3 — `kerf advise --explain` is the canonical T=0 surface.** Do not re-load the `kerf next` payload Plan 019 just trimmed.
+- **A4 — kerfsim compatibility paragraph.** Direct `--weights` YAML input stays; declarative-inputs path is additive.
+- **A5 — Profile is the user noun.** Declarative inputs + T=0 graph signals are the mechanism that picks/blends profiles. Open question 4 resolves to: ship both, with derivation visible via `kerf advise --explain`.
+- **B1 — Three independent first beads** (declarative-inputs schema, T=0 analyzer skeleton, collision-tolerance refactor) fan out in parallel; downstream beads serialize after.
+- **B2 — Hotspot integration-test requirement.** Any bead touching `internal/queue` must run `go test ./internal/queue/...` against the merged state per CLAUDE.md.
+- **C1 — Spec-sentence-per-bead table is the contract.** Each bead names the sentence it satisfies before dispatch.
+- **C2 — kerfsim BeadSource coupling.** Weight derivation must either run on the simulator's side too or be fed in as a separate input; the bead surfaces this as a required design choice.
+- **C3 — Deferred-queue is the biggest single bead by surface area** (crosses `coordination.md` + `dependencies.md` + three internal packages). Decompose into schema bead + dep-gating bead + UX bead.
+
+**Rejected / deferred:**
+
+- **(Implicit in A)** Auto-numbering follow-ons inside this plan. Reason: the orchestrator owns plan numbering. Beads.md lists work-items, not future plan names.
+- **(C)** Pre-drafting every spec sentence in this plan. Reason: bead authors draft the sentence when they own the bead; pre-drafting risks freezing the wrong wording.
+
+## Specs touched (forward look)
+
+- `specs/coordination.md` — derivation paragraph, T=0 signals section, T>0 adaptive section, collision-tolerance demotion.
+- `specs/works.md` and `specs/architecture.md` — declarative-input fields on `spec.yaml` and `project.yaml`.
+- `specs/commands.md` — new `kerf advise` section; additive note on `kerf next` / `kerf triage` interaction with the new rationale data (no payload changes).
+- `specs/simulator.md` — additive `--declarative` input path; preserve `--weights` path.
+- `specs/dependencies.md` — deferred bead status interaction with `IsComplete`.
+- `specs/testing.md` — one new property contract (weight-derivation symmetry between `kerf` and `kerfsim`).

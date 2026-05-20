@@ -2,6 +2,10 @@
 dolt/
 dolt-access.lock
 
+# Br auto-rotation snapshots (~1.2MB per write; documented bug — see harmonik kerf-feedback 2026-05-19)
+.br_history/
+.br_history-archive/
+
 # Runtime files
 bd.sock
 bd.sock.startlock
