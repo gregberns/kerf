@@ -1,0 +1,14 @@
+{
+  "findings": [
+    {
+      "kind": "reviewer_absent",
+      "bead_id": "hk-iuaed.6",
+      "detail": {
+        "session_id": "801120b5-0000-4000-8000-000000000001",
+        "commit_sha": "dcd7f7e5d1a5eb4cf6dc4b292d86a5ea01562c4f",
+        "committed_at": "2026-05-15T20:23:40Z",
+        "implementer_sub_agent_id": "a11a11a11a11a11a1"
+      }
+    }
+  ]
+}
