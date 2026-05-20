@@ -429,6 +429,10 @@ func runNext(cmd *cobra.Command) error {
 	// next" → "Storage-drift footer"). Errors are swallowed: drift
 	// detection is advisory on this path and must not fail `kerf next`.
 	storageDriftCount := computeStorageDriftCount(projectID, r)
+	// validation-section-coverage detector contribution (Plan 025 / B4 —
+	// kerf-ystq). Renders as a parallel `note:` line below the storage-
+	// drift footer; same suppression knob (`doctor.footer`).
+	validationCoverageCount := computeNonGreenDetectorCount(projectID, r, "validation-section-coverage")
 	// Suppression knob (Plan 017 / B13 — kerf-bwd). Either
 	// `doctor.footer: false` in project.yaml or KERF_DOCTOR_FOOTER=0
 	// elides the footer; the env var wins on conflict. Spec:
@@ -436,6 +440,7 @@ func runNext(cmd *cobra.Command) error {
 	// specs/commands.md §"Storage-drift footer".
 	if !projCfg.DoctorFooterEnabled() {
 		storageDriftCount = 0
+		validationCoverageCount = 0
 	}
 
 	// --- Assemble + exclusion (beads-then-cleanups; warnings separate) ---
@@ -470,7 +475,7 @@ func runNext(cmd *cobra.Command) error {
 				return jerr
 			}
 		} else {
-			if rerr := renderNextText(out, main, warnings, driftSummary, hasBaseline, nil, storageDriftCount); rerr != nil {
+			if rerr := renderNextText(out, main, warnings, driftSummary, hasBaseline, nil, storageDriftCount, validationCoverageCount); rerr != nil {
 				return rerr
 			}
 		}
@@ -480,7 +485,7 @@ func runNext(cmd *cobra.Command) error {
 	case "json":
 		return renderNextJSON(out, main, warnings, driftSummary, hasBaseline)
 	default:
-		return renderNextText(out, main, warnings, driftSummary, hasBaseline, nearMatchHints, storageDriftCount)
+		return renderNextText(out, main, warnings, driftSummary, hasBaseline, nearMatchHints, storageDriftCount, validationCoverageCount)
 	}
 }
 
@@ -658,7 +663,7 @@ func stripUntriagedWarning(ws []feed.Item) []feed.Item {
 // render first, the one-line drift summary follows when any counter is
 // non-zero, and the warning stanza renders last. This puts actionable work
 // at the top of the agent's view; diagnostics tail the output.
-func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSummaryCounts, hasBaseline bool, nearMatchHints map[string]string, storageDriftCount int) error {
+func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSummaryCounts, hasBaseline bool, nearMatchHints map[string]string, storageDriftCount, validationCoverageCount int) error {
 	headlineRenders := hasBaseline && summary.renders()
 
 	// Empty-feed fallback: nothing actionable, nothing to diagnose. The
@@ -673,6 +678,16 @@ func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSumm
 			}
 			fmt.Fprintln(out)
 			fmt.Fprintf(out, "note: %d storage %s — run 'kerf doctor' for details\n", storageDriftCount, noun)
+		}
+		if validationCoverageCount > 0 {
+			noun := "findings"
+			if validationCoverageCount == 1 {
+				noun = "finding"
+			}
+			if storageDriftCount == 0 {
+				fmt.Fprintln(out)
+			}
+			fmt.Fprintf(out, "note: %d validation-section-coverage %s — run 'kerf doctor' for details\n", validationCoverageCount, noun)
 		}
 		return nil
 	}
@@ -771,10 +786,50 @@ func renderNextText(out io.Writer, main, warnings []feed.Item, summary driftSumm
 		fmt.Fprintln(out)
 		fmt.Fprintf(out, "note: %d storage %s — run 'kerf doctor' for details\n", storageDriftCount, noun)
 	}
+	if validationCoverageCount > 0 {
+		noun := "findings"
+		if validationCoverageCount == 1 {
+			noun = "finding"
+		}
+		if storageDriftCount == 0 {
+			fmt.Fprintln(out)
+		}
+		fmt.Fprintf(out, "note: %d validation-section-coverage %s — run 'kerf doctor' for details\n", validationCoverageCount, noun)
+	}
 
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, nextFooterTip)
 	return nil
+}
+
+// computeNonGreenDetectorCount queries the named detector from the doctor
+// registry and returns its non-green finding count, or 0 on any error
+// (advisory path; never fails the command). See computeStorageDriftCount for
+// the model; this is its generalized form used by detectors that the spec
+// says "contribute to the kerf next warning footer on the same terms".
+func computeNonGreenDetectorCount(projectID string, r *storage.Resolver, detectorID string) int {
+	if r == nil {
+		return 0
+	}
+	det, ok := doctor.DefaultRegistry.Get(detectorID)
+	if !ok {
+		return 0
+	}
+	findings, err := det.Run(&doctor.Context{
+		ProjectID: projectID,
+		Resolver:  r,
+		BenchPath: r.BenchPath,
+	})
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, f := range findings {
+		if f.Severity != doctor.Green {
+			n++
+		}
+	}
+	return n
 }
 
 // computeStorageDriftCount queries the `storage-drift` detector and returns
