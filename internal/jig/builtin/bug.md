@@ -190,6 +190,8 @@ Specify the fix so that an implementing agent knows exactly what to change, with
 
 - `05-fix-spec.md` contains: proposed fix approach, alternatives considered (if any), risks and side effects, spec changes needed (if spec-first), acceptance criteria, tests to add/modify, and scope estimate
 - An implementing agent can read this file and know exactly what to change and how to verify the fix
+- Scenario-test item filed with ID `<id>` (see `jig-system.md` §Validation-test requirement)
+- Exploratory-test item filed with ID `<id>` (see `jig-system.md` §Validation-test requirement)
 
 ### Review Criteria
 
