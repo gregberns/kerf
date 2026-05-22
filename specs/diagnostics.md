@@ -53,7 +53,7 @@ The parser exposes the following event types to detectors (the on-disk JSONL sch
 |-------|---------|
 | `dispatch` | Orchestrator launched a sub-agent against a bead. Marks the start of a dispatch interval. Carries `session_id`, `sub_agent_id`, `bead_id`, optional `role`. |
 | `tool_result` | A tool invocation returned to a sub-agent. Carries `is_error` when applicable. Used to observe sub-agent activity and to classify abandon-reason categories. |
-| `commit_ref` | A commit landed referencing one or more bead IDs (via the indexer described above). Carries `commit_sha`, `bead_id`, `committed_at`. |
+| `commit_ref` | A commit landed referencing one or more bead IDs (via the indexer described above). Carries `commit_sha`, `bead_id`, `committed_at`. D1 (abandoned-dispatch) treats `git log --all` as authoritative — `commit_ref` events alone are insufficient evidence of a real commit. |
 | `bead_close` | A bead was closed (possibly as SUBSUMED). Carries `commit_sha`. Closing a bead does **not** by itself satisfy D1 — only a `commit_ref` against the dispatched bead's ID does. |
 
 ## D1 — abandoned dispatch
@@ -61,6 +61,8 @@ The parser exposes the following event types to detectors (the on-disk JSONL sch
 ### Signal
 
 A sub-agent dispatch whose wall-time exceeds the dispatch floor, for which no `commit_ref` event referencing the dispatched `bead_id` (or any aliased ID per the indexer) exists across `git log --all`, and whose owning bead has no terminal status update.
+
+The authoritative evidence for "a dispatch produced a commit" is `git log --all` (on-disk git history), not `commit_ref` transcript events. A `commit_ref` event without a matching on-disk commit does **not** suppress a D1 abandoned-dispatch warning.
 
 ### Threshold
 
