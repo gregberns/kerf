@@ -436,10 +436,10 @@ func TestRunNext_E2E_BothDetectorsNonFatal(t *testing.T) {
 //     invocation (cardinality, per specs/commands.md
 //     §`corrupt_project_config`).
 //  2. Carry the spec's title, action ("-"), and a reason embedding the
-//     verbatim compile error plus the D1/D6-disabled clause.
-//  3. Disable D1 and D6: a transcript that would otherwise produce both
-//     warnings yields neither (specs/coordination.md §"Feed-warning
-//     rules" row for `corrupt_project_config`).
+//     verbatim compile error plus the D1-disabled clause.
+//  3. Disable D1 only: a transcript that would otherwise produce a D1
+//     finding yields none. D6 is unaffected and still emits its findings
+//     (specs/commands.md §`corrupt_project_config`, kerf-x91o).
 //  4. Be non-fatal: the feed still renders (footer tip still prints).
 //
 // Bead: kerf-7ozm.
@@ -466,7 +466,8 @@ func TestRunNext_E2E_CorruptProjectConfig_TextAndJSON(t *testing.T) {
 	isolatePATHKeepGit(t)
 
 	// Build a transcript that would surface both D1 and D6 findings if
-	// the pattern were valid — proves the disablement contract.
+	// the pattern were valid — D1 must be disabled (no findings), D6
+	// must still run (kerf-x91o decoupling).
 	d1, err := os.ReadFile(fixturePath("../internal/kerftranscript/testdata/d1_abandon_a.jsonl"))
 	if err != nil {
 		t.Fatalf("read d1: %v", err)
@@ -511,21 +512,27 @@ func TestRunNext_E2E_CorruptProjectConfig_TextAndJSON(t *testing.T) {
 	if !strings.Contains(body, "bead.id_pattern failed to compile:") {
 		t.Errorf("text: missing reason prefix; got:\n%s", body)
 	}
-	if !strings.Contains(body, "D1 and D6 diagnostics disabled until fixed") {
-		t.Errorf("text: missing D1/D6 disabled clause; got:\n%s", body)
+	if !strings.Contains(body, "D1 diagnostics disabled until fixed") {
+		t.Errorf("text: missing D1-disabled clause; got:\n%s", body)
+	}
+	// Bead kerf-x91o: the reason field must not advertise D6 as disabled
+	// (D6 does not consume bead.id_pattern).
+	if strings.Contains(body, "D1 and D6 diagnostics disabled") {
+		t.Errorf("text: reason must not couple D6 to bead.id_pattern (kerf-x91o); got:\n%s", body)
 	}
 	// Cardinality: exactly one corrupt_project_config row, even with
 	// transcripts staged for both D1 and D6 (shared emission contract).
 	if n := strings.Count(body, "Corrupt project config: bead.id_pattern"); n != 1 {
 		t.Errorf("text: corrupt_project_config title count = %d, want 1; got:\n%s", n, body)
 	}
-	// D1 and D6 must be disabled: no per-bead warnings about hk-qo08q.15
-	// or hk-iuaed.6 from this invocation.
+	// D1 must be disabled: no per-bead warnings about hk-qo08q.15 from
+	// this invocation. D6 is unaffected (kerf-x91o): "Reviewer absent:"
+	// findings should still surface for the staged d6 fixture.
 	if strings.Contains(body, "Abandoned dispatch:") {
 		t.Errorf("text: D1 must be disabled when bead.id_pattern is corrupt; got:\n%s", body)
 	}
-	if strings.Contains(body, "Reviewer absent:") {
-		t.Errorf("text: D6 must be disabled when bead.id_pattern is corrupt; got:\n%s", body)
+	if !strings.Contains(body, "Reviewer absent:") {
+		t.Errorf("text: D6 must still emit findings when bead.id_pattern is corrupt (kerf-x91o); got:\n%s", body)
 	}
 	// Non-fatal: footer tip still renders.
 	if !strings.Contains(body, nextFooterTip) {
@@ -561,18 +568,21 @@ func TestRunNext_E2E_CorruptProjectConfig_TextAndJSON(t *testing.T) {
 		t.Errorf("json: action = %q, want %q", got.Action, "-")
 	}
 	if !strings.Contains(got.Reason, "bead.id_pattern failed to compile:") ||
-		!strings.Contains(got.Reason, "D1 and D6 diagnostics disabled until fixed") {
+		!strings.Contains(got.Reason, "D1 diagnostics disabled until fixed") {
 		t.Errorf("json: reason missing spec fragments; got %q", got.Reason)
+	}
+	if strings.Contains(got.Reason, "D1 and D6 diagnostics disabled") {
+		t.Errorf("json: reason must not couple D6 to bead.id_pattern (kerf-x91o); got %q", got.Reason)
 	}
 	if got.BeadID != nil {
 		t.Errorf("json: bead_id = %v, want nil for project-level warning", got.BeadID)
 	}
-	// D1 and D6 disabled in JSON too.
+	// D1 disabled, D6 still runs (kerf-x91o decoupling).
 	if countItemsByTitlePrefix(items, "Abandoned dispatch:") != 0 {
 		t.Errorf("json: D1 must be disabled; items=%+v", items)
 	}
-	if countItemsByTitlePrefix(items, "Reviewer absent:") != 0 {
-		t.Errorf("json: D6 must be disabled; items=%+v", items)
+	if countItemsByTitlePrefix(items, "Reviewer absent:") == 0 {
+		t.Errorf("json: D6 must still emit findings when bead.id_pattern is corrupt (kerf-x91o); items=%+v", items)
 	}
 }
 

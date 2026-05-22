@@ -404,13 +404,13 @@ func runNext(cmd *cobra.Command) error {
 	}
 
 	// --- Shared config-load for diagnostics family (Plan 013 / kerf-7ozm) -
-	// Compile project.yaml's bead.id_pattern once. Both D1 and D6 consume
-	// this single result and are uniformly disabled when the pattern is
-	// malformed, per specs/commands.md §"Warning kinds" →
+	// Compile project.yaml's bead.id_pattern once. Only D1 consumes this
+	// result (D6 keys on bead-id fields parsed directly from transcript
+	// events and is unaffected by a corrupt pattern). The warning still
+	// fires from this shared config-load layer with cardinality = 1 per
+	// `kerf next` invocation, per specs/commands.md §"Warning kinds" →
 	// `corrupt_project_config` and specs/coordination.md §"Feed-warning
-	// rules". A single `corrupt_project_config` warning is emitted per
-	// `kerf next` invocation (cardinality = 1, shared by D1 and D6 — not
-	// per-detector).
+	// rules". See bead kerf-x91o for the decoupling rationale.
 	beadIDPattern := kerftranscript.CompileBeadIDPattern(projCfg.BeadIDPattern())
 	if beadIDPattern.Corrupt() {
 		warningItems = append(warningItems, corruptProjectConfigWarning(beadIDPattern.CompileError))
@@ -435,11 +435,11 @@ func runNext(cmd *cobra.Command) error {
 	// commit". Discovery failures are silent. The 30-bead window and the
 	// min-history guard are applied here (the pure detector is
 	// window-agnostic so unit tests against small fixtures still
-	// exercise it). When bead.id_pattern is malformed the detector is
-	// disabled per specs/coordination.md §"Feed-warning rules" row for
-	// `corrupt_project_config` — even though D6's current implementation
-	// does not consume the pattern, the spec couples D1 and D6 disablement
-	// to the corruption to keep the user-visible contract consistent.
+	// exercise it). D6 is intentionally NOT disabled when bead.id_pattern
+	// is malformed (per specs/commands.md §`corrupt_project_config`):
+	// D6 does not consume the pattern. The `beadIDPattern` argument is
+	// retained for call-site symmetry with collectD1Warnings; see bead
+	// kerf-x91o.
 	warningItems = append(warningItems, collectD6Warnings(r.RepoRoot, beadIDPattern)...)
 
 	// --- Compute drift-summary counters (Plan 009 / Bead 11b) ------------
@@ -619,7 +619,11 @@ func collectD1Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatte
 // "silent no-op": missing transcript directory, no jsonl files, parse
 // errors. Unlike D1 this helper does not need a project bead.id_pattern
 // — D6 is keyed on bead-id fields the parser extracts directly from
-// transcript events, not on regex over commit messages.
+// transcript events, not on regex over commit messages. Consequently a
+// corrupt `bead.id_pattern` does NOT disable D6 (per
+// specs/commands.md §`corrupt_project_config`); the `beadIDPattern`
+// parameter is currently unused and retained only so the call site can
+// stay symmetric with `collectD1Warnings`.
 //
 // The 30-bead window and the min-history guard from
 // specs/diagnostics.md §"Threshold and window" are applied here:
@@ -631,18 +635,18 @@ func collectD1Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatte
 // The pure detector (diagnostics.DetectD6) is intentionally
 // window-agnostic so unit tests against small fixtures exercise the
 // detection logic without tripping the guard.
-func collectD6Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatternResult) []feed.Item {
+func collectD6Warnings(repoRoot string, _ kerftranscript.BeadIDPatternResult) []feed.Item {
 	if repoRoot == "" {
 		return nil
 	}
-	if beadIDPattern.Corrupt() {
-		// Per specs/coordination.md §"Feed-warning rules" row for
-		// `corrupt_project_config`: when bead.id_pattern fails to
-		// compile, D1 AND D6 are disabled for this invocation, even
-		// though D6's current implementation does not consume the
-		// pattern. The user-visible contract pairs the two detectors.
-		return nil
-	}
+	// NOTE: D6 deliberately does NOT short-circuit on a corrupt
+	// bead.id_pattern. Per specs/commands.md §`corrupt_project_config`,
+	// only D1 is disabled when the pattern fails to compile; D6 is
+	// keyed on bead-id fields the parser extracts directly from
+	// transcript events and is unaffected. The previous short-circuit
+	// here was a documented dead branch (kerf-x91o); reintroducing it
+	// would silently suppress D6 findings on any project with a typo
+	// in bead.id_pattern.
 
 	dir := kerftranscript.ResolveTranscriptDir(repoRoot)
 	files, err := kerftranscript.DiscoverTranscripts(dir)
@@ -739,10 +743,13 @@ func currentHeadSHA(repoRoot string) string {
 //   - action: "-" (no fix command; hand-edit project.yaml to repair the
 //     regex).
 //   - reason: "bead.id_pattern failed to compile: {compile-error}.
-//     D1 and D6 diagnostics disabled until fixed."
+//     D1 diagnostics disabled until fixed."
 //
 // Exactly one warning per `kerf next` invocation (cardinality = 1,
-// shared by D1 and D6).
+// emitted from the shared config-load layer). Bead kerf-x91o relaxed
+// this from "D1 and D6 disabled" to "D1 disabled" after the dead
+// short-circuit in collectD6Warnings was removed; D6 does not consume
+// bead.id_pattern.
 func corruptProjectConfigWarning(compileErr string) feed.Item {
 	return feed.Item{
 		Kind:   feed.KindWarning,
@@ -750,7 +757,7 @@ func corruptProjectConfigWarning(compileErr string) feed.Item {
 		Title:  "Corrupt project config: bead.id_pattern",
 		Action: "-",
 		Reason: fmt.Sprintf(
-			"bead.id_pattern failed to compile: %s. D1 and D6 diagnostics disabled until fixed.",
+			"bead.id_pattern failed to compile: %s. D1 diagnostics disabled until fixed.",
 			compileErr,
 		),
 	}

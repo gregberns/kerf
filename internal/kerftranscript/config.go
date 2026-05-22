@@ -34,8 +34,9 @@ type BeadIDPatternResult struct {
 }
 
 // Corrupt reports whether the configured pattern failed to compile.
-// When true, both D1 and D6 must be disabled for this invocation per
+// When true, D1 must be disabled for this invocation per
 // specs/coordination.md §"Feed-warning rules" → `corrupt_project_config`.
+// D6 is unaffected (does not consume the pattern); see bead kerf-x91o.
 func (r BeadIDPatternResult) Corrupt() bool {
 	return r.Configured && r.Pattern == nil && r.CompileError != ""
 }
@@ -47,9 +48,10 @@ func (r BeadIDPatternResult) Corrupt() bool {
 // as "not configured" and are not a corruption.
 //
 // Per specs/commands.md §`corrupt_project_config`: this is the
-// shared config-load layer; D1 and D6 must NOT compile the pattern
-// independently. A single emission of the `corrupt_project_config`
-// warning per `kerf next` invocation covers both detectors.
+// shared config-load layer. Only D1 consumes the pattern at runtime;
+// D6 is keyed on bead-id fields parsed directly from transcript events
+// (bead kerf-x91o). A single emission of the `corrupt_project_config`
+// warning per `kerf next` invocation is sourced from this layer.
 func CompileBeadIDPattern(patternStr string) BeadIDPatternResult {
 	patternStr = strings.TrimSpace(patternStr)
 	if patternStr == "" {
