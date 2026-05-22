@@ -135,7 +135,10 @@ func New(t testing.TB) *Runner {
 
 	projectRoot := t.TempDir()
 	homeDir := t.TempDir()
-	benchDir := filepath.Join(homeDir, ".kerf", "bench")
+	// benchDir mirrors bench.BenchPath(): <HOME>/.kerf. Keep these aligned —
+	// a previous divergence (.kerf/bench vs .kerf) caused scenario tests to
+	// write fixtures into a directory kerf never reads (kerf-w6k3 / kerf-hmcc).
+	benchDir := filepath.Join(homeDir, ".kerf")
 
 	r := &Runner{
 		t:           t,
@@ -261,8 +264,9 @@ func (r *Runner) ProjectRoot() string { return r.projectRoot }
 // HomeDir returns the absolute path to the scenario's HOME.
 func (r *Runner) HomeDir() string { return r.homeDir }
 
-// BenchDir returns the absolute path to the scenario's bench dir (under HOME).
-// Note: the directory may not exist until kerf creates it.
+// BenchDir returns the absolute path to the scenario's bench dir
+// (<HOME>/.kerf), matching bench.BenchPath(). The directory may not exist
+// until kerf creates it.
 func (r *Runner) BenchDir() string { return r.benchDir }
 
 // Binary returns the absolute path to the compiled kerf binary.
