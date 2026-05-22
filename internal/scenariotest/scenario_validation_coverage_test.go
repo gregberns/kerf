@@ -99,12 +99,7 @@ func initBenchProject(t *testing.T, r *Runner) string {
 	if projectID == "" {
 		t.Fatalf("project-identifier empty after kerf init")
 	}
-	// Note: bench.BenchPath() returns "<HOME>/.kerf", but Runner.BenchDir()
-	// historically returned "<HOME>/.kerf/bench" — that path mismatch made an
-	// earlier draft of this test write fixtures into a dir kerf never looks
-	// at. The canonical kerf-side bench root is <HOME>/.kerf; the projects/
-	// subtree is what we want.
-	return filepath.Join(r.HomeDir(), ".kerf", "projects", projectID)
+	return filepath.Join(r.BenchDir(), "projects", projectID)
 }
 
 // compliantWDLL is a "What done looks like" block with both IDs filled.
