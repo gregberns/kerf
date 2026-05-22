@@ -221,7 +221,7 @@ func TestRenderNextText_PayloadAboveWarnings(t *testing.T) {
 	}
 }
 
-// --- Storage-drift footer (Plan 017 / B11 — kerf-cgb) ----------------------
+// --- Doctor footer (Plan 017 / B11 — kerf-cgb) -----------------------------
 
 func TestRenderNextText_StorageDriftFooter_Silent(t *testing.T) {
 	wc := "alpha"
@@ -1288,7 +1288,7 @@ func TestNextJSON_BeadReasonIncludesGraphSignals(t *testing.T) {
 //
 // Exercises renderNextText for validationCoverageCount > 0. The kerf-ystq
 // implementer added the parameter but only threaded zero in existing tests;
-// this fills the gap. Spec: specs/commands.md §"Storage-drift footer" — the
+// this fills the gap. Spec: specs/commands.md §"Doctor footer" — the
 // detector emits a parallel `note:` line with detector-id "validation-section-
 // coverage" using `finding`/`findings` singular/plural and the same suppression
 // knob (`doctor.footer` / KERF_DOCTOR_FOOTER=0) as storage-drift.

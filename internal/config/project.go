@@ -11,11 +11,12 @@ import (
 )
 
 // DoctorFooterEnvVar is the environment variable that overrides the
-// project-level `doctor.footer` setting for the storage-drift footer on
-// `kerf next` and `kerf triage`. `0`/`false`/`no`/`off` suppress the
-// footer; `1`/`true`/`yes`/`on` force-enable it. See
+// project-level `doctor.footer` setting for the doctor footer on
+// `kerf next` (all non-green detectors) and the storage-drift footer
+// on `kerf triage`. `0`/`false`/`no`/`off` suppress the footer;
+// `1`/`true`/`yes`/`on` force-enable it. See
 // specs/architecture.md §"Project Configuration" → `doctor.footer` and
-// specs/commands.md §"Storage-drift footer".
+// specs/commands.md §"Doctor footer".
 const DoctorFooterEnvVar = "KERF_DOCTOR_FOOTER"
 
 // Maturity values declared at the project.yaml top level. See
