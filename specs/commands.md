@@ -1999,18 +1999,18 @@ See [diagnostics.md](diagnostics.md) for the detector signal, window definition,
 
 #### `corrupt_project_config`
 
-- **When it fires:** during config-load for the diagnostics family, `project.yaml`'s `bead.id_pattern` field fails to compile as a regular expression. The check runs once per `kerf next` invocation in the shared config-load layer used by both D1 (`abandoned_dispatch`) and D6 (`reviewer_absent`); a single emission covers both detectors. See [diagnostics.md §Bead-ID resolution](diagnostics.md#bead-id-resolution) for how `bead.id_pattern` is consumed.
-- **Effect on the feed:** non-fatal. The feed listing still renders. The D1 and D6 diagnostics that depend on `bead.id_pattern` are disabled for this invocation; other warning kinds are unaffected.
+- **When it fires:** during config-load for the diagnostics family, `project.yaml`'s `bead.id_pattern` field fails to compile as a regular expression. The check runs once per `kerf next` invocation in the shared config-load layer. Currently only D1 (`abandoned_dispatch`) consumes `bead.id_pattern`; D6 (`reviewer_absent`) keys on bead-id fields the transcript parser extracts directly from events and is not affected by a corrupt pattern. The emission lives in the shared config-load layer so the warning surfaces once per invocation regardless of which detectors actually depend on the pattern. See [diagnostics.md §Bead-ID resolution](diagnostics.md#bead-id-resolution) for how `bead.id_pattern` is consumed.
+- **Effect on the feed:** non-fatal. The feed listing still renders. D1 is disabled for this invocation (it depends on `bead.id_pattern`); D6 is unaffected and still runs normally. Other warning kinds are unaffected.
 - **Fields:**
   - `title`: `Corrupt project config: bead.id_pattern`
   - `action`: `-` (no fix command; hand-edit `project.yaml` to repair the regex).
-  - `reason`: `bead.id_pattern failed to compile: {compile-error}. D1 and D6 diagnostics disabled until fixed.`
+  - `reason`: `bead.id_pattern failed to compile: {compile-error}. D1 diagnostics disabled until fixed.`
 - **Message shape (one warning per invocation):**
 
   ```
   Warning: corrupt project config — bead.id_pattern.
     {compile-error}
-    D1 (abandoned_dispatch) and D6 (reviewer_absent) disabled for this invocation; edit project.yaml to repair.
+    D1 (abandoned_dispatch) disabled for this invocation; edit project.yaml to repair.
   ```
 
 When multiple warnings fire on the same invocation, they are printed in the order they were detected, before the feed listing. The feed listing is omitted entirely when a fatal warning fires.

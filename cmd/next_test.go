@@ -1203,13 +1203,13 @@ func TestCollectD6Warnings_SilentNoOp_MalformedJSONL(t *testing.T) {
 //   - title:  "Corrupt project config: bead.id_pattern"
 //   - action: "-"
 //   - reason: "bead.id_pattern failed to compile: {compile-error}.
-//     D1 and D6 diagnostics disabled until fixed."
+//     D1 diagnostics disabled until fixed."
 //   - cardinality: exactly one warning per `kerf next` invocation
-//     (shared by D1 and D6 — not per-detector).
+//     (emitted from the shared config-load layer).
 //
 // And specs/coordination.md §"Feed-warning rules" → corrupt_project_config
-// row: D1 and D6 are disabled for this invocation when the pattern is
-// malformed.
+// row: only D1 is disabled when the pattern is malformed. D6 is unaffected
+// (does not consume the pattern). Bead kerf-x91o.
 
 // TestCorruptProjectConfigWarning_FieldShape pins the field-level
 // contract: title, action, and the reason template.
@@ -1224,13 +1224,16 @@ func TestCorruptProjectConfigWarning_FieldShape(t *testing.T) {
 	if w.Action != "-" {
 		t.Errorf("Action = %q, want %q", w.Action, "-")
 	}
-	// Verbatim compile-error embedded in reason; the D1/D6-disabled
-	// sentence appended per spec.
+	// Verbatim compile-error embedded in reason; the D1-disabled
+	// sentence appended per spec (bead kerf-x91o — D6 unaffected).
 	if !strings.Contains(w.Reason, "error parsing regexp: missing closing )") {
 		t.Errorf("Reason missing verbatim compile error; got %q", w.Reason)
 	}
-	if !strings.Contains(w.Reason, "D1 and D6 diagnostics disabled until fixed") {
-		t.Errorf("Reason missing D1/D6-disabled clause; got %q", w.Reason)
+	if !strings.Contains(w.Reason, "D1 diagnostics disabled until fixed") {
+		t.Errorf("Reason missing D1-disabled clause; got %q", w.Reason)
+	}
+	if strings.Contains(w.Reason, "D6") {
+		t.Errorf("Reason must not mention D6 (kerf-x91o: D6 unaffected); got %q", w.Reason)
 	}
 	if !strings.HasPrefix(w.Reason, "bead.id_pattern failed to compile:") {
 		t.Errorf("Reason missing spec prefix; got %q", w.Reason)
@@ -1277,14 +1280,21 @@ func TestCollectD1Warnings_DisabledOnUnconfiguredPattern(t *testing.T) {
 	}
 }
 
-// TestCollectD6Warnings_DisabledOnCorruptPattern: D6 is disabled when
-// bead.id_pattern is corrupt, mirroring D1 (specs/coordination.md
-// §"Feed-warning rules" row for corrupt_project_config).
-func TestCollectD6Warnings_DisabledOnCorruptPattern(t *testing.T) {
+// TestCollectD6Warnings_UnaffectedByCorruptPattern: D6 does NOT consume
+// bead.id_pattern (specs/commands.md §`corrupt_project_config`,
+// specs/coordination.md §"Feed-warning rules" row for
+// corrupt_project_config). When the pattern is corrupt, D6 must still
+// run normally and produce the same output it would with any other
+// pattern state. Bead kerf-x91o removed the dead short-circuit in
+// collectD6Warnings; this test pins the new contract.
+func TestCollectD6Warnings_UnaffectedByCorruptPattern(t *testing.T) {
 	tDir := t.TempDir()
 	t.Setenv("KERF_TRANSCRIPT_DIR", tDir)
-	// 30 padded dispatches + 1 reviewer-absent bead — would normally
-	// surface a D6 finding (clears the min-history guard).
+	// 30 padded dispatches — clears the min-history guard but yields no
+	// reviewer-absent findings. Goal here is to confirm the function
+	// reaches its normal discovery path (no short-circuit on Corrupt())
+	// and produces the same nil result with a corrupt pattern as it
+	// would with a valid one.
 	var lines string
 	for i := 0; i < 30; i++ {
 		lines += fmt.Sprintf(
@@ -1295,9 +1305,22 @@ func TestCollectD6Warnings_DisabledOnCorruptPattern(t *testing.T) {
 		t.Fatal(err)
 	}
 	corrupt := kerftranscript.CompileBeadIDPattern("(unterminated")
-	got := collectD6Warnings("/some/repo", corrupt)
-	if got != nil {
-		t.Fatalf("D6 must be disabled when bead.id_pattern is corrupt; got %+v", got)
+	if !corrupt.Corrupt() {
+		t.Fatalf("test setup: expected pattern to be corrupt")
+	}
+	valid := kerftranscript.CompileBeadIDPattern(`hk-[a-z0-9]+`)
+	if valid.Corrupt() {
+		t.Fatalf("test setup: expected valid pattern to compile")
+	}
+	gotCorrupt := collectD6Warnings("/some/repo", corrupt)
+	gotValid := collectD6Warnings("/some/repo", valid)
+	// Both must be the same (and, in this fixture, nil) — D6 ignores
+	// the pattern entirely.
+	if len(gotCorrupt) != len(gotValid) {
+		t.Fatalf("D6 must produce identical output regardless of bead.id_pattern state; corrupt=%+v valid=%+v", gotCorrupt, gotValid)
+	}
+	if gotCorrupt != nil {
+		t.Fatalf("with no reviewer-absent transcript events, D6 must return nil; got %+v", gotCorrupt)
 	}
 }
 
