@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -562,17 +563,13 @@ func collectD1Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatte
 	// Parse every jsonl file in the directory; concatenate events. The
 	// detector groups by sub_agent_id internally so source order across
 	// files is not load-bearing for correctness.
-	var events []kerftranscript.Event
-	for _, p := range files {
-		res, perr := kerftranscript.ParseFile(p)
-		if perr != nil {
-			// Skip unreadable files (silent). Malformed lines inside a
-			// readable file are already accumulated in res.Errors and
-			// the file's good events are kept.
-			continue
-		}
-		events = append(events, res.Events...)
-	}
+	//
+	// Bead kerf-jcbb: route through the parsed-transcript cache so
+	// repeat `kerf next` invocations skip the JSONL parse when files
+	// haven't changed and HEAD hasn't moved. Cache failures fall through
+	// silently to direct parse (LoadOrParse itself drops + rebuilds on
+	// any error).
+	events, _ := kerftranscript.LoadOrParse(repoRoot, currentHeadSHA(repoRoot), files)
 	if len(events) == 0 {
 		return nil
 	}
@@ -653,14 +650,8 @@ func collectD6Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatte
 		return nil
 	}
 
-	var events []kerftranscript.Event
-	for _, p := range files {
-		res, perr := kerftranscript.ParseFile(p)
-		if perr != nil {
-			continue
-		}
-		events = append(events, res.Events...)
-	}
+	// Bead kerf-jcbb: shared parsed-transcript cache (see collectD1Warnings).
+	events, _ := kerftranscript.LoadOrParse(repoRoot, currentHeadSHA(repoRoot), files)
 	if len(events) == 0 {
 		return nil
 	}
@@ -714,6 +705,29 @@ func collectD6Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatte
 		})
 	}
 	return items
+}
+
+// currentHeadSHA returns the trimmed `git rev-parse HEAD` output for
+// repoRoot. Errors yield "" — LoadOrParse treats that as a single stable
+// SHA across the session and the cache continues to function for the
+// per-file mtime path. (No HEAD pin = no HEAD-based invalidation, which
+// is fine: when the repo doesn't have a HEAD, transcript parses are the
+// only cost anyway.)
+//
+// Bead kerf-jcbb. `git status --porcelain` drift is intentionally NOT
+// consulted — the bead brief pins HEAD SHA as the only git-side
+// invalidator.
+func currentHeadSHA(repoRoot string) string {
+	if repoRoot == "" {
+		return ""
+	}
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // corruptProjectConfigWarning builds the single `corrupt_project_config`
