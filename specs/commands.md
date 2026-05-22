@@ -1863,7 +1863,7 @@ note: {n} storage finding{s} — run 'kerf doctor' for details
 note: {n} validation-section-coverage finding{s} — run 'kerf doctor' for details
 ```
 
-Lines render in detector-registration order. A single blank line separates the footer block from the content above it; lines within the block are not separated by blank lines. Each line's `{n}` is the count of items from that detector alone; counts are never summed across detectors. The noun is `finding` when `{n}` is 1 and `findings` otherwise.
+Lines render in detector-registration order. A single blank line separates the footer block from the content above it; lines within the block are not separated by blank lines. Each line's `{n}` is the count of items from that detector alone; counts are never summed across detectors. The noun is `finding` when `{n}` is 1 and `findings` otherwise. Each non-green detector gets exactly one line; the renderer does not truncate, collapse, or paginate the footer regardless of count (N=1, N=3, and N=10+ all render identically per-line). A high-cardinality footer is a signal the user should address the underlying detectors, not the renderer.
 
 The footer is on by default. It is suppressed (the entire block, not individual lines) when `kerf config doctor.footer false` is set or when the environment variable `KERF_DOCTOR_FOOTER=0` is set at invocation time. The footer is independent of the bead-store `drift_summary` line above — bead-store drift and storage-layout drift are distinct surfaces.
 
