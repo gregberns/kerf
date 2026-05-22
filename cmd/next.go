@@ -14,7 +14,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -403,14 +402,29 @@ func runNext(cmd *cobra.Command) error {
 		warningItems = append(warningItems, d.Detect(in)...)
 	}
 
+	// --- Shared config-load for diagnostics family (Plan 013 / kerf-7ozm) -
+	// Compile project.yaml's bead.id_pattern once. Both D1 and D6 consume
+	// this single result and are uniformly disabled when the pattern is
+	// malformed, per specs/commands.md §"Warning kinds" →
+	// `corrupt_project_config` and specs/coordination.md §"Feed-warning
+	// rules". A single `corrupt_project_config` warning is emitted per
+	// `kerf next` invocation (cardinality = 1, shared by D1 and D6 — not
+	// per-detector).
+	beadIDPattern := kerftranscript.CompileBeadIDPattern(projCfg.BeadIDPattern())
+	if beadIDPattern.Corrupt() {
+		warningItems = append(warningItems, corruptProjectConfigWarning(beadIDPattern.CompileError))
+	}
+
 	// --- D1 abandoned_dispatch (Plan 013 / B-D1 — kerf-d3u3) -------------
 	// Scan recent Claude transcripts for sub-agent dispatches that ran
 	// past the 60s floor without producing a commit referencing the
 	// dispatched bead (per the indexer's parent/child rollup). Spec:
 	// specs/diagnostics.md §"D1 — abandoned dispatch". Discovery failures
 	// are silent (missing transcript dir, missing project bead.id_pattern,
-	// git-log errors all yield zero findings).
-	warningItems = append(warningItems, collectD1Warnings(r.RepoRoot, projCfg)...)
+	// git-log errors all yield zero findings). When bead.id_pattern is
+	// malformed the detector is disabled (the `corrupt_project_config`
+	// warning above covers the user-visible surface).
+	warningItems = append(warningItems, collectD1Warnings(r.RepoRoot, beadIDPattern)...)
 
 	// --- D6 reviewer_absent (Plan 013 / B-D6 — kerf-z0gh) ---------------
 	// Scan recent Claude transcripts for bead commit_ref events whose
@@ -420,8 +434,12 @@ func runNext(cmd *cobra.Command) error {
 	// commit". Discovery failures are silent. The 30-bead window and the
 	// min-history guard are applied here (the pure detector is
 	// window-agnostic so unit tests against small fixtures still
-	// exercise it).
-	warningItems = append(warningItems, collectD6Warnings(r.RepoRoot)...)
+	// exercise it). When bead.id_pattern is malformed the detector is
+	// disabled per specs/coordination.md §"Feed-warning rules" row for
+	// `corrupt_project_config` — even though D6's current implementation
+	// does not consume the pattern, the spec couples D1 and D6 disablement
+	// to the corruption to keep the user-visible contract consistent.
+	warningItems = append(warningItems, collectD6Warnings(r.RepoRoot, beadIDPattern)...)
 
 	// --- Compute drift-summary counters (Plan 009 / Bead 11b) ------------
 	// Per specs/commands.md §"kerf next" drift summary line:
@@ -516,22 +534,23 @@ func runNext(cmd *cobra.Command) error {
 // future renderer flag or v2 detector; calibration captured the
 // ~53%-within-60s sibling pattern as observation only (see
 // specs/diagnostics.md §"Burst-dedup note (capture only)").
-func collectD1Warnings(repoRoot string, cfg *config.ProjectConfig) []feed.Item {
+func collectD1Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatternResult) []feed.Item {
 	if repoRoot == "" {
 		return nil
 	}
-	patternStr := cfg.BeadIDPattern()
-	if patternStr == "" {
+	if !beadIDPattern.Configured {
 		// Spec: "kerf does not hard-code a regex." Without a project
 		// pattern the indexer cannot key commits; D1 silently no-ops.
 		return nil
 	}
-	pattern, err := regexp.Compile(patternStr)
-	if err != nil {
-		// Malformed regex in project.yaml: silent no-op. A future bead
-		// may surface this as a `corrupt_project_config` warning.
+	if beadIDPattern.Corrupt() {
+		// Malformed regex in project.yaml: D1 is disabled this
+		// invocation. The `corrupt_project_config` warning emitted by
+		// the shared config-load layer covers the user-visible surface
+		// (specs/commands.md §"Warning kinds" → `corrupt_project_config`).
 		return nil
 	}
+	pattern := beadIDPattern.Pattern
 
 	// Transcript discovery.
 	dir := kerftranscript.ResolveTranscriptDir(repoRoot)
@@ -615,8 +634,16 @@ func collectD1Warnings(repoRoot string, cfg *config.ProjectConfig) []feed.Item {
 // The pure detector (diagnostics.DetectD6) is intentionally
 // window-agnostic so unit tests against small fixtures exercise the
 // detection logic without tripping the guard.
-func collectD6Warnings(repoRoot string) []feed.Item {
+func collectD6Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatternResult) []feed.Item {
 	if repoRoot == "" {
+		return nil
+	}
+	if beadIDPattern.Corrupt() {
+		// Per specs/coordination.md §"Feed-warning rules" row for
+		// `corrupt_project_config`: when bead.id_pattern fails to
+		// compile, D1 AND D6 are disabled for this invocation, even
+		// though D6's current implementation does not consume the
+		// pattern. The user-visible contract pairs the two detectors.
 		return nil
 	}
 
@@ -687,6 +714,32 @@ func collectD6Warnings(repoRoot string) []feed.Item {
 		})
 	}
 	return items
+}
+
+// corruptProjectConfigWarning builds the single `corrupt_project_config`
+// feed.Item emitted when project.yaml's `bead.id_pattern` fails to
+// compile. Per specs/commands.md §"Warning kinds" →
+// `corrupt_project_config`:
+//
+//   - title:  "Corrupt project config: bead.id_pattern"
+//   - action: "-" (no fix command; hand-edit project.yaml to repair the
+//     regex).
+//   - reason: "bead.id_pattern failed to compile: {compile-error}.
+//     D1 and D6 diagnostics disabled until fixed."
+//
+// Exactly one warning per `kerf next` invocation (cardinality = 1,
+// shared by D1 and D6).
+func corruptProjectConfigWarning(compileErr string) feed.Item {
+	return feed.Item{
+		Kind:   feed.KindWarning,
+		Score:  0,
+		Title:  "Corrupt project config: bead.id_pattern",
+		Action: "-",
+		Reason: fmt.Sprintf(
+			"bead.id_pattern failed to compile: %s. D1 and D6 diagnostics disabled until fixed.",
+			compileErr,
+		),
+	}
 }
 
 // computeNearMatchHints walks cleanup items rank-labelled `empty` and asks

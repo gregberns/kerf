@@ -428,6 +428,154 @@ func TestRunNext_E2E_BothDetectorsNonFatal(t *testing.T) {
 	}
 }
 
+// TestRunNext_E2E_CorruptProjectConfig_TextAndJSON exercises the
+// `corrupt_project_config` warning end-to-end. A malformed
+// `bead.id_pattern` regex in project.yaml must:
+//
+//  1. Surface exactly one `corrupt_project_config` warning per
+//     invocation (cardinality, per specs/commands.md
+//     §`corrupt_project_config`).
+//  2. Carry the spec's title, action ("-"), and a reason embedding the
+//     verbatim compile error plus the D1/D6-disabled clause.
+//  3. Disable D1 and D6: a transcript that would otherwise produce both
+//     warnings yields neither (specs/coordination.md §"Feed-warning
+//     rules" row for `corrupt_project_config`).
+//  4. Be non-fatal: the feed still renders (footer tip still prints).
+//
+// Bead: kerf-7ozm.
+func TestRunNext_E2E_CorruptProjectConfig_TextAndJSON(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("KERF_DOCTOR_FOOTER", "0")
+
+	projectID := "diag-test-corrupt"
+	repo := stageDiagnosticsRepo(t, projectID)
+
+	// Overwrite the bench project.yaml with a malformed regex. The
+	// project.yaml dropped by stageDiagnosticsRepo carries a valid
+	// kerf-style pattern; the malformed pattern here is what triggers
+	// the `corrupt_project_config` warning.
+	home, _ := os.UserHomeDir()
+	benchProj := filepath.Join(home, ".kerf", "projects", projectID, "project.yaml")
+	bad := "jigs: []\nbead:\n  id_pattern: '(unterminated'\n"
+	if err := os.WriteFile(benchProj, []byte(bad), 0o644); err != nil {
+		t.Fatalf("overwrite project.yaml with malformed pattern: %v", err)
+	}
+
+	t.Chdir(repo)
+	isolatePATHKeepGit(t)
+
+	// Build a transcript that would surface both D1 and D6 findings if
+	// the pattern were valid — proves the disablement contract.
+	d1, err := os.ReadFile(fixturePath("../internal/kerftranscript/testdata/d1_abandon_a.jsonl"))
+	if err != nil {
+		t.Fatalf("read d1: %v", err)
+	}
+	d6, err := os.ReadFile(fixturePath("../internal/kerftranscript/testdata/d6_reviewer_absent_a.jsonl"))
+	if err != nil {
+		t.Fatalf("read d6: %v", err)
+	}
+	var lines strings.Builder
+	for i := 0; i < 30; i++ {
+		fmt.Fprintf(&lines,
+			`{"timestamp":"2026-05-14T10:%02d:00Z","kind":"dispatch","session_id":"pad-sess","sub_agent_id":"pad-%d","bead_id":"hk-pad-%03d","role":"implementer","text":"pad"}`+"\n",
+			i, i, i)
+	}
+	fmt.Fprintf(&lines,
+		`{"timestamp":"2026-05-14T11:00:00Z","kind":"dispatch","session_id":"pad-sess","sub_agent_id":"pad-rev","bead_id":"hk-pad-000","role":"reviewer","text":"Reviewer prompt for hk-pad-000 — pass: review"}`+"\n")
+	lines.Write(d1)
+	lines.Write(d6)
+
+	tDir := filepath.Join(tmp, "transcripts")
+	writeTranscript(t, tDir, "session.jsonl", lines.String())
+	t.Setenv("KERF_TRANSCRIPT_DIR", tDir)
+
+	resetNextFlags()
+	t.Cleanup(resetNextFlags)
+	projectFlag = ""
+	t.Cleanup(func() { projectFlag = "" })
+
+	// --- Text rendering ----------------------------------------------------
+	var buf bytes.Buffer
+	nextCmd.SetOut(&buf)
+	defer nextCmd.SetOut(nil)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext text (non-fatal warning) should not error; got: %v", err)
+	}
+	body := buf.String()
+	// Spec: title.
+	if !strings.Contains(body, "Corrupt project config: bead.id_pattern") {
+		t.Errorf("text: missing corrupt_project_config title; got:\n%s", body)
+	}
+	// Reason fragments — verbatim Go regexp error + D1/D6-disabled clause.
+	if !strings.Contains(body, "bead.id_pattern failed to compile:") {
+		t.Errorf("text: missing reason prefix; got:\n%s", body)
+	}
+	if !strings.Contains(body, "D1 and D6 diagnostics disabled until fixed") {
+		t.Errorf("text: missing D1/D6 disabled clause; got:\n%s", body)
+	}
+	// Cardinality: exactly one corrupt_project_config row, even with
+	// transcripts staged for both D1 and D6 (shared emission contract).
+	if n := strings.Count(body, "Corrupt project config: bead.id_pattern"); n != 1 {
+		t.Errorf("text: corrupt_project_config title count = %d, want 1; got:\n%s", n, body)
+	}
+	// D1 and D6 must be disabled: no per-bead warnings about hk-qo08q.15
+	// or hk-iuaed.6 from this invocation.
+	if strings.Contains(body, "Abandoned dispatch:") {
+		t.Errorf("text: D1 must be disabled when bead.id_pattern is corrupt; got:\n%s", body)
+	}
+	if strings.Contains(body, "Reviewer absent:") {
+		t.Errorf("text: D6 must be disabled when bead.id_pattern is corrupt; got:\n%s", body)
+	}
+	// Non-fatal: footer tip still renders.
+	if !strings.Contains(body, nextFooterTip) {
+		t.Errorf("text: footer tip must render (non-fatal warning); got:\n%s", body)
+	}
+
+	// --- JSON rendering ----------------------------------------------------
+	buf.Reset()
+	resetNextFlags()
+	nextFormat = "json"
+	nextCmd.SetOut(&buf)
+	if err := runNext(nextCmd); err != nil {
+		t.Fatalf("runNext json: %v", err)
+	}
+	var items []feed.Item
+	if err := json.Unmarshal(buf.Bytes(), &items); err != nil {
+		t.Fatalf("decode json: %v\nbody=%s", err, buf.String())
+	}
+	got := findItemByTitlePrefix(items, "Corrupt project config:")
+	if got == nil {
+		t.Fatalf("json: no corrupt_project_config item; items=%+v", items)
+	}
+	if n := countItemsByTitlePrefix(items, "Corrupt project config:"); n != 1 {
+		t.Errorf("json: corrupt_project_config item count = %d, want 1; items=%+v", n, items)
+	}
+	if got.Kind != feed.KindWarning {
+		t.Errorf("json: kind = %q, want %q", got.Kind, feed.KindWarning)
+	}
+	if got.Title != "Corrupt project config: bead.id_pattern" {
+		t.Errorf("json: title = %q", got.Title)
+	}
+	if got.Action != "-" {
+		t.Errorf("json: action = %q, want %q", got.Action, "-")
+	}
+	if !strings.Contains(got.Reason, "bead.id_pattern failed to compile:") ||
+		!strings.Contains(got.Reason, "D1 and D6 diagnostics disabled until fixed") {
+		t.Errorf("json: reason missing spec fragments; got %q", got.Reason)
+	}
+	if got.BeadID != nil {
+		t.Errorf("json: bead_id = %v, want nil for project-level warning", got.BeadID)
+	}
+	// D1 and D6 disabled in JSON too.
+	if countItemsByTitlePrefix(items, "Abandoned dispatch:") != 0 {
+		t.Errorf("json: D1 must be disabled; items=%+v", items)
+	}
+	if countItemsByTitlePrefix(items, "Reviewer absent:") != 0 {
+		t.Errorf("json: D6 must be disabled; items=%+v", items)
+	}
+}
+
 // findItemByTitlePrefix returns the first item whose Title begins with
 // prefix, or nil if none. Used to locate diagnostic warning items in
 // JSON output where ordering across detectors is not load-bearing.
