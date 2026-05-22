@@ -1928,6 +1928,8 @@ Changes to this help text require a spec change.
 
 Detectors run during feed assembly; the feed (the actionable-work list) is still emitted alongside any warnings unless the warning kind is documented as fatal. The full set of warning kinds is defined here. The mirror table in [coordination.md](coordination.md#feed-warning-rules) lists each kind with its fatality and severity.
 
+Within each warning-kind subsection below, the **Fields** block (`title` / `action` / `reason`) is normative: it defines the values the renderer emits and that tests verify. The **Message shape** block is illustrative — it sketches the rough form for spec readers, but the renderer's actual output is governed by the generic template `warning: {title} — {action}` followed by an indented `reason` line, parameterised by the Fields block.
+
 #### `corrupt_spec`
 
 - **When it fires:** during step 2 (read all active works and their `spec.yaml` files), a per-work `spec.yaml` cannot be parsed — malformed YAML, an invalid `created_at` / status timestamp, a missing required field, or any other schema violation that prevents the work from being loaded.
