@@ -26,6 +26,7 @@ import (
 	"github.com/gberns/kerf/internal/beads"
 	"github.com/gberns/kerf/internal/drift"
 	"github.com/gberns/kerf/internal/feed"
+	"github.com/gberns/kerf/internal/kerftranscript"
 	"github.com/gberns/kerf/internal/queue"
 	"github.com/gberns/kerf/internal/spec"
 )
@@ -1158,7 +1159,7 @@ func TestCollectD6Warnings_MinHistoryGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := collectD6Warnings("/some/repo")
+	got := collectD6Warnings("/some/repo", kerftranscript.BeadIDPatternResult{})
 	if len(got) != 0 {
 		t.Fatalf("expected nil/empty when dispatched beads < D6MinHistoryBeads; got %d items: %+v", len(got), got)
 	}
@@ -1166,7 +1167,7 @@ func TestCollectD6Warnings_MinHistoryGuard(t *testing.T) {
 
 func TestCollectD6Warnings_SilentNoOp_NonExistentDir(t *testing.T) {
 	t.Setenv("KERF_TRANSCRIPT_DIR", filepath.Join(t.TempDir(), "nonexistent"))
-	got := collectD6Warnings("/some/repo")
+	got := collectD6Warnings("/some/repo", kerftranscript.BeadIDPatternResult{})
 	if got != nil {
 		t.Fatalf("expected nil for non-existent transcript dir; got %+v", got)
 	}
@@ -1176,7 +1177,7 @@ func TestCollectD6Warnings_SilentNoOp_EmptyDir(t *testing.T) {
 	tDir := t.TempDir()
 	t.Setenv("KERF_TRANSCRIPT_DIR", tDir)
 	// Dir exists but contains no .jsonl files.
-	got := collectD6Warnings("/some/repo")
+	got := collectD6Warnings("/some/repo", kerftranscript.BeadIDPatternResult{})
 	if got != nil {
 		t.Fatalf("expected nil for empty transcript dir; got %+v", got)
 	}
@@ -1188,9 +1189,115 @@ func TestCollectD6Warnings_SilentNoOp_MalformedJSONL(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tDir, "bad.jsonl"), []byte("{{not json}}\n{{also bad}}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := collectD6Warnings("/some/repo")
+	got := collectD6Warnings("/some/repo", kerftranscript.BeadIDPatternResult{})
 	if got != nil {
 		t.Fatalf("expected nil when all JSONL lines fail to parse; got %+v", got)
+	}
+}
+
+// --- corrupt_project_config wiring tests (Plan 013 / kerf-7ozm) -----------
+//
+// Spec contract — specs/commands.md §"Warning kinds" →
+// `corrupt_project_config`:
+//
+//   - title:  "Corrupt project config: bead.id_pattern"
+//   - action: "-"
+//   - reason: "bead.id_pattern failed to compile: {compile-error}.
+//     D1 and D6 diagnostics disabled until fixed."
+//   - cardinality: exactly one warning per `kerf next` invocation
+//     (shared by D1 and D6 — not per-detector).
+//
+// And specs/coordination.md §"Feed-warning rules" → corrupt_project_config
+// row: D1 and D6 are disabled for this invocation when the pattern is
+// malformed.
+
+// TestCorruptProjectConfigWarning_FieldShape pins the field-level
+// contract: title, action, and the reason template.
+func TestCorruptProjectConfigWarning_FieldShape(t *testing.T) {
+	w := corruptProjectConfigWarning("error parsing regexp: missing closing )")
+	if w.Kind != feed.KindWarning {
+		t.Errorf("Kind = %q, want %q", w.Kind, feed.KindWarning)
+	}
+	if w.Title != "Corrupt project config: bead.id_pattern" {
+		t.Errorf("Title = %q", w.Title)
+	}
+	if w.Action != "-" {
+		t.Errorf("Action = %q, want %q", w.Action, "-")
+	}
+	// Verbatim compile-error embedded in reason; the D1/D6-disabled
+	// sentence appended per spec.
+	if !strings.Contains(w.Reason, "error parsing regexp: missing closing )") {
+		t.Errorf("Reason missing verbatim compile error; got %q", w.Reason)
+	}
+	if !strings.Contains(w.Reason, "D1 and D6 diagnostics disabled until fixed") {
+		t.Errorf("Reason missing D1/D6-disabled clause; got %q", w.Reason)
+	}
+	if !strings.HasPrefix(w.Reason, "bead.id_pattern failed to compile:") {
+		t.Errorf("Reason missing spec prefix; got %q", w.Reason)
+	}
+	// Non-bead, project-level warning: no bead-id / work-codename.
+	if w.BeadID != nil {
+		t.Errorf("BeadID = %v, want nil", w.BeadID)
+	}
+	if w.WorkCodename != nil {
+		t.Errorf("WorkCodename = %v, want nil", w.WorkCodename)
+	}
+}
+
+// TestCollectD1Warnings_DisabledOnCorruptPattern: when the shared
+// pattern result reports Corrupt(), D1 emits zero items — neither
+// spurious findings about specific beads nor a re-emission of the
+// corrupt-config warning (cardinality is the orchestrator's job).
+func TestCollectD1Warnings_DisabledOnCorruptPattern(t *testing.T) {
+	// Stage a transcript that *would* yield D1 findings if the pattern
+	// were good, then assert D1 returns nil regardless.
+	tDir := t.TempDir()
+	t.Setenv("KERF_TRANSCRIPT_DIR", tDir)
+	if err := os.WriteFile(filepath.Join(tDir, "session.jsonl"),
+		[]byte(`{"timestamp":"2026-05-15T18:10:11Z","kind":"dispatch","session_id":"s1","sub_agent_id":"a1","bead_id":"hk-foo","role":"implementer","text":"go"}`+"\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := kerftranscript.CompileBeadIDPattern("(unterminated")
+	if !corrupt.Corrupt() {
+		t.Fatalf("test setup: expected pattern to be corrupt")
+	}
+	got := collectD1Warnings("/some/repo", corrupt)
+	if got != nil {
+		t.Fatalf("D1 must be disabled when bead.id_pattern is corrupt; got %+v", got)
+	}
+}
+
+// TestCollectD1Warnings_DisabledOnUnconfiguredPattern: empty
+// bead.id_pattern is the long-standing silent no-op (not a corruption).
+func TestCollectD1Warnings_DisabledOnUnconfiguredPattern(t *testing.T) {
+	got := collectD1Warnings("/some/repo", kerftranscript.BeadIDPatternResult{})
+	if got != nil {
+		t.Fatalf("D1 must silently no-op when no pattern is configured; got %+v", got)
+	}
+}
+
+// TestCollectD6Warnings_DisabledOnCorruptPattern: D6 is disabled when
+// bead.id_pattern is corrupt, mirroring D1 (specs/coordination.md
+// §"Feed-warning rules" row for corrupt_project_config).
+func TestCollectD6Warnings_DisabledOnCorruptPattern(t *testing.T) {
+	tDir := t.TempDir()
+	t.Setenv("KERF_TRANSCRIPT_DIR", tDir)
+	// 30 padded dispatches + 1 reviewer-absent bead — would normally
+	// surface a D6 finding (clears the min-history guard).
+	var lines string
+	for i := 0; i < 30; i++ {
+		lines += fmt.Sprintf(
+			`{"timestamp":"2026-05-14T10:%02d:00Z","kind":"dispatch","session_id":"sess","sub_agent_id":"a-%d","bead_id":"hk-pad-%03d","role":"implementer","text":"x"}`+"\n",
+			i, i, i)
+	}
+	if err := os.WriteFile(filepath.Join(tDir, "session.jsonl"), []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := kerftranscript.CompileBeadIDPattern("(unterminated")
+	got := collectD6Warnings("/some/repo", corrupt)
+	if got != nil {
+		t.Fatalf("D6 must be disabled when bead.id_pattern is corrupt; got %+v", got)
 	}
 }
 
