@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 )
@@ -120,6 +121,18 @@ func loadOrParseWith(repoRoot, headSHA string, paths []string, parse parseFn) ([
 			// sites' silent-skip policy). Do not poison the cache with
 			// a partial entry.
 			continue
+		}
+		// Bead kerf-ek21: surface per-file parse-error counts. Before
+		// this change Result.Errors was silently discarded, which let
+		// the kind-vs-type schema mismatch hide for the full lifetime
+		// of the diagnostics family (every real-Claude transcript line
+		// failed validation, yet `kerf next` produced no warnings and
+		// no signal). A one-line stderr summary is the minimum useful
+		// signal; the proper warning-kind treatment ("parser_errors")
+		// is deferred to a separate spec bead.
+		if len(res.Errors) > 0 {
+			log.Printf("kerftranscript: %s: %d parse error(s) (first: line %d: %v)",
+				p, len(res.Errors), res.Errors[0].LineNumber, res.Errors[0].Err)
 		}
 		newEntries[p] = cacheEntry{MTimeNano: mtime, Events: res.Events}
 		out = append(out, res.Events...)

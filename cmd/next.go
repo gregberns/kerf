@@ -573,6 +573,11 @@ func collectD1Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatte
 	if len(events) == 0 {
 		return nil
 	}
+	// Bead kerf-ek21: real Claude transcripts carry bead IDs only inside
+	// the dispatch prompt text, not as a parser-extracted field. Apply
+	// the project's bead.id_pattern post-cache so the cached event slice
+	// stays pattern-agnostic.
+	events = kerftranscript.ExtractBeadIDs(events, pattern)
 
 	// Build the indexer over `git log --all`. Errors here are silent
 	// (e.g. repoRoot is not a git repo); D1 emits zero findings.
@@ -635,7 +640,7 @@ func collectD1Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatte
 // The pure detector (diagnostics.DetectD6) is intentionally
 // window-agnostic so unit tests against small fixtures exercise the
 // detection logic without tripping the guard.
-func collectD6Warnings(repoRoot string, _ kerftranscript.BeadIDPatternResult) []feed.Item {
+func collectD6Warnings(repoRoot string, beadIDPattern kerftranscript.BeadIDPatternResult) []feed.Item {
 	if repoRoot == "" {
 		return nil
 	}
@@ -658,6 +663,13 @@ func collectD6Warnings(repoRoot string, _ kerftranscript.BeadIDPatternResult) []
 	events, _ := kerftranscript.LoadOrParse(repoRoot, currentHeadSHA(repoRoot), files)
 	if len(events) == 0 {
 		return nil
+	}
+	// Bead kerf-ek21: as in collectD1Warnings, real-Claude-Code dispatch
+	// events carry the bead ID only in the prompt text. Apply the
+	// project pattern when it compiled cleanly; when corrupt or absent
+	// fall through (D6 stays best-effort per kerf-x91o).
+	if beadIDPattern.Configured && !beadIDPattern.Corrupt() {
+		events = kerftranscript.ExtractBeadIDs(events, beadIDPattern.Pattern)
 	}
 
 	// Min-history guard. Below the threshold, D6 suppresses entirely
