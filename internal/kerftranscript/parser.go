@@ -70,12 +70,12 @@ func Parse(r io.Reader) (Result, error) {
 			continue
 		}
 
-		ev, perr := decodeLine(raw, lineNo)
+		evs, perr := decodeLine(raw, lineNo)
 		if perr != nil {
 			res.Errors = append(res.Errors, *perr)
 			continue
 		}
-		res.Events = append(res.Events, ev)
+		res.Events = append(res.Events, evs...)
 	}
 	if err := scanner.Err(); err != nil {
 		return res, fmt.Errorf("kerftranscript: read transcript: %w", err)
@@ -131,20 +131,48 @@ func BeadIDs(events []Event) []string {
 	return out
 }
 
-// decodeLine validates one JSONL line. Returns either an Event or a
-// ParseError, never both.
-func decodeLine(raw []byte, lineNo int) (Event, *ParseError) {
+// decodeLine validates one JSONL line. Returns either a slice of Events
+// (possibly empty for irrelevant real-Claude-Code line kinds, or
+// multi-valued when a single user line carries several tool_result
+// blocks) or a ParseError, never both.
+//
+// Bead kerf-ek21: the parser now bridges two on-disk schemas in a
+// single pass:
+//
+//   - Fixture schema (testdata/*.jsonl): one Event per line, identified
+//     by a top-level `kind` field whose value is one of the four
+//     EventKind constants. This is the path that drives the D1/D6 unit
+//     tests and the v0 detector fixtures.
+//
+//   - Real Claude Code transcripts (~/.claude/projects/<repo>/*.jsonl):
+//     one or more Events per line, identified by a top-level `type`
+//     field, with sub-agent dispatches and tool results nested inside
+//     `message.content[]` blocks. See claude_adapter.go for the
+//     mapping table.
+//
+// The format is detected per-line by hasClaudeShape so a single file
+// could in principle mix both (no real corpus does, but the routing is
+// stateless either way).
+func decodeLine(raw []byte, lineNo int) ([]Event, *ParseError) {
+	if hasClaudeShape(raw) {
+		evs, err := parseClaudeJSONL(raw, lineNo)
+		if err != nil {
+			return nil, &ParseError{LineNumber: lineNo, Raw: string(raw), Err: err}
+		}
+		return evs, nil
+	}
+
 	var rl rawLine
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if err := dec.Decode(&rl); err != nil {
-		return Event{}, &ParseError{LineNumber: lineNo, Raw: string(raw), Err: fmt.Errorf("invalid json: %w", err)}
+		return nil, &ParseError{LineNumber: lineNo, Raw: string(raw), Err: fmt.Errorf("invalid json: %w", err)}
 	}
 
 	if rl.Kind == "" {
-		return Event{}, &ParseError{LineNumber: lineNo, Raw: string(raw), Err: errors.New("missing required field: kind")}
+		return nil, &ParseError{LineNumber: lineNo, Raw: string(raw), Err: errors.New("missing required field: kind")}
 	}
 	if !IsValidKind(rl.Kind) {
-		return Event{}, &ParseError{LineNumber: lineNo, Raw: string(raw), Err: fmt.Errorf("unknown kind: %q", rl.Kind)}
+		return nil, &ParseError{LineNumber: lineNo, Raw: string(raw), Err: fmt.Errorf("unknown kind: %q", rl.Kind)}
 	}
 
 	ev := Event{
@@ -164,10 +192,10 @@ func decodeLine(raw []byte, lineNo int) (Event, *ParseError) {
 	if rl.Timestamp != "" {
 		ts, err := time.Parse(time.RFC3339, rl.Timestamp)
 		if err != nil {
-			return Event{}, &ParseError{LineNumber: lineNo, Raw: string(raw), Err: fmt.Errorf("invalid timestamp %q: %w", rl.Timestamp, err)}
+			return nil, &ParseError{LineNumber: lineNo, Raw: string(raw), Err: fmt.Errorf("invalid timestamp %q: %w", rl.Timestamp, err)}
 		}
 		ev.Timestamp = ts.UTC()
 	}
 
-	return ev, nil
+	return []Event{ev}, nil
 }

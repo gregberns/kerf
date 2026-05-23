@@ -37,11 +37,13 @@ kind-specific. Timestamps are RFC3339 UTC.
 | `is_error`    | bool    | present on `tool_result` for error-tagged results          |
 | `role`        | string  | optional sub-agent role tag, e.g. `implementer`, `reviewer` |
 
-This is a **fixture schema**, not the parser's final input shape. The real
-parser (bead B2) reads Claude Code session JSONL; these fixtures are a
-distilled projection of that format with just enough fields to drive the
-detectors. The parser bead is expected to calibrate the on-disk schema to
-match (or to add a thin adapter), keeping these fixtures stable.
+This is the **fixture schema**, retained for D1/D6 unit tests and
+golden-output assertions. It is one of two on-disk shapes the parser
+accepts; the other is the real-Claude-Code session JSONL format
+(`type` field, content blocks nested in `message.content[]`) handled by
+the adapter in `claude_adapter.go` (bead kerf-ek21). The parser routes
+per-line on the presence of a `kind` field; these fixtures are stable
+under that routing.
 
 ## Event kinds
 
