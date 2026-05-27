@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/cmdutil"
-	"github.com/gberns/kerf/internal/snapshot"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/snapshot"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 var deleteYesFlag bool

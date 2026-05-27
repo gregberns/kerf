@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/cmdutil"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/jig"
-	"github.com/gberns/kerf/internal/project"
+	"github.com/gregberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/jig"
+	"github.com/gregberns/kerf/internal/project"
 )
 
 var setupCmd = &cobra.Command{

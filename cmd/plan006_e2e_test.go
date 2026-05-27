@@ -23,8 +23,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/config"
 )
 
 // writeSpecWithStatus writes a minimal spec.yaml at path. Uses the standard

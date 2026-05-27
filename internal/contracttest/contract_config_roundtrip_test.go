@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/cmd"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/cmd"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // TestContract_ConfigRoundTrip asserts the "documented config-key

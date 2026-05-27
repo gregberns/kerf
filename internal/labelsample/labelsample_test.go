@@ -3,7 +3,7 @@ package labelsample
 import (
 	"testing"
 
-	"github.com/gberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/beads"
 )
 
 func mkBead(id string, labels ...string) beads.Bead {

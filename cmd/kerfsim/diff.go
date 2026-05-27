@@ -25,8 +25,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/sim/metrics"
-	"github.com/gberns/kerf/internal/sim/output"
+	"github.com/gregberns/kerf/internal/sim/metrics"
+	"github.com/gregberns/kerf/internal/sim/output"
 )
 
 // canonicalMetrics fixes the metric ordering used in diff output. Sorted

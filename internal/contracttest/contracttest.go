@@ -42,7 +42,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/cmd"
+	"github.com/gregberns/kerf/cmd"
 )
 
 // CommandDef describes a single leaf command discovered by the walker.

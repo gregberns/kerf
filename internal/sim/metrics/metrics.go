@@ -20,7 +20,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/gberns/kerf/internal/sim/event"
+	"github.com/gregberns/kerf/internal/sim/event"
 )
 
 // Config configures a Collector for one run.

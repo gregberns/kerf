@@ -37,7 +37,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // TestE2E_Plan009_TriageLoop is the canonical Plan 009 / B12 scenario.

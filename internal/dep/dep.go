@@ -3,7 +3,7 @@ package dep
 import (
 	"path/filepath"
 
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // DepResult holds the resolution result for a single dependency.

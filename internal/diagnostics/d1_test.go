@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/internal/kerftranscript"
+	"github.com/gregberns/kerf/internal/kerftranscript"
 )
 
 // fixedNow returns a fixed "now" close enough to the d1 fixtures'

@@ -18,7 +18,7 @@
 
 package queue
 
-import "github.com/gberns/kerf/internal/config"
+import "github.com/gregberns/kerf/internal/config"
 
 // Default collision-tolerance floors per project maturity.
 //

@@ -32,7 +32,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/feed"
+	"github.com/gregberns/kerf/internal/feed"
 )
 
 // fixturePath resolves a path relative to the cmd package directory so

@@ -39,7 +39,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // validationSectionCoverageDetector is the registered Detector.

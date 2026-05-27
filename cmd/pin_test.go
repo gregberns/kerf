@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // writePinTestSpec writes a minimal spec.yaml for a work under

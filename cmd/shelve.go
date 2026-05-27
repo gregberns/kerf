@@ -7,11 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/bench"
-	"github.com/gberns/kerf/internal/cmdutil"
-	"github.com/gberns/kerf/internal/session"
-	"github.com/gberns/kerf/internal/snapshot"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/bench"
+	"github.com/gregberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/session"
+	"github.com/gregberns/kerf/internal/snapshot"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 var shelveForce bool

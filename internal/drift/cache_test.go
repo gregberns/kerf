@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/beads"
 )
 
 func TestCachePath(t *testing.T) {

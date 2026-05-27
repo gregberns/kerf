@@ -22,7 +22,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/beads"
 )
 
 // Warning-kind title constants. These are the rendered Title strings on

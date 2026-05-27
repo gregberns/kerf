@@ -21,7 +21,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/storage"
 )
 
 // Severity is the spec's three-level rank for a single finding.

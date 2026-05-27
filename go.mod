@@ -1,4 +1,4 @@
-module github.com/gberns/kerf
+module github.com/gregberns/kerf
 
 go 1.26.1
 

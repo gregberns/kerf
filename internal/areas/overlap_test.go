@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/storage"
 )
 
 func benchResolver(bp, projectID string) *storage.Resolver {

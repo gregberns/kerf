@@ -14,9 +14,9 @@ package store
 import (
 	"time"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/sim/generator"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/sim/generator"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // Bead status constants. The store tracks status as an enum so that mutations

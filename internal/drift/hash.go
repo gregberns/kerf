@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/beads"
 )
 
 // HashBead computes the canonical per-bead drift hash, per

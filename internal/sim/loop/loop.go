@@ -11,10 +11,10 @@
 package loop
 
 import (
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/sim/event"
-	"github.com/gberns/kerf/internal/sim/policy"
-	"github.com/gberns/kerf/internal/sim/store"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/sim/event"
+	"github.com/gregberns/kerf/internal/sim/policy"
+	"github.com/gregberns/kerf/internal/sim/store"
 )
 
 // Stop reason strings returned by Run. Values are stable and are recorded in

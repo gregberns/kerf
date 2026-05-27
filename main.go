@@ -1,6 +1,6 @@
 package main
 
-import "github.com/gberns/kerf/cmd"
+import "github.com/gregberns/kerf/cmd"
 
 func main() {
 	cmd.Execute()

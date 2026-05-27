@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/beads"
 )
 
 func TestRoundTrip(t *testing.T) {

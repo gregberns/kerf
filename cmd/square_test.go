@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/jig"
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/jig"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // ─── Process pass status computation ────────────────────────────────────────

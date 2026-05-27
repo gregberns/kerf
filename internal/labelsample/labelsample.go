@@ -22,7 +22,7 @@ package labelsample
 import (
 	"sort"
 
-	"github.com/gberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/beads"
 )
 
 // Tunables for the sampler. Kept as named constants so the spec change has one

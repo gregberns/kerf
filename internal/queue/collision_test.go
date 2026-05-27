@@ -3,7 +3,7 @@ package queue
 import (
 	"testing"
 
-	"github.com/gberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/config"
 )
 
 // newCollisionFloorCase is a per-tier expectation used by the table

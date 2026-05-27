@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/gberns/kerf/internal/sim/duration"
+	"github.com/gregberns/kerf/internal/sim/duration"
 )
 
 // Resolve returns the runtime Distribution implied by d. reg may be nil

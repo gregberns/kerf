@@ -9,12 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/bench"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/jig"
-	"github.com/gberns/kerf/internal/project"
-	"github.com/gberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/bench"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/jig"
+	"github.com/gregberns/kerf/internal/project"
+	"github.com/gregberns/kerf/internal/storage"
 )
 
 // beadFilterMode encodes the user's bead-filter resolution choice (kerf-pjs).

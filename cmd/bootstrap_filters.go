@@ -22,11 +22,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/cmdutil"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/labelsample"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/labelsample"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 var (

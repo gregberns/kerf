@@ -69,9 +69,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/cmd"
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/cmd"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 const showAgreementContractID = "show-agreement"

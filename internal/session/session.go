@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // StartSession appends a session entry and sets active_session.

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/sim/scenario"
+	"github.com/gregberns/kerf/internal/sim/scenario"
 )
 
 var cannedScenarios = []string{

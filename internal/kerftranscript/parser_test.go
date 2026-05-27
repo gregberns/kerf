@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/internal/kerftranscript"
+	"github.com/gregberns/kerf/internal/kerftranscript"
 )
 
 // parserFixtureCase is a uniquely-named test struct (avoiding collision

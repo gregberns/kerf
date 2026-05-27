@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 func setupGitRepoForTest(t *testing.T) string {

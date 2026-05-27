@@ -53,7 +53,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/gberns/kerf/cmd"
+	"github.com/gregberns/kerf/cmd"
 )
 
 const exitSymmetryContractID = "subprocess-exit-symmetry"

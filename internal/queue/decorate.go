@@ -16,8 +16,8 @@ package queue
 import (
 	"fmt"
 
-	"github.com/gberns/kerf/internal/spec"
-	"github.com/gberns/kerf/internal/static"
+	"github.com/gregberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/static"
 )
 
 // DecorateGraphSignals computes graph-shape signals on the work graph and

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // TestDecorateGraphSignals_toyGraph exercises the T=0 analyzer wired

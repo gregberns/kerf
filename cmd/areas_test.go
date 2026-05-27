@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/areas"
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/areas"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // setupAreasTest creates a temp bench with a project and sets HOME so that

@@ -27,8 +27,8 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/labelsample"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/labelsample"
 )
 
 // TestContract_FilterClauseRoundTrip asserts that for every (bead corpus,

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gberns/kerf/internal/spec"
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 func TestShelveCommand_WithCodename(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 const historyDir = ".history"

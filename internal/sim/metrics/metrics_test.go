@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gberns/kerf/internal/sim/event"
+	"github.com/gregberns/kerf/internal/sim/event"
 )
 
 // newTestCollector configures a collector with a TicksCap large enough that

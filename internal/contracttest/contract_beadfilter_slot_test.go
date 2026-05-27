@@ -46,8 +46,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 const beadFilterSlotContractID = "bead-filter-slot"

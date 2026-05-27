@@ -21,9 +21,9 @@ import (
 	"math/rand"
 	"sort"
 
-	"github.com/gberns/kerf/internal/sim/duration"
-	"github.com/gberns/kerf/internal/sim/scenario"
-	"github.com/gberns/kerf/internal/sim/seed"
+	"github.com/gregberns/kerf/internal/sim/duration"
+	"github.com/gregberns/kerf/internal/sim/scenario"
+	"github.com/gregberns/kerf/internal/sim/seed"
 )
 
 // GeneratedWorld is the deterministic output of Generate: the complete set

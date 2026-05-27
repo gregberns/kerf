@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/spec"
-	"github.com/gberns/kerf/internal/sim/store"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/sim/store"
 )
 
 // seedBytes returns the canonical 8-big-endian-byte encoding of u, matching

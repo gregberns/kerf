@@ -27,11 +27,11 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/cmdutil"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/snapshot"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/snapshot"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 var (

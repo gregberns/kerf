@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/beads"
 )
 
 func TestLoadProjectConfigMissing(t *testing.T) {

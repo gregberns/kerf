@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gberns/kerf/internal/kerftranscript"
+	"github.com/gregberns/kerf/internal/kerftranscript"
 )
 
 // WarningKindReviewerAbsent is the `kerf next` warning kind token emitted

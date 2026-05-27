@@ -14,7 +14,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gberns/kerf/internal/kerftranscript"
+	"github.com/gregberns/kerf/internal/kerftranscript"
 )
 
 // WarningKindAbandonedDispatch is the `kerf next` warning kind token

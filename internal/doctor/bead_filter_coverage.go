@@ -33,9 +33,9 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // beadFilterCoverageDetector is the registered Detector for

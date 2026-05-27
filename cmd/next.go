@@ -20,19 +20,19 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/cmdutil"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/dep"
-	"github.com/gberns/kerf/internal/diagnostics"
-	"github.com/gberns/kerf/internal/doctor"
-	"github.com/gberns/kerf/internal/drift"
-	"github.com/gberns/kerf/internal/feed"
-	"github.com/gberns/kerf/internal/kerftranscript"
-	"github.com/gberns/kerf/internal/labelsample"
-	"github.com/gberns/kerf/internal/queue"
-	"github.com/gberns/kerf/internal/spec"
-	"github.com/gberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/dep"
+	"github.com/gregberns/kerf/internal/diagnostics"
+	"github.com/gregberns/kerf/internal/doctor"
+	"github.com/gregberns/kerf/internal/drift"
+	"github.com/gregberns/kerf/internal/feed"
+	"github.com/gregberns/kerf/internal/kerftranscript"
+	"github.com/gregberns/kerf/internal/labelsample"
+	"github.com/gregberns/kerf/internal/queue"
+	"github.com/gregberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/storage"
 )
 
 // Flag-backed variables. Slice flags are repeatable; --kinds is a comma list

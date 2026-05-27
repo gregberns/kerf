@@ -14,7 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/gberns/kerf/internal/sim/scenario"
+	"github.com/gregberns/kerf/internal/sim/scenario"
 )
 
 // harmonikDoc is the subset of a harmonik *-pilot-data.yaml we read.

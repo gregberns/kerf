@@ -17,10 +17,10 @@ import (
 	"math/rand"
 	"sort"
 
-	"github.com/gberns/kerf/internal/queue"
-	"github.com/gberns/kerf/internal/sim/policy"
-	"github.com/gberns/kerf/internal/sim/seed"
-	"github.com/gberns/kerf/internal/sim/store"
+	"github.com/gregberns/kerf/internal/queue"
+	"github.com/gregberns/kerf/internal/sim/policy"
+	"github.com/gregberns/kerf/internal/sim/seed"
+	"github.com/gregberns/kerf/internal/sim/store"
 )
 
 // defaultWeights are passed to queue.Compute for work-level actionability

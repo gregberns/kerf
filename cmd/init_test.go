@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // resetInitFlags clears package-level init flag state so tests don't leak

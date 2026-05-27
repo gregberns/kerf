@@ -6,12 +6,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/codename"
-	"github.com/gberns/kerf/internal/cmdutil"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/snapshot"
+	"github.com/gregberns/kerf/internal/codename"
+	"github.com/gregberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/snapshot"
 
-	"github.com/gberns/kerf/internal/bench"
+	"github.com/gregberns/kerf/internal/bench"
 )
 
 var snapshotNameFlag string

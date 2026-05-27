@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gberns/kerf/internal/bench"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/project"
-	"github.com/gberns/kerf/internal/spec"
-	"github.com/gberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/bench"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/project"
+	"github.com/gregberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/storage"
 )
 
 // ResolveProject resolves the project ID from the --project flag,

@@ -13,7 +13,7 @@
 package policy
 
 import (
-	"github.com/gberns/kerf/internal/sim/store"
+	"github.com/gregberns/kerf/internal/sim/store"
 )
 
 // Policy chooses the next bead for an idle agent. Implementations read the

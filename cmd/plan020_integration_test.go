@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // Plan 020 — cross-command integration tests covering kerf review / preview /

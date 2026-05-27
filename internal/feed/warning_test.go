@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/drift"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/drift"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // makeBeads constructs n beads, each with a single label. Used to build

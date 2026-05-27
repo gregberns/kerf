@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/spec"
-	"github.com/gberns/kerf/internal/storage"
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 func TestLocalize_MigratesWorksFromBenchToRepo(t *testing.T) {

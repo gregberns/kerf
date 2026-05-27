@@ -3,7 +3,7 @@ package kerftranscript_test
 import (
 	"testing"
 
-	"github.com/gberns/kerf/internal/kerftranscript"
+	"github.com/gregberns/kerf/internal/kerftranscript"
 )
 
 func TestIsValidKind_parser(t *testing.T) {

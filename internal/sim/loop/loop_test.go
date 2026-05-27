@@ -4,11 +4,11 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/sim/event"
-	"github.com/gberns/kerf/internal/sim/loop"
-	"github.com/gberns/kerf/internal/sim/seed"
-	"github.com/gberns/kerf/internal/sim/store"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/sim/event"
+	"github.com/gregberns/kerf/internal/sim/loop"
+	"github.com/gregberns/kerf/internal/sim/seed"
+	"github.com/gregberns/kerf/internal/sim/store"
 )
 
 // stubPolicy returns beads in a pre-programmed order, skipping any whose ID

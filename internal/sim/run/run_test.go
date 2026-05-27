@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gberns/kerf/internal/queue"
-	"github.com/gberns/kerf/internal/sim/output"
-	"github.com/gberns/kerf/internal/sim/scenario"
+	"github.com/gregberns/kerf/internal/queue"
+	"github.com/gregberns/kerf/internal/sim/output"
+	"github.com/gregberns/kerf/internal/sim/scenario"
 )
 
 // saturatedReworkScenario constructs a scenario with intentionally tight

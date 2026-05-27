@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/cmdutil"
-	"github.com/gberns/kerf/internal/snapshot"
+	"github.com/gregberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/snapshot"
 )
 
 var restoreCmd = &cobra.Command{

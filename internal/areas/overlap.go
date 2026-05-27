@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/gberns/kerf/internal/spec"
-	"github.com/gberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/storage"
 )
 
 // OverlapEntry represents a work that shares areas with another work.

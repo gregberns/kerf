@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 func strPtr(s string) *string { return &s }

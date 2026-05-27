@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/storage"
 )
 
 // newValidationCoverageCase builds a bench-mode Context for the

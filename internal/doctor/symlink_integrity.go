@@ -22,7 +22,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/storage"
 )
 
 type symlinkIntegrityDetector struct{}

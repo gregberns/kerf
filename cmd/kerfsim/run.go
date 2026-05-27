@@ -27,12 +27,12 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/gberns/kerf/internal/queue"
-	"github.com/gberns/kerf/internal/sim/duration"
-	"github.com/gberns/kerf/internal/sim/output"
-	"github.com/gberns/kerf/internal/sim/run"
-	"github.com/gberns/kerf/internal/sim/scenario"
-	"github.com/gberns/kerf/scenarios"
+	"github.com/gregberns/kerf/internal/queue"
+	"github.com/gregberns/kerf/internal/sim/duration"
+	"github.com/gregberns/kerf/internal/sim/output"
+	"github.com/gregberns/kerf/internal/sim/run"
+	"github.com/gregberns/kerf/internal/sim/scenario"
+	"github.com/gregberns/kerf/scenarios"
 )
 
 // runOpts is the flag-bag for the `run` subcommand. Kept small and explicit

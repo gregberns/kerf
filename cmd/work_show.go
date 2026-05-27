@@ -17,7 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/cmdutil"
 )
 
 var workShowCmd = &cobra.Command{

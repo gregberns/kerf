@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/sim/metrics"
-	"github.com/gberns/kerf/internal/sim/output"
+	"github.com/gregberns/kerf/internal/sim/metrics"
+	"github.com/gregberns/kerf/internal/sim/output"
 )
 
 // writeRun materializes a Result with the given Full block into dir.

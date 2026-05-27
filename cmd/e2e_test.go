@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/spec"
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // ─── E2E: Full lifecycle with real git repo ──────────────────────────────────

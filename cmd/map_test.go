@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 func TestMapCommand_NoWorks(t *testing.T) {

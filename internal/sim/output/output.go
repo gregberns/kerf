@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gberns/kerf/internal/sim/metrics"
+	"github.com/gregberns/kerf/internal/sim/metrics"
 )
 
 // Result is the aggregate produced by a finished kerfsim run, projected to

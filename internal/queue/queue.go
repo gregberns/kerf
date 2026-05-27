@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/dep"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/dep"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // Default priority weights. Used when a project.yaml does not override them.

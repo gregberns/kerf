@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 func TestSetupBench(t *testing.T) {

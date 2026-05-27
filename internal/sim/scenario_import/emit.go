@@ -6,7 +6,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/gberns/kerf/internal/sim/scenario"
+	"github.com/gregberns/kerf/internal/sim/scenario"
 )
 
 // MarshalScenario renders a scenario as YAML with a leading provenance

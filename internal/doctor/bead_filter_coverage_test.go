@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/storage"
 )
 
 // withBeadLoader swaps in a static bead set for the duration of t. The

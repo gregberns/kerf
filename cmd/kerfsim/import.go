@@ -15,7 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/sim/scenario_import"
+	"github.com/gregberns/kerf/internal/sim/scenario_import"
 )
 
 type importOpts struct {

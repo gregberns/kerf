@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 func TestProperty_SnapshotRestoreIntegrity(t *testing.T) {

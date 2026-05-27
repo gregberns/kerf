@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // setupProjectContext primes HOME with an empty bench and a git repo with a

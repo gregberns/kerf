@@ -23,12 +23,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/drift"
-	"github.com/gberns/kerf/internal/feed"
-	"github.com/gberns/kerf/internal/kerftranscript"
-	"github.com/gberns/kerf/internal/queue"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/drift"
+	"github.com/gregberns/kerf/internal/feed"
+	"github.com/gregberns/kerf/internal/kerftranscript"
+	"github.com/gregberns/kerf/internal/queue"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // isolatePATH points PATH at an empty tempdir so that real `br` / `bd`

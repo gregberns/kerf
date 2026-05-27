@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/storage"
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // stubBr installs a fake `br` binary on PATH that emits the given JSON when

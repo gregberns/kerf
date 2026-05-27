@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/queue"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/queue"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // --- helpers -------------------------------------------------------------

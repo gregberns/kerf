@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/gberns/kerf/internal/sim/scenario"
+	"github.com/gregberns/kerf/internal/sim/scenario"
 )
 
 // makeSyntheticScenario builds a scenario with N works carrying no

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 func TestSetupNoProjectYAML(t *testing.T) {

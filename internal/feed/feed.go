@@ -4,10 +4,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/drift"
-	"github.com/gberns/kerf/internal/queue"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/drift"
+	"github.com/gregberns/kerf/internal/queue"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 // Input is the pre-loaded state a Detector consumes. Callers (cmd/next.go)

@@ -9,12 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/bench"
-	"github.com/gberns/kerf/internal/cmdutil"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/jig"
-	"github.com/gberns/kerf/internal/snapshot"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/bench"
+	"github.com/gregberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/jig"
+	"github.com/gregberns/kerf/internal/snapshot"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 var statusQuiet bool

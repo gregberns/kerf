@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/beads"
 )
 
 // BeadRecord is the per-bead entry in a Snapshot. It carries the fields

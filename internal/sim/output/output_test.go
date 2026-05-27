@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gberns/kerf/internal/sim/metrics"
+	"github.com/gregberns/kerf/internal/sim/metrics"
 )
 
 // fixtureResult builds a deterministic Result that covers all four event

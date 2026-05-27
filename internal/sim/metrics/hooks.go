@@ -15,10 +15,10 @@
 package metrics
 
 import (
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/sim/event"
-	"github.com/gberns/kerf/internal/sim/loop"
-	"github.com/gberns/kerf/internal/sim/store"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/sim/event"
+	"github.com/gregberns/kerf/internal/sim/loop"
+	"github.com/gregberns/kerf/internal/sim/store"
 )
 
 // Compile-time check: *LoopHooks implements loop.Hooks.

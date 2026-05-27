@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gberns/kerf/internal/kerftranscript"
+	"github.com/gregberns/kerf/internal/kerftranscript"
 )
 
 // Reuses loadFixtureEvents from d1_test.go (same package).

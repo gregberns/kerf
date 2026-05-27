@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // ─── Spec-first finalization ────────────────────────────────────────────────

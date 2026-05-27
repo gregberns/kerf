@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 // kerf-vu0r: ResolveProject must surface a corrupt-identifier error rather

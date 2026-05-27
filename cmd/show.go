@@ -9,15 +9,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gberns/kerf/internal/areas"
-	"github.com/gberns/kerf/internal/beads"
-	"github.com/gberns/kerf/internal/bench"
-	"github.com/gberns/kerf/internal/cmdutil"
-	"github.com/gberns/kerf/internal/config"
-	"github.com/gberns/kerf/internal/dep"
-	"github.com/gberns/kerf/internal/drift"
-	"github.com/gberns/kerf/internal/jig"
-	"github.com/gberns/kerf/internal/spec"
+	"github.com/gregberns/kerf/internal/areas"
+	"github.com/gregberns/kerf/internal/beads"
+	"github.com/gregberns/kerf/internal/bench"
+	"github.com/gregberns/kerf/internal/cmdutil"
+	"github.com/gregberns/kerf/internal/config"
+	"github.com/gregberns/kerf/internal/dep"
+	"github.com/gregberns/kerf/internal/drift"
+	"github.com/gregberns/kerf/internal/jig"
+	"github.com/gregberns/kerf/internal/spec"
 )
 
 var showCompactFlag bool

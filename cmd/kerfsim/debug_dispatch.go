@@ -27,7 +27,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gberns/kerf/internal/sim/metrics"
+	"github.com/gregberns/kerf/internal/sim/metrics"
 )
 
 // jsonlDebugSink is the file-backed implementation of metrics.DebugSink

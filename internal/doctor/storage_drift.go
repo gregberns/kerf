@@ -38,7 +38,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gberns/kerf/internal/storage"
+	"github.com/gregberns/kerf/internal/storage"
 )
 
 // storageDriftDetector is the registered Detector for "storage-drift".

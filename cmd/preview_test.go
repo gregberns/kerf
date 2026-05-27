@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gberns/kerf/internal/testutil"
+	"github.com/gregberns/kerf/internal/testutil"
 )
 
 func TestPreview_RendersFuturePassWithoutAdvancing(t *testing.T) {
