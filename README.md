@@ -8,12 +8,12 @@ Spec-writing CLI for AI agents. Single binary. Go.
 
 ```bash
 # Install
-go install github.com/gberns/kerf@latest
+go install github.com/gregberns/kerf@latest
 
 # Open your AI coding agent in your project, then paste:
 ```
 
-> Install kerf (`go install github.com/gberns/kerf@latest`), run `kerf init` in this project, and follow its setup instructions.
+> Install kerf (`go install github.com/gregberns/kerf@latest`), run `kerf init` in this project, and follow its setup instructions.
 
 That's it. The agent bootstraps itself — creates config files, updates gitignore, and learns how to use kerf. It works with any AI coding agent (Claude Code, Cursor, Windsurf, Codex, etc.).
 
