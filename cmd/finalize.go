@@ -125,8 +125,9 @@ func runFinalize(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Git add + commit
-	if err := gitCmd(repoRoot, "add", repoSpecPath); err != nil {
+	// Git add + commit. Use -f because repoSpecPath (typically .kerf/<codename>) may be
+	// gitignored in the target repo — force-add ensures the mirror is staged regardless.
+	if err := gitCmd(repoRoot, "add", "-f", repoSpecPath); err != nil {
 		return fmt.Errorf("git add: %w", err)
 	}
 

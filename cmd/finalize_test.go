@@ -233,6 +233,65 @@ func TestE2E_SpecFirstFinalize_SpecPathCreated(t *testing.T) {
 	testutil.AssertFileContains(t, filepath.Join(repo, "specs", "new-spec.md"), "# New Spec")
 }
 
+// TestE2E_SpecFirstFinalize_GitignoresKerf verifies that finalize succeeds when
+// .kerf/ is gitignored (the harmonik project pattern). The repoSpecPath add must
+// use -f so the gitignore does not block staging.
+func TestE2E_SpecFirstFinalize_GitignoresKerf(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	repo := testutil.SetupGitRepo(t)
+	t.Chdir(repo)
+
+	bp := filepath.Join(tmp, ".kerf")
+	proj := "gitignore-proj"
+
+	workDir := createSquareSpecWork(t, bp, proj, "gitignore-work")
+
+	// Add spec drafts.
+	draftsDir := filepath.Join(workDir, "05-spec-drafts")
+	os.MkdirAll(draftsDir, 0755)
+	os.WriteFile(filepath.Join(draftsDir, "spec.md"), []byte("# Spec"), 0644)
+
+	// Add a .gitignore that ignores .kerf/* (simulates the harmonik project setup).
+	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte(".kerf/*\n!.kerf/project-identifier\n"), 0644)
+
+	// Commit .gitignore and project identifier so repo is clean.
+	os.MkdirAll(filepath.Join(repo, ".kerf"), 0755)
+	os.WriteFile(filepath.Join(repo, ".kerf", "project-identifier"), []byte(proj), 0644)
+	for _, args := range [][]string{
+		{"add", ".gitignore", ".kerf/project-identifier"},
+		{"commit", "-m", "add gitignore and project identifier"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s: %v", args, out, err)
+		}
+	}
+
+	// Finalize should succeed despite .kerf/ being gitignored.
+	captureOutput(t, func() {
+		projectFlag = proj
+		branchFlag = "spec/gitignore-test"
+		defer func() { projectFlag = ""; branchFlag = "" }()
+		err := finalizeCmd.RunE(finalizeCmd, []string{"gitignore-work"})
+		if err != nil {
+			t.Fatalf("finalize should succeed even with .kerf/ gitignored: %v", err)
+		}
+	})
+
+	// .kerf/gitignore-work artifacts should be in the commit.
+	cmd := exec.Command("git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")
+	cmd.Dir = repo
+	diffOut, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git diff-tree: %v", err)
+	}
+	testutil.AssertStringContains(t, string(diffOut), ".kerf/gitignore-work/")
+	testutil.AssertStringContains(t, string(diffOut), "specs/spec.md")
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 // createSquareSpecWork creates a spec jig work at ready status with all required files.
